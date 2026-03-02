@@ -1,5 +1,7 @@
 #include <iostream>
+#include <format>
 
 int main() {
-    std::cout << "Hello World!" << std::endl;
+    std::string s = std::format("Hello, {}!", "world");
+    std::cout << s << std::endl;
 }
