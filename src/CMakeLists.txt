@@ -12,4 +12,5 @@ target_link_libraries(
   spdlog
   miniaudio
   EnTT::EnTT
+  Jolt
 )
