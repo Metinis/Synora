@@ -1,11 +1,9 @@
-#include <iostream>
-#include <format>
-
-#include <miniaudio.h>
-#include <entt/entt.hpp>
-#include <Jolt/Jolt.h>
+#include "core/Application.h"
 
 int main() {
-    std::string s = std::format("Hello, {}!", "world");
-    std::cout << s << std::endl;
+    //todo move outside engine
+    auto* app = new SYN::Application();
+    app->init();
+    app->run();
+    app->shutdown();
 }

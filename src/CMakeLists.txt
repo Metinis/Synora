@@ -1,8 +1,19 @@
 set(CMAKE_CXX_STANDARD 23)
 
-add_executable(
-  PuzzleEngine
-  main.cpp
+file(GLOB_RECURSE ENGINE_SOURCES
+        CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+)
+
+list(FILTER ENGINE_SOURCES EXCLUDE REGEX "cmake-build")
+
+add_executable(PuzzleEngine
+        ${ENGINE_SOURCES}
+)
+
+target_include_directories(PuzzleEngine
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(
