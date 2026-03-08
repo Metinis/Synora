@@ -12,11 +12,11 @@ add_executable(PuzzleEngine
 )
 target_precompile_headers(PuzzleEngine
         PUBLIC
-        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/synpch.h>"
+        "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_SOURCE_DIR}/include/PuzzleEngine/synpch.h>"
 )
 target_include_directories(PuzzleEngine
         PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(

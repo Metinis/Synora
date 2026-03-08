@@ -1,14 +1,17 @@
-#include "Window.h"
+#include <GLFW/glfw3.h>
 
-#include "spdlog/spdlog.h"
+#include <PuzzleEngine/core/Window.h>
 
-SYN::Window::Window(std::string_view name, int width, int height) {
+#include <spdlog/spdlog.h>
+
+SYN::Window::Window(const Config &config) {
     if (!glfwInit())
         spdlog::error("Failed to initialize GLFW!");
 
-    m_Window = glfwCreateWindow(width, height, name.data(), nullptr, nullptr);
+    m_Window = glfwCreateWindow(config.m_Width, config.m_Height,
+                                config.m_Title.data(), nullptr, nullptr);
 
-    //no api if vulkan
+    // no api if vulkan
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
     if (!m_Window) {
@@ -16,8 +19,6 @@ SYN::Window::Window(std::string_view name, int width, int height) {
     }
 }
 
-bool SYN::Window::isRunning() const {
-    return !glfwWindowShouldClose(m_Window);
-}
+bool SYN::Window::isRunning() const { return !glfwWindowShouldClose(m_Window); }
 
-SYN::Window::~Window() = default;
+SYN::Window::~Window() { glfwDestroyWindow(m_Window); }
