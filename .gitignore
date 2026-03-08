@@ -55,3 +55,4 @@ Thumbs.db
 _deps/
 /.vs
 /CMakeSettings.json
+*.clangd
