@@ -3,6 +3,7 @@
 namespace SYN {
 class Window;
 class Input;
+class Renderer;
 
 class Application {
   public:
@@ -17,6 +18,7 @@ class Application {
     static Application *s_Instance;
     std::unique_ptr<Window> m_Window;
     std::unique_ptr<Input> m_InputManager;
+    std::unique_ptr<Renderer> m_Renderer;
 
     bool m_IsRunning{};
 
