@@ -1,8 +1,8 @@
 #pragma once
-#include <memory>
 
 namespace SYN {
 class Window;
+class Input;
 
 class Application {
   public:
@@ -16,6 +16,17 @@ class Application {
   private:
     static Application *s_Instance;
     std::unique_ptr<Window> m_Window;
+    std::unique_ptr<Input> m_InputManager;
+
     bool m_IsRunning{};
+
+    int m_WindowWidth;
+    int m_WindowHeight;
+
+  private:
+    struct WindowPointers {
+        Input *m_Input;
+    };
+    WindowPointers m_WindowData;
 };
 } // namespace SYN

@@ -15,6 +15,8 @@ class Window {
     bool isRunning() const;
     ~Window();
 
+    struct GLFWwindow *getHandle();
+
   private:
     struct GLFWwindow *m_Window{};
 };

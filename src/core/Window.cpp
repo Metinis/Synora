@@ -22,3 +22,5 @@ SYN::Window::Window(const Config &config) {
 bool SYN::Window::isRunning() const { return !glfwWindowShouldClose(m_Window); }
 
 SYN::Window::~Window() { glfwDestroyWindow(m_Window); }
+
+struct GLFWwindow *SYN::Window::getHandle() { return m_Window; }
