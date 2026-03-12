@@ -9,13 +9,19 @@ struct {
 
 void keyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mods) {
-    SYN::Input *input =
-        static_cast<SYN::Input *>(glfwGetWindowUserPointer(window));
-    if (input == nullptr) {
+    struct WindowPointers {
+        SYN::Input *input;
+    };
+
+    WindowPointers *user_data =
+        static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
+
+    if (user_data == nullptr || user_data->input == nullptr) {
         spdlog::error("Input not passed to window context...");
         return;
     }
-    input->onKeyEvent(key, action);
+
+    user_data->input->onKeyEvent(key, action);
 }
 
 void SYN::Input::onKeyEvent(int32_t keyCode, int32_t action) {

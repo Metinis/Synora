@@ -2,6 +2,7 @@
 
 #include <PuzzleEngine/core/Application.h>
 #include <PuzzleEngine/core/Input.h>
+#include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
 
 using namespace SYN;
