@@ -9,7 +9,7 @@ class Renderer {
     Renderer() = default;
     ~Renderer() = default;
 
-    void init();
+    void init(Window &window);
     void shutdown();
 
   private:

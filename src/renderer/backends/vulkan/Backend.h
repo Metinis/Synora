@@ -1,16 +1,24 @@
 #include "renderer/IBackend.h"
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 namespace SYN {
+
+struct VulkanState {
+    VkInstance instance;
+    VkSurfaceKHR surface;
+};
 
 class VulkanBackend : public IBackend {
   public:
     VulkanBackend() = default;
     ~VulkanBackend() = default;
 
-    void init() override;
+    void init(Window &window) override;
     void shutdown() override;
 
   private:
+    VulkanState m_State;
 };
 
 } // namespace SYN

@@ -20,8 +20,10 @@ set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
 # Compile Jolt successfully on Linux
 # Jolt needs Vulkan for some hair physics thing I think.
 if(UNIX AND NOT APPLE)
-set(Vulkan_INCLUDE_DIR "$ENV{VULKAN_SDK}/include")
-set(Vulkan_LIBRARY "$ENV{VULKAN_SDK}/lib/libvulkan.so")
+    find_package(Vulkan REQUIRED)
 endif()
 
 add_subdirectory(JoltPhysics/Build)
+
+add_subdirectory(glm)
+add_subdirectory(VulkanMemoryAllocator)

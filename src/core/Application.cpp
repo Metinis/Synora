@@ -31,7 +31,7 @@ void Application::init() {
 
     glfwSetWindowUserPointer(m_Window->getHandle(), &m_WindowData);
     m_InputManager->init(m_Window);
-    m_Renderer->init();
+    m_Renderer->init(*m_Window);
 }
 
 void Application::run() {

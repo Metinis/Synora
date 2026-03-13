@@ -3,8 +3,8 @@
 
 using namespace SYN;
 
-void Renderer::init() {
+void SYN::Renderer::init(Window &window) {
     m_Backend = std::make_unique<VulkanBackend>();
-    m_Backend->init();
+    m_Backend->init(window);
 }
-void Renderer::shutdown() { m_Backend->shutdown(); }
+void SYN::Renderer::shutdown() { m_Backend->shutdown(); }

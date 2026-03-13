@@ -8,11 +8,11 @@ SYN::Window::Window(const Config &config) {
     if (!glfwInit())
         spdlog::error("Failed to initialize GLFW!");
 
-    m_Window = glfwCreateWindow(config.m_Width, config.m_Height,
-                                config.m_Title.data(), nullptr, nullptr);
-
     // no api if vulkan
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+    m_Window = glfwCreateWindow(config.m_Width, config.m_Height,
+                                config.m_Title.data(), nullptr, nullptr);
 
     if (!m_Window) {
         spdlog::error("Failed to create window!");
