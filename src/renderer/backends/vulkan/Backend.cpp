@@ -1,4 +1,5 @@
 #include "Backend.h"
+#include "DebugMessenger.h"
 #include "Instance.h"
 
 #include <GLFW/glfw3.h>
@@ -18,9 +19,13 @@ void SYN::VulkanBackend::init(Window &window) {
         spdlog::info("Could not create Vulkan surface");
     }
 
+    VkDebugUtilsMessengerEXT debugUtilsMessenger{
+        createDebugMessenger(instance)};
+
     m_State = VulkanState{.instance = instance, .surface = surface};
 }
 void SYN::VulkanBackend::shutdown() {
     vkDestroySurfaceKHR(m_State.instance, m_State.surface, nullptr);
+    destroyDebugMessenger(m_State.instance, m_State.debugUtilsMessenger);
     vkDestroyInstance(m_State.instance, nullptr);
 }

@@ -7,6 +7,7 @@ namespace SYN {
 struct VulkanState {
     VkInstance instance;
     VkSurfaceKHR surface;
+    VkDebugUtilsMessengerEXT debugUtilsMessenger;
 };
 
 class VulkanBackend : public IBackend {
