@@ -36,20 +36,6 @@ constexpr VkDebugUtilsMessengerCreateInfoEXT c_DebugUtilsMessengerCI{
 
 } // namespace
 
-#ifdef NDEBUG
-VkDebugUtilsMessengerEXT createDebugMessenger(VkInstance instance) {
-    return {};
-}
-
-void destroyDebugMessenger(VkInstance instance,
-                           VkDebugUtilsMessengerEXT debugMessenger) {}
-
-const VkDebugUtilsMessengerCreateInfoEXT *getDebugMessengerCreateInfo() {
-    return nullptr;
-}
-
-#else
-
 VkDebugUtilsMessengerEXT SYN::createDebugMessenger(VkInstance instance) {
     VkDebugUtilsMessengerEXT debugMessenger{};
     VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCI{
@@ -72,8 +58,6 @@ void SYN::destroyDebugMessenger(VkInstance instance,
 const VkDebugUtilsMessengerCreateInfoEXT *SYN::getDebugMessengerCreateInfo() {
     return &c_DebugUtilsMessengerCI;
 }
-
-#endif
 
 namespace {
 VKAPI_ATTR VkBool32 VKAPI_CALL debugMessengerUserCallback(
