@@ -12,6 +12,9 @@ using namespace SYN;
 void SYN::VulkanBackend::init(Window &window) {
     VkInstance instance{createInstance()};
 
+    VkDebugUtilsMessengerEXT debugUtilsMessenger{
+        createDebugMessenger(instance)};
+
     VkSurfaceKHR surface{};
     VkResult res{glfwCreateWindowSurface(instance, window.getHandle(), nullptr,
                                          &surface)};
@@ -19,13 +22,16 @@ void SYN::VulkanBackend::init(Window &window) {
         spdlog::info("Could not create Vulkan surface");
     }
 
-    VkDebugUtilsMessengerEXT debugUtilsMessenger{
-        createDebugMessenger(instance)};
+    Device device{createDevice(instance, surface)};
 
-    m_State = VulkanState{.instance = instance, .surface = surface};
+    m_State =
+        VulkanState{.instance = instance, .surface = surface, .device = device};
 }
 void SYN::VulkanBackend::shutdown() {
+    destroyDevice(&m_State.device);
     vkDestroySurfaceKHR(m_State.instance, m_State.surface, nullptr);
     destroyDebugMessenger(m_State.instance, m_State.debugUtilsMessenger);
     vkDestroyInstance(m_State.instance, nullptr);
+
+    m_State = {};
 }

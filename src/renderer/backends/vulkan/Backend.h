@@ -1,3 +1,4 @@
+#include "Device.h"
 #include "renderer/IBackend.h"
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -8,6 +9,7 @@ struct VulkanState {
     VkInstance instance;
     VkSurfaceKHR surface;
     VkDebugUtilsMessengerEXT debugUtilsMessenger;
+    Device device;
 };
 
 class VulkanBackend : public IBackend {
