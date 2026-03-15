@@ -11,6 +11,7 @@ namespace SYN {
         Scene();
         ~Scene() = default;
         void init();
+        Entity createEntity();
 
         template<typename T>
         std::vector<Entity> getEntities() {
