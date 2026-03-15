@@ -11,13 +11,14 @@
 #include <PuzzleEngine/core/Window.h>
 
 using namespace SYN;
+using namespace SYN::VK;
 
 namespace {
 VkShaderModule createShaderModule(const Device &device,
                                   const std::string &path);
 }
 
-void SYN::VulkanBackend::init(Window &window) {
+void VulkanBackend::init(SYN::Window &window) {
     VkInstance instance{createInstance()};
 
     VkDebugUtilsMessengerEXT debugUtilsMessenger{
@@ -63,7 +64,7 @@ void SYN::VulkanBackend::init(Window &window) {
                           .device = std::move(device),
                           .swapchain = std::move(swapchain)};
 }
-void SYN::VulkanBackend::shutdown() {
+void VulkanBackend::shutdown() {
     destroySwapchain(&m_State.swapchain, m_State.device);
     destroyDevice(&m_State.device);
     vkDestroySurfaceKHR(m_State.instance, m_State.surface, nullptr);

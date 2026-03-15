@@ -3,9 +3,12 @@
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
-SYN::GraphicsPipeline::GraphicsPipeline() { reset(); }
+using namespace SYN;
+using namespace SYN::VK;
 
-void SYN::GraphicsPipeline::reset() {
+SYN::VK::GraphicsPipeline::GraphicsPipeline() { reset(); }
+
+void SYN::VK::GraphicsPipeline::reset() {
     this->shaderStageCIs = {};
     this->vertexInputStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -24,7 +27,7 @@ void SYN::GraphicsPipeline::reset() {
     this->layout = {VK_NULL_HANDLE};
 }
 
-VkPipeline SYN::GraphicsPipeline::build(const Device &device) {
+VkPipeline SYN::VK::GraphicsPipeline::build(const Device &device) {
     VkPipelineViewportStateCreateInfo viewportCI{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         .viewportCount = 1,

@@ -2,7 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
-namespace SYN {
+namespace SYN::VK {
 
 const VkDebugUtilsMessengerCreateInfoEXT *getDebugMessengerCreateInfo();
 

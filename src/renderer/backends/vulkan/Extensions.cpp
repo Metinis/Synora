@@ -2,7 +2,7 @@
 #include <spdlog/spdlog.h>
 
 std::vector<const char *>
-SYN::findExtensions(std::span<const char *> requiredExtensions,
+SYN::VK::findExtensions(std::span<const char *> requiredExtensions,
                     std::span<VkExtensionProperties> availableExtensionProps) {
     std::vector<const char *> foundExtensions{};
 

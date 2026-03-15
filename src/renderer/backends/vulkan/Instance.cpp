@@ -7,6 +7,7 @@
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
+using namespace SYN::VK;
 
 namespace {
 std::vector<const char *>
@@ -14,7 +15,7 @@ findLayers(std::span<const char *> requiredLayers,
            std::span<VkLayerProperties> availableLayerProps);
 } // namespace
 
-VkInstance SYN::createInstance() {
+VkInstance VK::createInstance() {
     if (glfwVulkanSupported() != GLFW_TRUE) {
         spdlog::error(
             "Vulkan backend is being used while Vulkan is not supported");
@@ -50,7 +51,7 @@ VkInstance SYN::createInstance() {
     VkInstanceCreateFlags instanceFlags{};
 
 #ifdef __APPLE__
-    requiredExtensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+    requiredExtensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     instanceFlags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
 

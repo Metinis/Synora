@@ -4,13 +4,8 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
-namespace SYN {
+namespace SYN::VK {
 struct Device;
-
-VkPipelineLayout createPipelineLayout(
-    const Device &device,
-    const std::span<VkPushConstantRange> pushConstantRanges,
-    const std::span<VkDescriptorSetLayout> descriptorSetLayouts);
 
 class GraphicsPipeline {
   public:
@@ -34,4 +29,4 @@ class GraphicsPipeline {
     VkPipelineLayout layout;
 };
 
-} // namespace SYN
+} // namespace SYN::VK
