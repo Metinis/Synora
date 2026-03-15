@@ -4,7 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
-namespace SYN {
+namespace SYN::VK {
 
 struct VulkanState {
     VkInstance instance;
@@ -19,7 +19,7 @@ class VulkanBackend : public IBackend {
     VulkanBackend() = default;
     ~VulkanBackend() = default;
 
-    void init(Window &window) override;
+    void init(SYN::Window &window) override;
     void shutdown() override;
 
   private:

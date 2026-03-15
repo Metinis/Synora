@@ -8,6 +8,7 @@
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
+using namespace SYN::VK;
 
 namespace {
 VkSurfaceFormatKHR findBestSurfaceFormat(const Device &device,
@@ -17,11 +18,11 @@ VkPresentModeKHR findBestPresentMode(const Device &device,
                                      VkSurfaceKHR surface);
 VkExtent2D
 calcSurfaceExtent(const VkSurfaceCapabilitiesKHR &surfaceCapabilities,
-                  Window &window);
+                  SYN::Window &window);
 } // namespace
 
-SYN::Swapchain SYN::createSwapchain(const Device &device, VkSurfaceKHR surface,
-                                    Window &window) {
+Swapchain VK::createSwapchain(const Device &device, VkSurfaceKHR surface,
+                                    SYN::Window &window) {
 
     VkSurfaceCapabilitiesKHR surfaceCapabilities{};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physical, surface,
@@ -95,7 +96,7 @@ SYN::Swapchain SYN::createSwapchain(const Device &device, VkSurfaceKHR surface,
                      .extent = swapchainCI.imageExtent};
 }
 
-void SYN::destroySwapchain(Swapchain *swapchain, const Device &device) {
+void VK::destroySwapchain(Swapchain *swapchain, const Device &device) {
     for (const auto &imageView : swapchain->imageViews) {
         vkDestroyImageView(device.logical, imageView, nullptr);
     }
@@ -160,7 +161,7 @@ VkPresentModeKHR findBestPresentMode(const Device &device,
 }
 VkExtent2D
 calcSurfaceExtent(const VkSurfaceCapabilitiesKHR &surfaceCapabilities,
-                  Window &window) {
+                  SYN::Window &window) {
     VkExtent2D surfaceExtent{};
     if (surfaceCapabilities.currentExtent.width == UINT32_MAX &&
         surfaceCapabilities.currentExtent.height == UINT32_MAX) {

@@ -6,7 +6,9 @@
 #include <vulkan/vulkan_core.h>
 
 namespace SYN {
-class Window;
+    class Window;
+}
+namespace SYN::VK {
 
 struct Swapchain {
     VkSwapchainKHR handle;
