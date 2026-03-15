@@ -12,6 +12,8 @@ struct VulkanState {
     VkDebugUtilsMessengerEXT debugUtilsMessenger;
     Device device;
     Swapchain swapchain;
+    VkPipelineLayout graphicsPipelineLayout;
+    VkPipeline graphicsPipeline;
 };
 
 class VulkanBackend : public IBackend {
@@ -26,4 +28,4 @@ class VulkanBackend : public IBackend {
     VulkanState m_State;
 };
 
-} // namespace SYN
+} // namespace SYN::VK

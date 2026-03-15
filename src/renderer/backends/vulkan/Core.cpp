@@ -1,6 +1,7 @@
 #include "Core.h"
 #include "DebugMessenger.h"
 #include "Instance.h"
+#include "Pipeline.h"
 #include "Swapchain.h"
 
 #include <GLFW/glfw3.h>
@@ -9,6 +10,7 @@
 #include <spdlog/spdlog.h>
 
 #include <PuzzleEngine/core/Window.h>
+#include <vulkan/vulkan_core.h>
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -56,15 +58,42 @@ void VulkanBackend::init(SYN::Window &window) {
     std::array<VkPipelineShaderStageCreateInfo, 2> shaderStageCIs{vertPipeCI,
                                                                   fragPipeCI};
 
+    VkPipelineLayoutCreateInfo layoutCI{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    };
+    VkPipelineLayout layout;
+    vkCreatePipelineLayout(device.logical, &layoutCI, nullptr, &layout);
+
+    GraphicsPipelineBuilder graphicsPipelineBuilder{};
+    VkPipeline graphicsPipeline{
+        graphicsPipelineBuilder
+            .setShaderStage(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT)
+            .setShaderStage(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT)
+            .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+            .setFaceCulling(VK_CULL_MODE_BACK_BIT,
+                            VK_FRONT_FACE_COUNTER_CLOCKWISE)
+            .setPolygonMode(VK_POLYGON_MODE_FILL)
+            .addColorAttachment(swapchain.format)
+            .disableDepthTest()
+            .disableMultisampling()
+            .build(device, layout)};
+
     vkDestroyShaderModule(device.logical, vertShaderModule, nullptr);
 
     m_State = VulkanState{.instance = instance,
                           .surface = surface,
                           .debugUtilsMessenger = debugUtilsMessenger,
                           .device = std::move(device),
-                          .swapchain = std::move(swapchain)};
+                          .swapchain = std::move(swapchain),
+                          .graphicsPipelineLayout = layout,
+                          .graphicsPipeline = graphicsPipeline};
 }
 void VulkanBackend::shutdown() {
+    vkDestroyPipelineLayout(m_State.device.logical,
+                            m_State.graphicsPipelineLayout, nullptr);
+    vkDestroyPipeline(m_State.device.logical, m_State.graphicsPipeline,
+                      nullptr);
+
     destroySwapchain(&m_State.swapchain, m_State.device);
     destroyDevice(&m_State.device);
     vkDestroySurfaceKHR(m_State.instance, m_State.surface, nullptr);
@@ -83,13 +112,13 @@ VkShaderModule createShaderModule(const Device &device,
     if (!file.is_open()) {
         spdlog::error("Could not open {}, shader module creation failed", path);
         assert(false);
-        return {};
+        return VK_NULL_HANDLE;
     }
     std::streampos fileSize{file.tellg()};
     if (fileSize < 0) {
         spdlog::error("Tellg failed, shader module creation failed", path);
         assert(false);
-        return {};
+        return VK_NULL_HANDLE;
     }
 
     if ((fileSize % sizeof(uint32_t)) != 0) {
@@ -98,7 +127,7 @@ VkShaderModule createShaderModule(const Device &device,
                       "and may be malformed",
                       path);
         assert(false);
-        return {};
+        return VK_NULL_HANDLE;
     }
 
     std::vector<uint32_t> shaderCode(fileSize / sizeof(uint32_t));
@@ -117,7 +146,7 @@ VkShaderModule createShaderModule(const Device &device,
         spdlog::error("Could not create shader module of {},  VkResult = {}",
                       path, static_cast<int>(res));
         assert(false);
-        return {};
+        return VK_NULL_HANDLE;
     }
     return shaderModule;
 }
