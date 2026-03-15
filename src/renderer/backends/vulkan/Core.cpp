@@ -36,6 +36,9 @@ void SYN::VulkanBackend::init(Window &window) {
     VkShaderModule vertShaderModule{
         createShaderModule(device, "generated/shaders/first.vert.spv")};
 
+    VkShaderModule fragShaderModule{
+        createShaderModule(device, "generated/shaders/first.frag.spv")};
+
     VkPipelineShaderStageCreateInfo vertPipeCI{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         .stage = VK_SHADER_STAGE_VERTEX_BIT,
@@ -43,13 +46,22 @@ void SYN::VulkanBackend::init(Window &window) {
         .pName = "main",
     };
 
+    VkPipelineShaderStageCreateInfo fragPipeCI{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = fragShaderModule,
+        .pName = "main",
+    };
+    std::array<VkPipelineShaderStageCreateInfo, 2> shaderStageCIs{vertPipeCI,
+                                                                  fragPipeCI};
+
     vkDestroyShaderModule(device.logical, vertShaderModule, nullptr);
 
     m_State = VulkanState{.instance = instance,
                           .surface = surface,
                           .debugUtilsMessenger = debugUtilsMessenger,
-                          .device = device,
-                          .swapchain = swapchain};
+                          .device = std::move(device),
+                          .swapchain = std::move(swapchain)};
 }
 void SYN::VulkanBackend::shutdown() {
     destroySwapchain(&m_State.swapchain, m_State.device);
