@@ -1,6 +1,7 @@
 set(CMAKE_CXX_STANDARD 23)
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
+get_target_property(GLSLC Vulkan::glslc IMPORTED_LOCATION)
 
 set(SHADERS_SRC_DIR "${CMAKE_SOURCE_DIR}/resources/shaders")
 set(SHADERS_BIN_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/generated/shaders")
@@ -31,6 +32,9 @@ add_custom_target(build_shaders ALL DEPENDS ${SPV_SHADERS})
 
 add_custom_target(copy_assets ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_SOURCE_DIR}/resources"
-    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/"
-    COMMENT "Copying toplevel resources/ to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    "${CMAKE_SOURCE_DIR}/resources/textures"
+    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/textures"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/resources/shaders"
+    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders"
+    COMMENT "Copying resources to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
