@@ -34,9 +34,12 @@ void Application::run() {
     // while running and window open
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
+        m_InputManager->processInputQueue();
     }
 }
 
 void Application::shutdown() {}
+
+std::unique_ptr<Input> &Application::GetInput() { return m_InputManager; }
 
 Application::~Application() = default;
