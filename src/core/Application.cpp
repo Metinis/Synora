@@ -21,6 +21,9 @@ void Application::init() {
 
     m_InputManager = std::make_unique<Input>();
     m_Renderer = std::make_unique<Renderer>();
+    m_Scene = std::make_unique<Scene>();
+    m_Layers.push_back(m_Scene.get());
+    //push any sort of ui/overlay to front
 
     // Could make Input a shared pointer instead
     // of passing raw pointer, but m_WindowData should
@@ -38,6 +41,17 @@ void Application::run() {
     // while running and window open
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
+
+        for (auto& layer : m_Layers) {
+            if (layer->isLayerActive)
+                layer->onUpdate(m_Window->getDeltaTime());
+        }
+
+        for (auto& layer : m_Layers) {
+            //could pass renderer stuff here
+            if (layer->isLayerActive)
+                layer->onRender();
+        }
     }
 }
 

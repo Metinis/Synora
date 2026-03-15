@@ -1,15 +1,21 @@
 #pragma once
 #include <entt/entt.hpp>
+
+#include "PuzzleEngine/core/Layer.h"
 #include "PuzzleEngine/Scene/Entity.h"
 #include "scene/SceneState.h"
 
 namespace SYN {
     class Entity;
 
-    class Scene {
+    class Scene : public ILayer {
     public:
         Scene();
-        ~Scene() = default;
+        ~Scene() override = default;
+        void onUpdate(float dt) override;
+        void onAttach() override;
+        void onDettach() override;
+        void onRender() override;
         void init();
         Entity createEntity();
 
