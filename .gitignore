@@ -60,3 +60,6 @@ compile_commands.json
 
 # Helpers 
 scripts/
+
+# Shader binaries
+*.spv

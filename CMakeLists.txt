@@ -16,3 +16,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(3rdparty)
 add_subdirectory(src)
+add_subdirectory(resources)

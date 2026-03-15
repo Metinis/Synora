@@ -44,3 +44,4 @@ target_link_libraries(
 
 # This is to make the projection matrices in glm work with vulkan
 target_compile_definitions(PuzzleEngine PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLFW_INCLUDE_VULKAN ${APPLE_COMPILE_DEFINITIONS})
+
