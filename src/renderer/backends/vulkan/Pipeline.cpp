@@ -9,7 +9,8 @@ using namespace SYN::VK;
 SYN::VK::GraphicsPipelineBuilder::GraphicsPipelineBuilder() { reset(); }
 
 void SYN::VK::GraphicsPipelineBuilder::reset() {
-    m_ShaderStageCIs = {};
+    m_ShaderStageCIs.clear();
+    m_ColorBlendAttachmentStates.clear();
 
     m_InputAssemblyStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,

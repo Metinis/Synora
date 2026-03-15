@@ -6,26 +6,27 @@
 
 namespace SYN::VK {
 
-struct VulkanState {
-    VkInstance instance;
-    VkSurfaceKHR surface;
-    VkDebugUtilsMessengerEXT debugUtilsMessenger;
-    Device device;
-    Swapchain swapchain;
-    VkPipelineLayout graphicsPipelineLayout;
-    VkPipeline graphicsPipeline;
-};
-
 class VulkanBackend : public IBackend {
   public:
     VulkanBackend() = default;
     ~VulkanBackend() = default;
 
-    void init(SYN::Window &window) override;
+    void init(Window &window) override;
+    void render(Window &window) override;
     void shutdown() override;
 
   private:
-    VulkanState m_State;
+    static constexpr uint32_t c_MaxFramesInFlight{2};
+
+    VkInstance m_Instance{};
+    VkSurfaceKHR m_Surface{};
+    VkDebugUtilsMessengerEXT m_DebugUtilsMessenger{};
+    Device m_Device{};
+    Swapchain m_Swapchain{};
+    VkPipelineLayout m_GraphicsPipelineLayout{};
+    VkPipeline m_GraphicsPipeline{};
+    std::array<VkCommandPool, c_MaxFramesInFlight> m_GraphicsCmdPools{};
+    std::array<VkCommandBuffer, c_MaxFramesInFlight> m_GraphicsCmdBuffers{};
 };
 
 } // namespace SYN::VK

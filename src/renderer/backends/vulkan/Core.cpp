@@ -21,86 +21,94 @@ VkShaderModule createShaderModule(const Device &device,
 }
 
 void VulkanBackend::init(SYN::Window &window) {
-    VkInstance instance{createInstance()};
+    m_Instance = createInstance();
 
-    VkDebugUtilsMessengerEXT debugUtilsMessenger{
-        createDebugMessenger(instance)};
+    m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
 
-    VkSurfaceKHR surface{};
-    VkResult res{glfwCreateWindowSurface(instance, window.getHandle(), nullptr,
-                                         &surface)};
+    VkResult res{glfwCreateWindowSurface(m_Instance, window.getHandle(),
+                                         nullptr, &m_Surface)};
     if (res != VK_SUCCESS) {
-        spdlog::info("Could not create Vulkan surface");
+        spdlog::error("Could not create Vulkan surface");
     }
 
-    Device device{createDevice(instance, surface)};
-    Swapchain swapchain{createSwapchain(device, surface, window)};
+    m_Device = createDevice(m_Instance, m_Surface);
+    m_Swapchain = createSwapchain(m_Device, m_Surface, window);
 
-    VkShaderModule vertShaderModule{
-        createShaderModule(device, "generated/shaders/first.vert.spv")};
+    {
+        VkShaderModule vertShaderModule{
+            createShaderModule(m_Device, "generated/shaders/first.vert.spv")};
 
-    VkShaderModule fragShaderModule{
-        createShaderModule(device, "generated/shaders/first.frag.spv")};
+        VkShaderModule fragShaderModule{
+            createShaderModule(m_Device, "generated/shaders/first.frag.spv")};
 
-    VkPipelineShaderStageCreateInfo vertPipeCI{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = VK_SHADER_STAGE_VERTEX_BIT,
-        .module = vertShaderModule,
-        .pName = "main",
-    };
+        VkPipelineLayoutCreateInfo layoutCI{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        };
+        vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
+                               &m_GraphicsPipelineLayout);
+        GraphicsPipelineBuilder graphicsPipelineBuilder{};
+        m_GraphicsPipeline =
+            graphicsPipelineBuilder
+                .setShaderStage(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT)
+                .setShaderStage(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT)
+                .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                .setFaceCulling(VK_CULL_MODE_BACK_BIT,
+                                VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                .setPolygonMode(VK_POLYGON_MODE_FILL)
+                .addColorAttachment(m_Swapchain.format)
+                .disableDepthTest()
+                .disableMultisampling()
+                .build(m_Device, m_GraphicsPipelineLayout);
 
-    VkPipelineShaderStageCreateInfo fragPipeCI{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .module = fragShaderModule,
-        .pName = "main",
-    };
-    std::array<VkPipelineShaderStageCreateInfo, 2> shaderStageCIs{vertPipeCI,
-                                                                  fragPipeCI};
+        vkDestroyShaderModule(m_Device.logical, vertShaderModule, nullptr);
+        vkDestroyShaderModule(m_Device.logical, fragShaderModule, nullptr);
+    }
 
-    VkPipelineLayoutCreateInfo layoutCI{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-    };
-    VkPipelineLayout layout;
-    vkCreatePipelineLayout(device.logical, &layoutCI, nullptr, &layout);
+    for (size_t i{}; i < c_MaxFramesInFlight; i++) {
+        VkCommandPoolCreateInfo graphicsCmdPoolCI{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .queueFamilyIndex =
+                m_Device.queues[QueueFamily::graphics].familyIndex};
+        VkCommandPool graphicsCmdPool{};
+        vkCreateCommandPool(m_Device.logical, &graphicsCmdPoolCI, nullptr,
+                            &graphicsCmdPool);
 
-    GraphicsPipelineBuilder graphicsPipelineBuilder{};
-    VkPipeline graphicsPipeline{
-        graphicsPipelineBuilder
-            .setShaderStage(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT)
-            .setShaderStage(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT)
-            .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
-            .setFaceCulling(VK_CULL_MODE_BACK_BIT,
-                            VK_FRONT_FACE_COUNTER_CLOCKWISE)
-            .setPolygonMode(VK_POLYGON_MODE_FILL)
-            .addColorAttachment(swapchain.format)
-            .disableDepthTest()
-            .disableMultisampling()
-            .build(device, layout)};
+        VkCommandBufferAllocateInfo cmdBufferAllocInfo{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = graphicsCmdPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+        VkCommandBuffer graphicsCmdBuffer{};
+        res = vkAllocateCommandBuffers(m_Device.logical, &cmdBufferAllocInfo,
+                                       &graphicsCmdBuffer);
+        if (res != VK_SUCCESS) {
+            spdlog::error("Could not allocate command buffers, VkResult = {}",
+                          static_cast<int>(res));
+        }
 
-    vkDestroyShaderModule(device.logical, vertShaderModule, nullptr);
-
-    m_State = VulkanState{.instance = instance,
-                          .surface = surface,
-                          .debugUtilsMessenger = debugUtilsMessenger,
-                          .device = std::move(device),
-                          .swapchain = std::move(swapchain),
-                          .graphicsPipelineLayout = layout,
-                          .graphicsPipeline = graphicsPipeline};
+        m_GraphicsCmdPools[i] = graphicsCmdPool;
+        m_GraphicsCmdBuffers[i] = graphicsCmdBuffer;
+    }
 }
+
+void VulkanBackend::render(Window &window) {}
 void VulkanBackend::shutdown() {
-    vkDestroyPipelineLayout(m_State.device.logical,
-                            m_State.graphicsPipelineLayout, nullptr);
-    vkDestroyPipeline(m_State.device.logical, m_State.graphicsPipeline,
-                      nullptr);
+    vkDeviceWaitIdle(m_Device.logical);
 
-    destroySwapchain(&m_State.swapchain, m_State.device);
-    destroyDevice(&m_State.device);
-    vkDestroySurfaceKHR(m_State.instance, m_State.surface, nullptr);
-    destroyDebugMessenger(m_State.instance, m_State.debugUtilsMessenger);
-    vkDestroyInstance(m_State.instance, nullptr);
+    for (size_t i{}; i < c_MaxFramesInFlight; i++) {
+        VkCommandPool cmdPool{m_GraphicsCmdPools[i]};
+        vkDestroyCommandPool(m_Device.logical, cmdPool, nullptr);
+    }
+    vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
+                            nullptr);
+    vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
 
-    m_State = {};
+    destroySwapchain(&m_Swapchain, m_Device);
+    destroyDevice(&m_Device);
+    vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+    destroyDebugMessenger(m_Instance, m_DebugUtilsMessenger);
+    vkDestroyInstance(m_Instance, nullptr);
 }
 
 // TODO: add default shaders for if theres an error

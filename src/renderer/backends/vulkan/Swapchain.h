@@ -6,7 +6,7 @@
 #include <vulkan/vulkan_core.h>
 
 namespace SYN {
-    class Window;
+class Window;
 }
 namespace SYN::VK {
 
@@ -22,4 +22,4 @@ Swapchain createSwapchain(const Device &device, VkSurfaceKHR surface,
                           Window &window);
 
 void destroySwapchain(Swapchain *swapchain, const Device &device);
-} // namespace SYN
+} // namespace SYN::VK
