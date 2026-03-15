@@ -1,6 +1,7 @@
-#include "Backend.h"
+#include "Core.h"
 #include "DebugMessenger.h"
 #include "Instance.h"
+#include "Swapchain.h"
 
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
@@ -23,11 +24,15 @@ void SYN::VulkanBackend::init(Window &window) {
     }
 
     Device device{createDevice(instance, surface)};
+    Swapchain swapchain{createSwapchain(device, surface, window)};
 
-    m_State =
-        VulkanState{.instance = instance, .surface = surface, .device = device};
+    m_State = VulkanState{.instance = instance,
+                          .surface = surface,
+                          .device = device,
+                          .swapchain = swapchain};
 }
 void SYN::VulkanBackend::shutdown() {
+    destroySwapchain(&m_State.swapchain, m_State.device);
     destroyDevice(&m_State.device);
     vkDestroySurfaceKHR(m_State.instance, m_State.surface, nullptr);
     destroyDebugMessenger(m_State.instance, m_State.debugUtilsMessenger);

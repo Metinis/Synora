@@ -1,4 +1,5 @@
 #include "Device.h"
+#include "Swapchain.h"
 #include "renderer/IBackend.h"
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -10,6 +11,7 @@ struct VulkanState {
     VkSurfaceKHR surface;
     VkDebugUtilsMessengerEXT debugUtilsMessenger;
     Device device;
+    Swapchain swapchain;
 };
 
 class VulkanBackend : public IBackend {

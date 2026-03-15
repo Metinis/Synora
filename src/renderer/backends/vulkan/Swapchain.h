@@ -1,0 +1,23 @@
+#pragma once
+
+#include "Device.h"
+
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
+
+namespace SYN {
+class Window;
+
+struct Swapchain {
+    VkSwapchainKHR handle;
+    std::vector<VkImage> images;
+    std::vector<VkImageView> imageViews;
+    VkFormat format;
+    VkExtent2D extent;
+};
+
+Swapchain createSwapchain(const Device &device, VkSurfaceKHR surface,
+                          Window &window);
+
+void destroySwapchain(Swapchain *swapchain, const Device &device);
+} // namespace SYN
