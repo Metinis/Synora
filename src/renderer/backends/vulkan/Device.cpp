@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
+using namespace SYN::VK;
 
 namespace {
 
@@ -29,7 +30,7 @@ QueueFamilyInfo findQueueFamilyIndices(VkPhysicalDevice physicalDevice,
                                        VkSurfaceKHR surface);
 } // namespace
 
-SYN::Device SYN::createDevice(VkInstance instance, VkSurfaceKHR surface) {
+Device VK::createDevice(VkInstance instance, VkSurfaceKHR surface) {
     VkPhysicalDeviceVulkan12Features features12{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .descriptorIndexing = VK_TRUE,
@@ -72,7 +73,7 @@ SYN::Device SYN::createDevice(VkInstance instance, VkSurfaceKHR surface) {
         .physical = physicalDevice, .logical = device, .queues = queues};
 }
 
-void SYN::destroyDevice(Device *device) {
+void VK::destroyDevice(Device *device) {
     vkDestroyDevice(device->logical, nullptr);
     device->logical = {};
     device->physical = {};

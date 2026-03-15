@@ -2,6 +2,6 @@
 
 #include <vulkan/vulkan.h>
 
-namespace SYN {
+namespace SYN::VK {
 VkInstance createInstance();
 }

@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
+using namespace SYN::VK;
 using namespace SYN;
 
 namespace {
@@ -36,7 +37,7 @@ constexpr VkDebugUtilsMessengerCreateInfoEXT c_DebugUtilsMessengerCI{
 
 } // namespace
 
-VkDebugUtilsMessengerEXT SYN::createDebugMessenger(VkInstance instance) {
+VkDebugUtilsMessengerEXT VK::createDebugMessenger(VkInstance instance) {
     VkDebugUtilsMessengerEXT debugMessenger{};
     VkDebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCI{
         *getDebugMessengerCreateInfo()};
@@ -50,12 +51,12 @@ VkDebugUtilsMessengerEXT SYN::createDebugMessenger(VkInstance instance) {
     return debugMessenger;
 }
 
-void SYN::destroyDebugMessenger(VkInstance instance,
+void VK::destroyDebugMessenger(VkInstance instance,
                                 VkDebugUtilsMessengerEXT debugMessenger) {
     vkDestroyDebugUtilsMessengerThunk(instance, debugMessenger, nullptr);
 }
 
-const VkDebugUtilsMessengerCreateInfoEXT *SYN::getDebugMessengerCreateInfo() {
+const VkDebugUtilsMessengerCreateInfoEXT *VK::getDebugMessengerCreateInfo() {
     return &c_DebugUtilsMessengerCI;
 }
 
