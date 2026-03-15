@@ -238,6 +238,10 @@ VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
     std::vector<const char *> requiredExtensions{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
+#ifdef __APPLE__
+    requiredExtensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+#endif
+
     uint32_t supportedExtensionsCount{};
     vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr,
                                          &supportedExtensionsCount, nullptr);
