@@ -20,11 +20,12 @@ foreach(SHADER ${SHADERS})
 	get_filename_component(SHADER_NAME ${SHADER} NAME)
 	set(SHADER_BIN_NAME "${SHADERS_BIN_DIR}/${SHADER_NAME}.spv")
 	add_custom_command(
-		DEPENDS "${SHADER}"
-		OUTPUT "${SHADER_BIN_NAME}"
-		COMMAND "${GLSLC}" "${SHADER}" "-o" "${SHADER_BIN_NAME}"
-        COMMENT "Compiling ${SHADER_NAME} to ${SHADERS_BIN_DIR}"
-		VERBATIM)
+			OUTPUT ${SHADER_BIN_NAME}
+			COMMAND ${GLSLC} ${SHADER} -o ${SHADER_BIN_NAME}
+			DEPENDS ${SHADER}
+			COMMENT "Compiling ${SHADER_NAME}"
+			VERBATIM
+	)
 	list(APPEND SPV_SHADERS "${SHADER_BIN_NAME}")
 endforeach()
 
@@ -38,3 +39,6 @@ add_custom_target(copy_assets ALL
     "${CMAKE_SOURCE_DIR}/resources/shaders"
     "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders"
     COMMENT "Copying resources to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
+
+add_dependencies(PuzzleEngine build_shaders)
+add_dependencies(PuzzleEngine copy_assets)
