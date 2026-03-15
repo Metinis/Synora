@@ -1,18 +1,35 @@
 #include "Device.h"
+#include "Extensions.h"
 
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
+using namespace SYN;
+
 namespace {
 
-VkPhysicalDevice createPhysicalDevice(VkInstance instance,
+struct QueueFamilyInfo {
+    std::unordered_map<QueueFamily, uint32_t> indices;
+    std::unordered_map<uint32_t, uint32_t> indexToCount;
+    uint32_t maxFamilyQueueCount;
+};
+
+VkPhysicalDevice selectPhysicalDevice(VkInstance instance,
                                       VkSurfaceKHR surface);
-}
+
+VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
+                             const QueueFamilyInfo &queueFamilyInfo,
+                             const VkPhysicalDeviceFeatures2 &features);
+
+std::unordered_map<QueueFamily, Queue>
+getDeviceQueues(VkDevice device, const QueueFamilyInfo &queueFamilyInfo);
+
+QueueFamilyInfo findQueueFamilyIndices(VkPhysicalDevice physicalDevice,
+                                       VkSurfaceKHR surface);
+} // namespace
 
 SYN::Device SYN::createDevice(VkInstance instance, VkSurfaceKHR surface) {
-    VkPhysicalDevice physicalDevice{createPhysicalDevice(instance, surface)};
-
     VkPhysicalDeviceVulkan12Features features12{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .descriptorIndexing = VK_TRUE,
@@ -35,26 +52,24 @@ SYN::Device SYN::createDevice(VkInstance instance, VkSurfaceKHR surface) {
         .dynamicRendering = VK_TRUE,
     };
 
-    VkPhysicalDeviceFeatures2 physicalDeviceFeatures{
+    VkPhysicalDeviceFeatures2 features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = &features13,
         .features = {.samplerAnisotropy = VK_TRUE}};
 
-    VkDeviceCreateInfo deviceCI{
-        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &physicalDeviceFeatures,
-    };
+    VkPhysicalDevice physicalDevice{selectPhysicalDevice(instance, surface)};
 
-    VkDevice device{};
-    VkResult res{vkCreateDevice(physicalDevice, &deviceCI, nullptr, &device)};
+    QueueFamilyInfo queueFamilyInfo{
+        findQueueFamilyIndices(physicalDevice, surface)};
 
-    if (res != VK_SUCCESS) {
-        spdlog::error(
-            "Vulkan logical device could not be created. VkResult = {}",
-            static_cast<int>(res));
-    }
+    VkDevice device{
+        createLogicalDevice(physicalDevice, queueFamilyInfo, features)};
 
-    return Device{.physical = physicalDevice, .logical = device};
+    std::unordered_map<QueueFamily, Queue> queues{
+        getDeviceQueues(device, queueFamilyInfo)};
+
+    return Device{
+        .physical = physicalDevice, .logical = device, .queues = queues};
 }
 
 void SYN::destroyDevice(Device *device) {
@@ -64,7 +79,7 @@ void SYN::destroyDevice(Device *device) {
 }
 
 namespace {
-VkPhysicalDevice createPhysicalDevice(VkInstance instance,
+VkPhysicalDevice selectPhysicalDevice(VkInstance instance,
                                       VkSurfaceKHR surface) {
     uint32_t physicalDeviceCount{};
     vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
@@ -74,7 +89,6 @@ VkPhysicalDevice createPhysicalDevice(VkInstance instance,
 
     VkPhysicalDevice suitablePhysicalDevice{};
     uint32_t maxDeviceScore{};
-    bool allFeaturesSupported{};
     for (const auto &physicalDevice : physicalDevices) {
         VkPhysicalDeviceProperties physicalDeviceProps{};
         vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProps);
@@ -111,14 +125,14 @@ VkPhysicalDevice createPhysicalDevice(VkInstance instance,
         bool features13Supported{features13.synchronization2 &&
                                  features13.dynamicRendering};
 
-        uint32_t currentDeviceScore{};
-
+        // supporting all features is a requirement for a device to be selected
+        // atleast for now
         if (!(featuresSupported && features12Supported &&
               features13Supported)) {
             continue;
         }
-        allFeaturesSupported = true;
 
+        uint32_t currentDeviceScore{};
         switch (physicalDeviceProps.deviceType) {
         case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
             currentDeviceScore += 10000;
@@ -142,16 +156,147 @@ VkPhysicalDevice createPhysicalDevice(VkInstance instance,
         }
     }
 
-    if (!allFeaturesSupported) {
-        spdlog::error("Some Vulkan feature are not supported any "
-                      "physical device");
-    }
-
-    if (suitablePhysicalDevice == 0) {
+    if (suitablePhysicalDevice == VK_NULL_HANDLE) {
         spdlog::error("Vulkan physical device was not created");
+        assert(false);
     }
 
     return suitablePhysicalDevice;
+}
+
+QueueFamilyInfo findQueueFamilyIndices(VkPhysicalDevice physicalDevice,
+                                       VkSurfaceKHR surface) {
+    uint32_t queueFamilyPropsCount{};
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice,
+                                             &queueFamilyPropsCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilyProps(
+        queueFamilyPropsCount);
+
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physicalDevice, &queueFamilyPropsCount, queueFamilyProps.data());
+
+    std::unordered_map<QueueFamily, uint32_t> indices;
+    std::unordered_map<uint32_t, uint32_t> indexToCount;
+
+    uint32_t maxFamilyQueueCount{};
+
+    // TODO: add support for multiple queues per family
+    uint32_t nQueueFamilies{static_cast<uint32_t>(QueueFamily::count)};
+    for (uint32_t i{}; i < queueFamilyProps.size(); i++) {
+        VkQueueFamilyProperties props{queueFamilyProps[i]};
+        maxFamilyQueueCount = std::max(maxFamilyQueueCount, props.queueCount);
+
+        VkBool32 surfaceSupported{};
+        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface,
+                                             &surfaceSupported);
+
+        if (props.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+            !indices.contains(QueueFamily::graphics)) {
+            indices[QueueFamily::graphics] = i;
+            // setting it to 1 because future if statements dont correspond to
+            // more queues, theyre all the same queue, so only 1 count
+            indexToCount[i] = 1;
+        }
+
+        if (surfaceSupported && !indices.contains(QueueFamily::present)) {
+            indices[QueueFamily::present] = i;
+            indexToCount[i] = 1;
+        }
+
+        if (props.queueFlags & VK_QUEUE_COMPUTE_BIT &&
+            !indices.contains(QueueFamily::compute)) {
+            indices[QueueFamily::compute] = i;
+            indexToCount[i] = 1;
+        }
+
+        if (props.queueFlags & VK_QUEUE_TRANSFER_BIT &&
+            !indices.contains(QueueFamily::transfer)) {
+            indices[QueueFamily::transfer] = i;
+            indexToCount[i] = 1;
+        }
+
+        if (indices.size() >= nQueueFamilies) {
+            break;
+        }
+    }
+
+    if (indices.size() < nQueueFamilies) {
+        spdlog::warn(
+            "Physical device does not support creating all required queues");
+    }
+
+    return QueueFamilyInfo{.indices = indices,
+                           .indexToCount = indexToCount,
+                           .maxFamilyQueueCount = maxFamilyQueueCount};
+}
+
+VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
+                             const QueueFamilyInfo &queueFamilyInfo,
+                             const VkPhysicalDeviceFeatures2 &features) {
+
+    std::vector<const char *> requiredExtensions{
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+    uint32_t supportedExtensionsCount{};
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr,
+                                         &supportedExtensionsCount, nullptr);
+    std::vector<VkExtensionProperties> supportedExtensionProps(
+        supportedExtensionsCount);
+    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr,
+                                         &supportedExtensionsCount,
+                                         supportedExtensionProps.data());
+
+    std::vector<const char *> extensions{
+        findExtensions(requiredExtensions, supportedExtensionProps)};
+
+    std::vector<float> priorities(queueFamilyInfo.maxFamilyQueueCount, 0.f);
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    for (const auto &[index, count] : queueFamilyInfo.indexToCount) {
+        VkDeviceQueueCreateInfo queueCI{
+            .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = index,
+            .queueCount = count,
+            .pQueuePriorities = priorities.data()};
+        queueCreateInfos.emplace_back(queueCI);
+    }
+
+    VkDeviceCreateInfo deviceCI{
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &features,
+        .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
+        .pQueueCreateInfos = queueCreateInfos.data(),
+        .enabledExtensionCount = static_cast<uint32_t>(extensions.size()),
+        .ppEnabledExtensionNames = extensions.data(),
+    };
+
+    VkDevice device{};
+    VkResult res{vkCreateDevice(physicalDevice, &deviceCI, nullptr, &device)};
+
+    if (res != VK_SUCCESS) {
+        spdlog::error(
+            "Vulkan logical device could not be created. VkResult = {}",
+            static_cast<int>(res));
+        assert(false);
+    }
+
+    return device;
+}
+
+std::unordered_map<QueueFamily, Queue>
+getDeviceQueues(VkDevice device, const QueueFamilyInfo &queueFamilyInfo) {
+    std::unordered_map<QueueFamily, Queue> queues{};
+    for (const auto &[family, index] : queueFamilyInfo.indices) {
+        VkQueue queueHandle{};
+        vkGetDeviceQueue(device, index, 0, &queueHandle);
+        Queue queue{
+            .handle = queueHandle,
+            .familyIndex = index,
+        };
+
+        queues[family] = queue;
+    }
+    return queues;
 }
 
 } // namespace

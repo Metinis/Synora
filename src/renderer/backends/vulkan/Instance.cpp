@@ -18,6 +18,7 @@ VkInstance SYN::createInstance() {
     if (glfwVulkanSupported() != GLFW_TRUE) {
         spdlog::error(
             "Vulkan backend is being used while Vulkan is not supported");
+        assert(false);
     }
 
     VkApplicationInfo appInfo{.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -88,6 +89,7 @@ VkInstance SYN::createInstance() {
     VkResult res{vkCreateInstance(&vkInstanceCI, nullptr, &instance)};
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create Vulkan instance");
+        assert(false);
     }
 
     return instance;
