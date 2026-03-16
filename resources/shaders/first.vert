@@ -1,11 +1,18 @@
 #version 450
+#extension GL_EXT_buffer_reference : require // needed for vertex pulling
 
-vec3 vertices[] = {
-    vec3(-0.5, -0.5, 1.0), 
-    vec3(0.5, -0.5, 1.0), 
-    vec3(0.0, 0.5, 1.0)
+struct Vertex {
+    vec3 pos;
+};
+
+layout(buffer_reference, std430) buffer readonly VertexBuffer {
+    Vertex vertices[];
+};
+
+layout(push_constant, std430) uniform PushConstants {
+    VertexBuffer vertexBuffer;
 };
 
 void main() {
-	gl_Position = vec4(vertices[gl_VertexIndex], 1.0);
+	gl_Position = vec4(vertexBuffer.vertices[gl_VertexIndex].pos, 1.f);
 }

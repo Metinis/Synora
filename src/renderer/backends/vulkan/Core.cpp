@@ -1,5 +1,6 @@
 #include "Core.h"
 #include "Buffer.h"
+#include "Commands.h"
 #include "DebugMessenger.h"
 #include "Image.h"
 #include "Instance.h"
@@ -8,8 +9,10 @@
 #include "Swapchain.h"
 
 #include <GLFW/glfw3.h>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <glm/glm.hpp>
 #include <spdlog/spdlog.h>
 #include <vk_mem_alloc.h>
 
@@ -52,22 +55,66 @@ void VulkanBackend::init(SYN::Window &window) {
         spdlog::error("Could not create Vulkan allocator");
     }
 
+    std::vector<Vertex> vertices{
+        {.pos = {-0.5, -0.5, 1.0}}, {.pos = {0.0, -0.5, 1.0}},
+        {.pos = {-0.5, 0.5, 1.0}},
+
+        {.pos = {0.0, -0.5, 1.0}},  {.pos = {0.0, 0.5, 1.0}},
+        {.pos = {-0.5, 0.5, 1.0}},
+    };
+
     constexpr size_t c_MB{1024 * 1024};
     m_StagingBuffer = createBuffer(
         m_Device, m_Allocator, c_MB * 64, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
             VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
+    m_VertexBuffer =
+        createBuffer(m_Device, m_Allocator, c_MB * 64,
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                     0);
+    VkCommandPoolCreateInfo transientCmdPoolCI{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        .queueFamilyIndex = m_Device.queues[QueueFamily::transfer].familyIndex};
+
+    vkCreateCommandPool(m_Device.logical, &transientCmdPoolCI, nullptr,
+                        &m_TransientCommandPool);
+
+    memcpy(m_StagingBuffer.mappedData, vertices.data(),
+           vertices.size() * sizeof(Vertex));
+
+    submitImmediateCmd(m_TransientCommandPool,
+                       m_Device.queues[QueueFamily::transfer].handle, m_Device,
+                       [&](VkCommandBuffer cmdBuffer) {
+                           VkBufferCopy region{
+                               .size = vertices.size() * sizeof(Vertex),
+                           };
+
+                           vkCmdCopyBuffer(cmdBuffer, m_StagingBuffer.handle,
+                                           m_VertexBuffer.handle, 1, &region);
+                       });
+
     {
+
         VkShaderModule vertShaderModule{
             createShaderModule(m_Device, "generated/shaders/first.vert.spv")};
 
         VkShaderModule fragShaderModule{
             createShaderModule(m_Device, "generated/shaders/first.frag.spv")};
 
+        VkPushConstantRange pushConstantRange{
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .size = sizeof(PushConstants),
+        };
+
         VkPipelineLayoutCreateInfo layoutCI{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        };
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantRange};
+
         vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
                                &m_GraphicsPipelineLayout);
         GraphicsPipelineBuilder graphicsPipelineBuilder{};
@@ -203,7 +250,11 @@ void SYN::VK::VulkanBackend::render(Window &window) {
                          .subresourceRange =
                              colorAttachmentBarrier.subresourceRange};
 
+    PushConstants pushConstants{.vertexBuffer = m_VertexBuffer.deviceAddress};
+
+    uint32_t nVertices{6};
     cmdDefaultRenderPass(frame.graphicsCmdBuffer, m_GraphicsPipeline,
+                         m_GraphicsPipelineLayout, pushConstants, nVertices,
                          swapchainImage);
 
     VkImageMemoryBarrier2 presentBarrier{
@@ -298,7 +349,9 @@ void VulkanBackend::shutdown() {
     vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
 
     destroySwapchain(&m_Swapchain, m_Device);
+    vkDestroyCommandPool(m_Device.logical, m_TransientCommandPool, nullptr);
     destroyBuffer(m_Allocator, m_StagingBuffer);
+    destroyBuffer(m_Allocator, m_VertexBuffer);
     vmaDestroyAllocator(m_Allocator);
     destroyDevice(&m_Device);
     vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);

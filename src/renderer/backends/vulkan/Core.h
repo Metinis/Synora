@@ -37,9 +37,13 @@ class VulkanBackend : public IBackend {
     Device m_Device{};
 
     VmaAllocator_T *m_Allocator{};
-    Buffer m_StagingBuffer{};
 
     Swapchain m_Swapchain{};
+
+    Buffer m_StagingBuffer{};
+    Buffer m_VertexBuffer{};
+
+    VkCommandPool m_TransientCommandPool{};
 
     VkPipelineLayout m_GraphicsPipelineLayout{};
 

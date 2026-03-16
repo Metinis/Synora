@@ -6,7 +6,9 @@ using namespace SYN::VK;
 using namespace SYN;
 
 void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
-                                   VkPipeline pipeline, Image &renderTarget) {
+                                   VkPipeline pipeline, VkPipelineLayout layout,
+                                   const PushConstants &pushConstants,
+                                   uint32_t vertexCount, Image &renderTarget) {
 
     constexpr VkClearValue colorClearValue{
         .color = VkClearColorValue{{0.f, 0.f, 0.f, 0.f}}};
@@ -43,6 +45,9 @@ void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
     vkCmdSetViewport(cmdBuffer, 0, 1, &viewport);
     vkCmdSetScissor(cmdBuffer, 0, 1, &scissor);
 
-    vkCmdDraw(cmdBuffer, 3, 1, 0, 0);
+    vkCmdPushConstants(cmdBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       sizeof(PushConstants), &pushConstants);
+
+    vkCmdDraw(cmdBuffer, vertexCount, 1, 0, 0);
     vkCmdEndRendering(cmdBuffer);
 }
