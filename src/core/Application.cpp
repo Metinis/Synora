@@ -38,6 +38,7 @@ void Application::run() {
     // while running and window open
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
+        m_Renderer->render(*m_Window.get());
     }
 }
 
