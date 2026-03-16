@@ -6,6 +6,13 @@
 
 namespace SYN::VK {
 
+struct FrameData {
+    VkCommandPool graphicsCmdPool{};
+    VkCommandBuffer graphicsCmdBuffer{};
+    VkFence renderFinishedFence{};
+    VkSemaphore imageAvailableSemaphore{};
+};
+
 class VulkanBackend : public IBackend {
   public:
     VulkanBackend() = default;
@@ -25,8 +32,10 @@ class VulkanBackend : public IBackend {
     Swapchain m_Swapchain{};
     VkPipelineLayout m_GraphicsPipelineLayout{};
     VkPipeline m_GraphicsPipeline{};
-    std::array<VkCommandPool, c_MaxFramesInFlight> m_GraphicsCmdPools{};
-    std::array<VkCommandBuffer, c_MaxFramesInFlight> m_GraphicsCmdBuffers{};
+    std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
+    std::vector<VkSemaphore> m_RenderFinishedSemaphores{};
+
+    uint32_t m_CurrentFrameIndex{};
 };
 
 } // namespace SYN::VK
