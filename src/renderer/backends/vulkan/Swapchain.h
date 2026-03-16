@@ -19,7 +19,8 @@ struct Swapchain {
 };
 
 Swapchain createSwapchain(const Device &device, VkSurfaceKHR surface,
-                          Window &window);
+                          Window &window,
+                          VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
 
 void destroySwapchain(Swapchain *swapchain, const Device &device);
 } // namespace SYN::VK

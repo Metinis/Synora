@@ -1,13 +1,17 @@
 #include "Core.h"
+#include "Buffer.h"
 #include "DebugMessenger.h"
+#include "Image.h"
 #include "Instance.h"
 #include "Pipeline.h"
+#include "Renderpass.h"
 #include "Swapchain.h"
 
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <fstream>
 #include <spdlog/spdlog.h>
+#include <vk_mem_alloc.h>
 
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
@@ -18,7 +22,7 @@ using namespace SYN::VK;
 namespace {
 VkShaderModule createShaderModule(const Device &device,
                                   const std::string &path);
-}
+} // namespace
 
 void VulkanBackend::init(SYN::Window &window) {
     m_Instance = createInstance();
@@ -32,7 +36,27 @@ void VulkanBackend::init(SYN::Window &window) {
     }
 
     m_Device = createDevice(m_Instance, m_Surface);
+
+    VmaAllocatorCreateInfo allocatorCreateInfo = {
+        .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
+        .physicalDevice = m_Device.physical,
+        .device = m_Device.logical,
+        .instance = m_Instance,
+        .vulkanApiVersion = VK_API_VERSION_1_3,
+    };
+
     m_Swapchain = createSwapchain(m_Device, m_Surface, window);
+
+    res = vmaCreateAllocator(&allocatorCreateInfo, &m_Allocator);
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create Vulkan allocator");
+    }
+
+    constexpr size_t c_MB{1024 * 1024};
+    m_StagingBuffer = createBuffer(
+        m_Device, m_Allocator, c_MB * 64, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+            VMA_ALLOCATION_CREATE_MAPPED_BIT);
 
     {
         VkShaderModule vertShaderModule{
@@ -128,9 +152,20 @@ void SYN::VK::VulkanBackend::render(Window &window) {
         m_Device.logical, m_Swapchain.handle, UINT64_MAX,
         frame.imageAvailableSemaphore, VK_NULL_HANDLE, &currentImageIndex)};
 
+    if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+        spdlog::info("Recreating swapchain");
+        recreateSwapchain(window);
+        return;
+    }
+
+    if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
+        spdlog::error("Could not acquire swap chain image. VkResult = {}",
+                      static_cast<int>(res));
+    }
+
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-    };
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     vkResetCommandPool(m_Device.logical, frame.graphicsCmdPool, 0);
 
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
@@ -161,44 +196,15 @@ void SYN::VK::VulkanBackend::render(Window &window) {
     };
     vkCmdPipelineBarrier2(frame.graphicsCmdBuffer, &colorAttachmentDependency);
 
-    constexpr VkClearValue colorClearValue{
-        .color = VkClearColorValue{{0.f, 0.f, 0.f, 0.f}}};
+    Image swapchainImage{.handle = m_Swapchain.images[currentImageIndex],
+                         .view = m_Swapchain.imageViews[currentImageIndex],
+                         .extent = m_Swapchain.extent,
+                         .currentLayout = colorAttachmentBarrier.newLayout,
+                         .subresourceRange =
+                             colorAttachmentBarrier.subresourceRange};
 
-    VkRenderingAttachmentInfo colorAttachmentInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = m_Swapchain.imageViews[currentImageIndex],
-        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = colorClearValue,
-    };
-
-    VkRenderingInfo renderingInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = VkRect2D{.extent = m_Swapchain.extent},
-        .layerCount = 1,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &colorAttachmentInfo,
-
-    };
-    vkCmdBeginRendering(frame.graphicsCmdBuffer, &renderingInfo);
-    vkCmdBindPipeline(frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_GraphicsPipeline);
-
-    VkViewport viewport{.y = static_cast<float>(m_Swapchain.extent.height),
-                        .width = static_cast<float>(m_Swapchain.extent.width),
-                        .height =
-                            -static_cast<float>(m_Swapchain.extent.height),
-                        .minDepth = 0.f,
-                        .maxDepth = 1.f};
-
-    VkRect2D scissor{.extent = m_Swapchain.extent};
-
-    vkCmdSetViewport(frame.graphicsCmdBuffer, 0, 1, &viewport);
-    vkCmdSetScissor(frame.graphicsCmdBuffer, 0, 1, &scissor);
-
-    vkCmdDraw(frame.graphicsCmdBuffer, 3, 1, 0, 0);
-    vkCmdEndRendering(frame.graphicsCmdBuffer);
+    cmdDefaultRenderPass(frame.graphicsCmdBuffer, m_GraphicsPipeline,
+                         swapchainImage);
 
     VkImageMemoryBarrier2 presentBarrier{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -263,6 +269,14 @@ void SYN::VK::VulkanBackend::render(Window &window) {
     res = vkQueuePresentKHR(m_Device.queues[QueueFamily::present].handle,
                             &presentInfo);
 
+    if ((res == VK_SUBOPTIMAL_KHR) || (res == VK_ERROR_OUT_OF_DATE_KHR)) {
+        spdlog::info("Recreating swapchain");
+        recreateSwapchain(window);
+    } else if (res != VK_SUCCESS) {
+        spdlog::error("Could not present image. VkResult = {}",
+                      static_cast<int>(res));
+    }
+
     m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
 }
 void VulkanBackend::shutdown() {
@@ -284,10 +298,21 @@ void VulkanBackend::shutdown() {
     vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
 
     destroySwapchain(&m_Swapchain, m_Device);
+    destroyBuffer(m_Allocator, m_StagingBuffer);
+    vmaDestroyAllocator(m_Allocator);
     destroyDevice(&m_Device);
     vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
     destroyDebugMessenger(m_Instance, m_DebugUtilsMessenger);
     vkDestroyInstance(m_Instance, nullptr);
+}
+
+void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
+    vkDeviceWaitIdle(m_Device.logical);
+
+    Swapchain newSwapchain{
+        createSwapchain(m_Device, m_Surface, window, m_Swapchain.handle)};
+    destroySwapchain(&m_Swapchain, m_Device);
+    m_Swapchain = newSwapchain;
 }
 
 // TODO: add default shaders for if theres an error
@@ -337,4 +362,5 @@ VkShaderModule createShaderModule(const Device &device,
     }
     return shaderModule;
 }
+
 } // namespace
