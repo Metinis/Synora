@@ -24,7 +24,7 @@ target_include_directories(
   Synora 
   PUBLIC 
   ${PROJECT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}
   ${Vulkan_INCLUDE_DIR}
 )
 target_link_libraries(
@@ -50,7 +50,7 @@ target_precompile_headers(PuzzleEngine
 target_include_directories(PuzzleEngine
         PRIVATE
         ${PROJECT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${Vulkan_INCLUDE_DIR}
 )
 
