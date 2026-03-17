@@ -21,8 +21,9 @@ calcSurfaceExtent(const VkSurfaceCapabilitiesKHR &surfaceCapabilities,
                   SYN::Window &window);
 } // namespace
 
-Swapchain VK::createSwapchain(const Device &device, VkSurfaceKHR surface,
-                                    SYN::Window &window) {
+Swapchain SYN::VK::createSwapchain(const Device &device, VkSurfaceKHR surface,
+                                   SYN::Window &window,
+                                   VkSwapchainKHR oldSwapchain) {
 
     VkSurfaceCapabilitiesKHR surfaceCapabilities{};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physical, surface,
@@ -52,7 +53,8 @@ Swapchain VK::createSwapchain(const Device &device, VkSurfaceKHR surface,
         .preTransform = surfaceCapabilities.currentTransform,
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         .presentMode = presentMode,
-        .clipped = VK_TRUE};
+        .clipped = VK_TRUE,
+        .oldSwapchain = oldSwapchain};
 
     VkSwapchainKHR swapchain{};
     VkResult res{vkCreateSwapchainKHR(device.logical, &swapchainCI, nullptr,
@@ -89,20 +91,22 @@ Swapchain VK::createSwapchain(const Device &device, VkSurfaceKHR surface,
         }
     }
 
-    return Swapchain{.handle = swapchain,
-                     .images = images,
-                     .imageViews = imageViews,
-                     .format = swapchainCI.imageFormat,
-                     .extent = swapchainCI.imageExtent};
+    return Swapchain{
+        .handle = swapchain,
+        .images = images,
+        .imageViews = imageViews,
+        .format = swapchainCI.imageFormat,
+        .extent = swapchainCI.imageExtent,
+    };
 }
 
-void VK::destroySwapchain(Swapchain *swapchain, const Device &device) {
-    for (const auto &imageView : swapchain->imageViews) {
+void SYN::VK::destroySwapchain(Swapchain &swapchain, const Device &device) {
+    for (const auto &imageView : swapchain.imageViews) {
         vkDestroyImageView(device.logical, imageView, nullptr);
     }
 
-    vkDestroySwapchainKHR(device.logical, swapchain->handle, nullptr);
-    *swapchain = {};
+    vkDestroySwapchainKHR(device.logical, swapchain.handle, nullptr);
+    swapchain = {};
 }
 
 namespace {

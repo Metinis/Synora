@@ -38,7 +38,7 @@ target_link_libraries(
   EnTT::EnTT
   Jolt
   Vulkan::Vulkan
-  VulkanMemoryAllocator
+  GPUOpen::VulkanMemoryAllocator
   glm::glm
 )
 

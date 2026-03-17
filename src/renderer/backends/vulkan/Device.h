@@ -28,5 +28,5 @@ struct Device {
 };
 
 Device createDevice(VkInstance instance, VkSurfaceKHR surface);
-void destroyDevice(Device *device);
-} // namespace SYN
+void destroyDevice(Device &device);
+} // namespace SYN::VK
