@@ -25,7 +25,6 @@ target_include_directories(
   PUBLIC 
   ${PROJECT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${Vulkan_INCLUDE_DIR}
 )
 target_link_libraries(
   Synora 
@@ -35,7 +34,7 @@ target_link_libraries(
   miniaudio
   EnTT::EnTT
   Jolt
-  ${Vulkan_LIBRARY}
+  Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
   glm::glm
 )
@@ -51,7 +50,6 @@ target_include_directories(PuzzleEngine
         PUBLIC
         ${PROJECT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${Vulkan_INCLUDE_DIR}
 )
 
 target_link_libraries(
@@ -62,7 +60,7 @@ target_link_libraries(
   miniaudio
   EnTT::EnTT
   Jolt
-  ${Vulkan_LIBRARY}
+  Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
   glm::glm
 )
