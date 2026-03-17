@@ -1,5 +1,14 @@
 set(CMAKE_CXX_STANDARD 23)
 
+find_package(Vulkan REQUIRED)
+
+set (APPLE_COMPILE_DEFINITIONS)
+
+if(APPLE)
+    # This is to enable VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME to make moltenvk work
+    set(APPLE_COMPILE_DEFINITIONS VK_ENABLE_BETA_EXTENSIONS)
+endif()
+
 file(GLOB_RECURSE ENGINE_SOURCES
         CONFIGURE_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
@@ -34,6 +43,7 @@ target_precompile_headers(PuzzleEngine
 target_include_directories(PuzzleEngine
         PRIVATE
         ${PROJECT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 target_link_libraries(
@@ -44,4 +54,11 @@ target_link_libraries(
   miniaudio
   EnTT::EnTT
   Jolt
+  Vulkan::Vulkan
+  GPUOpen::VulkanMemoryAllocator
+  glm::glm
 )
+
+# This is to make the projection matrices in glm work with vulkan
+target_compile_definitions(PuzzleEngine PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLFW_INCLUDE_VULKAN ${APPLE_COMPILE_DEFINITIONS})
+

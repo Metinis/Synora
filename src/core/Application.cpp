@@ -5,6 +5,8 @@
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
 
+#include "renderer/Renderer.h"
+
 using namespace SYN;
 
 Application *Application::s_Instance = nullptr;
@@ -18,6 +20,7 @@ void Application::init() {
         std::make_unique<Window>(Window::Config{"Synora Engine", 1280, 720});
 
     m_InputManager = std::make_unique<Input>();
+    m_Renderer = std::make_unique<Renderer>();
 
     // Could make Input a shared pointer instead
     // of passing raw pointer, but m_WindowData should
@@ -28,17 +31,18 @@ void Application::init() {
 
     glfwSetWindowUserPointer(m_Window->getHandle(), &m_WindowData);
     m_InputManager->init(m_Window);
+    m_Renderer->init(*m_Window);
 }
 
 void Application::run() {
     // while running and window open
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
-        m_InputManager->processInputQueue();
+        m_Renderer->render(*m_Window.get());
     }
 }
 
-void Application::shutdown() {}
+void Application::shutdown() { m_Renderer->shutdown(); }
 
 std::unique_ptr<Input> &Application::GetInput() { return m_InputManager; }
 

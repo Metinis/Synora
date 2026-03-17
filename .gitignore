@@ -56,3 +56,10 @@ _deps/
 /.vs
 /CMakeSettings.json
 *.clangd
+compile_commands.json
+
+# Helpers 
+scripts/
+
+# Shader binaries
+*.spv

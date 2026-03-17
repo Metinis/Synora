@@ -13,3 +13,9 @@
 [submodule "3rdparty/JoltPhysics"]
 	path = 3rdparty/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "3rdparty/glm"]
+	path = 3rdparty/glm
+	url = https://github.com/g-truc/glm.git
+[submodule "3rdparty/VulkanMemoryAllocator"]
+	path = 3rdparty/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
