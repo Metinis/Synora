@@ -5,7 +5,7 @@
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
 
-#include "renderer/Renderer.h"
+#include "../renderer/Renderer.h"
 
 using namespace SYN;
 
@@ -38,6 +38,9 @@ void Application::run() {
     // while running and window open
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
+
+        m_InputManager->processInputQueue();
+
         m_Renderer->render(*m_Window.get());
     }
 }
