@@ -15,7 +15,6 @@ VkShaderModule createShaderModule(const Device &device,
 SYN::VK::GraphicsPipelineBuilder::GraphicsPipelineBuilder() { reset(); }
 
 void SYN::VK::GraphicsPipelineBuilder::reset() {
-    m_ShaderStageCIs.clear();
     m_ColorBlendAttachmentStates.clear();
 
     m_InputAssemblyStateCI = {
@@ -23,25 +22,13 @@ void SYN::VK::GraphicsPipelineBuilder::reset() {
     };
     m_RasterizationStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    // default disabled
     m_MultisampleStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
+    // default disabled
     m_DepthStencilStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-}
-
-GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::setShaderStage(VkShaderModule module,
-                                                 VkShaderStageFlagBits stage) {
-    VkPipelineShaderStageCreateInfo stageCI{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = stage,
-        .module = module,
-        .pName = "main",
-    };
-
-    m_ShaderStageCIs.emplace_back(stageCI);
-
-    return *this;
 }
 
 GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setInputAssembly(
@@ -84,26 +71,9 @@ SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
     return *this;
 }
 
-GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::disableMultisampling() {
-    m_MultisampleStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-        .minSampleShading = 1.f};
-
-    return *this;
-}
-GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::disableDepthTest() {
-    m_DepthStencilStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthCompareOp = VK_COMPARE_OP_NEVER,
-        .maxDepthBounds = 1.f};
-
-    return *this;
-}
-
-VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
-                                                   VkPipelineLayout layout) {
+VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
+    const Device &device, VkPipelineLayout layout,
+    std::span<VkPipelineShaderStageCreateInfo> shaderStageCIs) {
 
     VkPipelineVertexInputStateCreateInfo vertexInputStateCI{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -139,8 +109,8 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
     VkGraphicsPipelineCreateInfo pipelineCI{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = &renderingCI,
-        .stageCount = static_cast<uint32_t>(m_ShaderStageCIs.size()),
-        .pStages = m_ShaderStageCIs.data(),
+        .stageCount = static_cast<uint32_t>(shaderStageCIs.size()),
+        .pStages = shaderStageCIs.data(),
         .pVertexInputState = &vertexInputStateCI,
         .pInputAssemblyState = &m_InputAssemblyStateCI,
         .pTessellationState = nullptr,
@@ -162,30 +132,29 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
     return pipeline;
 }
 
-VkPipeline SYN::VK::makeFirstPipeline(
+VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
     const Device &device, VkPipelineLayout layout,
-    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths,
-    VkFormat renderTargetColorFormat) {
-    GraphicsPipelineBuilder pipelineBuilder{};
-    pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
-        .setFaceCulling(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
-        .setPolygonMode(VK_POLYGON_MODE_FILL)
-        .addColorAttachment(renderTargetColorFormat)
-        .disableDepthTest()
-        .disableMultisampling();
+    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths) {
 
     std::vector<VkShaderModule> shaderModules{};
     shaderModules.reserve(shaderPaths.size());
+    std::vector<VkPipelineShaderStageCreateInfo> shaderStageCIs{};
+    shaderStageCIs.reserve(shaderPaths.size());
 
     for (const auto &[stage, path] : shaderPaths) {
-
         VkShaderModule shaderModule{createShaderModule(device, path)};
         shaderModules.emplace_back(shaderModule);
 
-        pipelineBuilder.setShaderStage(shaderModule, stage);
+        VkPipelineShaderStageCreateInfo shaderStageCI{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = stage,
+            .module = shaderModule,
+            .pName = "main",
+        };
+        shaderStageCIs.emplace_back(shaderStageCI);
     }
 
-    VkPipeline pipeline{pipelineBuilder.build(device, layout)};
+    VkPipeline pipeline{build(device, layout, shaderStageCIs)};
 
     for (auto shaderModule : shaderModules) {
         vkDestroyShaderModule(device.logical, shaderModule, nullptr);

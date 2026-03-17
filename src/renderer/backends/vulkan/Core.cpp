@@ -32,13 +32,22 @@ void VulkanBackend::init(SYN::Window &window) {
     initContext(window);
 
     initBindlessPipelineLayout();
-    std::unordered_map<VkShaderStageFlagBits, std::string> shaders{
-        {VK_SHADER_STAGE_VERTEX_BIT, "generated/shaders/first.vert.spv"},
-        {VK_SHADER_STAGE_FRAGMENT_BIT, "generated/shaders/first.frag.spv"},
-    };
+    {
+        std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths{
+            {VK_SHADER_STAGE_VERTEX_BIT, "generated/shaders/first.vert.spv"},
+            {VK_SHADER_STAGE_FRAGMENT_BIT, "generated/shaders/first.frag.spv"},
+        };
 
-    m_GraphicsPipeline = makeFirstPipeline(m_Device, m_BindlessPipelineLayout,
-                                           shaders, m_Swapchain.format);
+        GraphicsPipelineBuilder firstPipelineBuilder{};
+        m_GraphicsPipeline =
+            firstPipelineBuilder
+                .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+                .setFaceCulling(VK_CULL_MODE_BACK_BIT,
+                                VK_FRONT_FACE_COUNTER_CLOCKWISE)
+                .setPolygonMode(VK_POLYGON_MODE_FILL)
+                .addColorAttachment(m_Swapchain.format)
+                .build(m_Device, m_BindlessPipelineLayout, shaderPaths);
+    }
 
     initFrameData(m_Swapchain);
 

@@ -13,10 +13,13 @@ class GraphicsPipelineBuilder {
     ~GraphicsPipelineBuilder() = default;
 
     void reset();
-    VkPipeline build(const Device &device, VkPipelineLayout layout);
 
-    GraphicsPipelineBuilder &setShaderStage(VkShaderModule module,
-                                            VkShaderStageFlagBits stage);
+    VkPipeline build(const Device &device, VkPipelineLayout layout,
+                     std::span<VkPipelineShaderStageCreateInfo> shaderStageCIs);
+
+    VkPipeline
+    build(const Device &device, VkPipelineLayout layout,
+          std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths);
 
     GraphicsPipelineBuilder &
     setInputAssembly(VkPrimitiveTopology topology,
@@ -29,11 +32,7 @@ class GraphicsPipelineBuilder {
 
     GraphicsPipelineBuilder &addColorAttachment(VkFormat format);
 
-    GraphicsPipelineBuilder &disableMultisampling();
-    GraphicsPipelineBuilder &disableDepthTest();
-
   private:
-    std::vector<VkPipelineShaderStageCreateInfo> m_ShaderStageCIs{};
     std::vector<VkPipelineColorBlendAttachmentState>
         m_ColorBlendAttachmentStates{};
 
@@ -44,10 +43,5 @@ class GraphicsPipelineBuilder {
     VkPipelineMultisampleStateCreateInfo m_MultisampleStateCI;
     VkPipelineDepthStencilStateCreateInfo m_DepthStencilStateCI;
 };
-
-VkPipeline makeFirstPipeline(
-    const Device &device, VkPipelineLayout layout,
-    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths,
-    VkFormat renderTargetColorFormat);
 
 } // namespace SYN::VK
