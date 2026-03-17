@@ -1,7 +1,5 @@
 set(CMAKE_CXX_STANDARD 23)
 
-find_package(Vulkan REQUIRED)
-
 set (APPLE_COMPILE_DEFINITIONS)
 
 if(APPLE)
@@ -22,7 +20,13 @@ target_precompile_headers(
   PUBLIC
   "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_SOURCE_DIR}/include/PuzzleEngine/synpch.h>"
 )
-target_include_directories(Synora PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(
+  Synora 
+  PUBLIC 
+  ${PROJECT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${Vulkan_INCLUDE_DIR}
+)
 target_link_libraries(
   Synora 
   PUBLIC
@@ -31,6 +35,9 @@ target_link_libraries(
   miniaudio
   EnTT::EnTT
   Jolt
+  ${Vulkan_LIBRARY}
+  GPUOpen::VulkanMemoryAllocator
+  glm::glm
 )
 
 add_executable(PuzzleEngine
@@ -43,7 +50,8 @@ target_precompile_headers(PuzzleEngine
 target_include_directories(PuzzleEngine
         PRIVATE
         ${PROJECT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${Vulkan_INCLUDE_DIR}
 )
 
 target_link_libraries(
@@ -54,11 +62,10 @@ target_link_libraries(
   miniaudio
   EnTT::EnTT
   Jolt
-  Vulkan::Vulkan
+  ${Vulkan_LIBRARY}
   GPUOpen::VulkanMemoryAllocator
   glm::glm
 )
 
 # This is to make the projection matrices in glm work with vulkan
 target_compile_definitions(PuzzleEngine PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLFW_INCLUDE_VULKAN ${APPLE_COMPILE_DEFINITIONS})
-

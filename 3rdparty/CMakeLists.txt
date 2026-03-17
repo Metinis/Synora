@@ -17,12 +17,6 @@ set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
 set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
 set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
 
-# Compile Jolt successfully on Linux
-# Jolt needs Vulkan for some hair physics thing I think.
-if(UNIX AND NOT APPLE)
-    find_package(Vulkan REQUIRED)
-endif()
-
 add_subdirectory(JoltPhysics/Build)
 
 add_subdirectory(glm)
