@@ -45,4 +45,9 @@ class GraphicsPipelineBuilder {
     VkPipelineDepthStencilStateCreateInfo m_DepthStencilStateCI;
 };
 
+VkPipeline makeFirstPipeline(
+    const Device &device, VkPipelineLayout layout,
+    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths,
+    VkFormat renderTargetColorFormat);
+
 } // namespace SYN::VK

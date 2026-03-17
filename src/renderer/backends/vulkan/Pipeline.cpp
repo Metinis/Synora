@@ -1,10 +1,16 @@
 #include "Pipeline.h"
 #include "Device.h"
+#include <fstream>
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
 using namespace SYN::VK;
+
+namespace {
+VkShaderModule createShaderModule(const Device &device,
+                                  const std::string &path);
+}
 
 SYN::VK::GraphicsPipelineBuilder::GraphicsPipelineBuilder() { reset(); }
 
@@ -155,3 +161,85 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
     }
     return pipeline;
 }
+
+VkPipeline SYN::VK::makeFirstPipeline(
+    const Device &device, VkPipelineLayout layout,
+    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths,
+    VkFormat renderTargetColorFormat) {
+    GraphicsPipelineBuilder pipelineBuilder{};
+    pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+        .setFaceCulling(VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE)
+        .setPolygonMode(VK_POLYGON_MODE_FILL)
+        .addColorAttachment(renderTargetColorFormat)
+        .disableDepthTest()
+        .disableMultisampling();
+
+    std::vector<VkShaderModule> shaderModules{};
+    shaderModules.reserve(shaderPaths.size());
+
+    for (const auto &[stage, path] : shaderPaths) {
+
+        VkShaderModule shaderModule{createShaderModule(device, path)};
+        shaderModules.emplace_back(shaderModule);
+
+        pipelineBuilder.setShaderStage(shaderModule, stage);
+    }
+
+    VkPipeline pipeline{pipelineBuilder.build(device, layout)};
+
+    for (auto shaderModule : shaderModules) {
+        vkDestroyShaderModule(device.logical, shaderModule, nullptr);
+    }
+
+    return pipeline;
+}
+
+namespace {
+
+// TODO: add default shaders for if theres an error
+VkShaderModule createShaderModule(const Device &device,
+                                  const std::string &path) {
+    std::ifstream file(path, std::ios::in | std::ios::binary | std::ios::ate);
+
+    if (!file.is_open()) {
+        spdlog::error("Could not open {}, shader module creation failed", path);
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+    std::streampos fileSize{file.tellg()};
+    if (fileSize < 0) {
+        spdlog::error("Tellg failed, shader module creation failed", path);
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+
+    if ((fileSize % sizeof(uint32_t)) != 0) {
+        spdlog::error("Could not create shader module, {} file size was not a "
+                      "multiple of 32 "
+                      "and may be malformed",
+                      path);
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+
+    std::vector<uint32_t> shaderCode(fileSize / sizeof(uint32_t));
+    file.seekg(0, std::ios::beg);
+    file.read(reinterpret_cast<char *>(shaderCode.data()), fileSize);
+
+    VkShaderModuleCreateInfo shaderModuleCI{
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = shaderCode.size() * sizeof(uint32_t), // byte size
+        .pCode = shaderCode.data()};
+
+    VkShaderModule shaderModule{};
+    VkResult res{vkCreateShaderModule(device.logical, &shaderModuleCI, nullptr,
+                                      &shaderModule)};
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create shader module of {},  VkResult = {}",
+                      path, static_cast<int>(res));
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+    return shaderModule;
+}
+} // namespace

@@ -11,8 +11,6 @@
 
 #include <GLFW/glfw3.h>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
 #include <glm/glm.hpp>
 #include <spdlog/spdlog.h>
 #include <vk_mem_alloc.h>
@@ -33,8 +31,16 @@ VkShaderModule createShaderModule(const Device &device,
 void VulkanBackend::init(SYN::Window &window) {
     initContext(window);
 
-    initPipeline();
-    initFrameData();
+    initBindlessPipelineLayout();
+    std::unordered_map<VkShaderStageFlagBits, std::string> shaders{
+        {VK_SHADER_STAGE_VERTEX_BIT, "generated/shaders/first.vert.spv"},
+        {VK_SHADER_STAGE_FRAGMENT_BIT, "generated/shaders/first.frag.spv"},
+    };
+
+    m_GraphicsPipeline = makeFirstPipeline(m_Device, m_BindlessPipelineLayout,
+                                           shaders, m_Swapchain.format);
+
+    initFrameData(m_Swapchain);
 
     m_StagingBuffer = createStagingBuffer(m_Device, m_Allocator, c_MB * 64);
 
@@ -87,7 +93,7 @@ void VulkanBackend::shutdown() {
         vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
     }
 
-    vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
+    vkDestroyPipelineLayout(m_Device.logical, m_BindlessPipelineLayout,
                             nullptr);
     vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
 
@@ -130,13 +136,7 @@ void SYN::VK::VulkanBackend::initContext(Window &window) {
     m_Swapchain = createSwapchain(m_Device, m_Surface, window);
 }
 
-void SYN::VK::VulkanBackend::initPipeline() {
-    VkShaderModule vertShaderModule{
-        createShaderModule(m_Device, "generated/shaders/first.vert.spv")};
-
-    VkShaderModule fragShaderModule{
-        createShaderModule(m_Device, "generated/shaders/first.frag.spv")};
-
+void SYN::VK::VulkanBackend::initBindlessPipelineLayout() {
     VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         .size = sizeof(PushConstants),
@@ -148,26 +148,10 @@ void SYN::VK::VulkanBackend::initPipeline() {
         .pPushConstantRanges = &pushConstantRange};
 
     vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
-                           &m_GraphicsPipelineLayout);
-    GraphicsPipelineBuilder graphicsPipelineBuilder{};
-    m_GraphicsPipeline =
-        graphicsPipelineBuilder
-            .setShaderStage(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT)
-            .setShaderStage(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT)
-            .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
-            .setFaceCulling(VK_CULL_MODE_BACK_BIT,
-                            VK_FRONT_FACE_COUNTER_CLOCKWISE)
-            .setPolygonMode(VK_POLYGON_MODE_FILL)
-            .addColorAttachment(m_Swapchain.format)
-            .disableDepthTest()
-            .disableMultisampling()
-            .build(m_Device, m_GraphicsPipelineLayout);
-
-    vkDestroyShaderModule(m_Device.logical, vertShaderModule, nullptr);
-    vkDestroyShaderModule(m_Device.logical, fragShaderModule, nullptr);
+                           &m_BindlessPipelineLayout);
 }
 
-void SYN::VK::VulkanBackend::initFrameData() {
+void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
     for (size_t i{}; i < c_MaxFramesInFlight; i++) {
         VkCommandPoolCreateInfo graphicsCmdPoolCI{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -210,7 +194,7 @@ void SYN::VK::VulkanBackend::initFrameData() {
                       .renderFinishedFence = renderFinishedFence,
                       .imageAvailableSemaphore = imageAvailableSemaphore};
     }
-    for (const auto &_ : m_Swapchain.images) {
+    for (const auto &_ : swapchain.images) {
         VkSemaphoreCreateInfo semaphoreCI{
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         };
@@ -290,7 +274,7 @@ void SYN::VK::VulkanBackend::recordRenderCmd(uint32_t currentImageIndex) {
 
     uint32_t nVertices{6};
     cmdDefaultRenderPass(frame.graphicsCmdBuffer, m_GraphicsPipeline,
-                         m_GraphicsPipelineLayout, pushConstants, nVertices,
+                         m_BindlessPipelineLayout, pushConstants, nVertices,
                          swapchainImage,
                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
@@ -373,53 +357,3 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
     destroySwapchain(m_Swapchain, m_Device);
     m_Swapchain = newSwapchain;
 }
-
-// TODO: add default shaders for if theres an error
-namespace {
-VkShaderModule createShaderModule(const Device &device,
-                                  const std::string &path) {
-    std::ifstream file(path, std::ios::in | std::ios::binary | std::ios::ate);
-
-    if (!file.is_open()) {
-        spdlog::error("Could not open {}, shader module creation failed", path);
-        assert(false);
-        return VK_NULL_HANDLE;
-    }
-    std::streampos fileSize{file.tellg()};
-    if (fileSize < 0) {
-        spdlog::error("Tellg failed, shader module creation failed", path);
-        assert(false);
-        return VK_NULL_HANDLE;
-    }
-
-    if ((fileSize % sizeof(uint32_t)) != 0) {
-        spdlog::error("Could not create shader module, {} file size was not a "
-                      "multiple of 32 "
-                      "and may be malformed",
-                      path);
-        assert(false);
-        return VK_NULL_HANDLE;
-    }
-
-    std::vector<uint32_t> shaderCode(fileSize / sizeof(uint32_t));
-    file.seekg(0, std::ios::beg);
-    file.read(reinterpret_cast<char *>(shaderCode.data()), fileSize);
-
-    VkShaderModuleCreateInfo shaderModuleCI{
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = shaderCode.size() * sizeof(uint32_t), // byte size
-        .pCode = shaderCode.data()};
-
-    VkShaderModule shaderModule{};
-    VkResult res{vkCreateShaderModule(device.logical, &shaderModuleCI, nullptr,
-                                      &shaderModule)};
-    if (res != VK_SUCCESS) {
-        spdlog::error("Could not create shader module of {},  VkResult = {}",
-                      path, static_cast<int>(res));
-        assert(false);
-        return VK_NULL_HANDLE;
-    }
-    return shaderModule;
-}
-
-} // namespace

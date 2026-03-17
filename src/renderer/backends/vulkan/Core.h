@@ -30,8 +30,8 @@ class VulkanBackend : public IBackend {
 
   private:
     void initContext(Window &window);
-    void initPipeline();
-    void initFrameData();
+    void initBindlessPipelineLayout();
+    void initFrameData(const Swapchain &swapchain);
 
     std::optional<uint32_t>
     beginFrame(Window &window); // returns currentImageIndex;
@@ -54,7 +54,7 @@ class VulkanBackend : public IBackend {
     StagingBuffer m_StagingBuffer{};
     Buffer m_VertexBuffer{};
 
-    VkPipelineLayout m_GraphicsPipelineLayout{};
+    VkPipelineLayout m_BindlessPipelineLayout{};
 
     VkPipeline m_GraphicsPipeline{};
 
