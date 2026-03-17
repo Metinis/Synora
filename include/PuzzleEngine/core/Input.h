@@ -32,14 +32,9 @@ class Input {
     // Call every frame to dispatch update to user.
     void processInputQueue();
 
-    template <class ContextDerived, typename... Args>
-        requires std::derived_from<ContextDerived, InputContext>
-    std::optional<InputContextHandle> addInputContext(uint8_t priority,
-                                                      Args &&...args) {
-        return addInputContext(priority,
-                               std::move(std::make_unique<ContextDerived>(
-                                   std::forward<Args>(args)...)));
-    }
+    std::optional<InputContextHandle> addInputContext(uint8_t priority);
+
+    void setPriority(InputContextHandle userHandle, uint8_t priority);
 
   private:
     // Validate user handle's generation and active (lowest bit) state against

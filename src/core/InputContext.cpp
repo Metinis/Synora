@@ -44,6 +44,36 @@ void SYN::InputContext::onInputReceived(
     }
 }
 
+void SYN::InputContext::onActionReceive(
+    std::tuple<ActionBinding, InputState> actionBinding) {
+    auto &[actionBind, inputState] = actionBinding;
+    ActionID currentAction = actionBind.m_Action;
+    if (m_ActionCallbacks.find(currentAction) == m_ActionCallbacks.cend())
+        return;
+    const std::vector<ActionCallback> &actionCallbacks =
+        m_ActionCallbacks.at(currentAction);
+    for (const ActionCallback &actionCallback : actionCallbacks) {
+        actionCallback(inputState);
+    }
+}
+
+void SYN::InputContext::addActionCallback(ActionID action,
+                                          ActionCallback callback) {
+    m_ActionCallbacks[action] = {callback};
+}
+
+void SYN::InputContext::addActionCallbacks(
+    ActionID action, const std::vector<ActionCallback> &callbacks) {
+    m_ActionCallbacks[action] = callbacks;
+}
+
+void SYN::InputContext::removeActionCallbacks(ActionID action) {
+    if (m_ActionCallbacks.find(action) == m_ActionCallbacks.cend()) {
+        return;
+    }
+    m_ActionCallbacks.clear();
+}
+
 uint8_t SYN::InputContext::getPriority() const { return m_Priority; }
 
 void SYN::InputContext::setPriority(uint8_t priority) { m_Priority = priority; }
