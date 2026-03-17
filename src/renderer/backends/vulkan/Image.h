@@ -7,7 +7,6 @@ struct Image {
     VkImage handle;
     VkImageView view;
     VkExtent2D extent;
-    VkImageLayout currentLayout;
     VkImageSubresourceRange subresourceRange;
 };
 } // namespace SYN::VK

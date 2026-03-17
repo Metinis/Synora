@@ -8,7 +8,8 @@ using namespace SYN;
 void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
                                    VkPipeline pipeline, VkPipelineLayout layout,
                                    const PushConstants &pushConstants,
-                                   uint32_t vertexCount, Image &renderTarget) {
+                                   uint32_t vertexCount, Image &renderTarget,
+                                   VkImageLayout renderTargetLayout) {
 
     constexpr VkClearValue colorClearValue{
         .color = VkClearColorValue{{0.f, 0.f, 0.f, 0.f}}};
@@ -16,7 +17,7 @@ void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
     VkRenderingAttachmentInfo colorAttachmentInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .imageView = renderTarget.view,
-        .imageLayout = renderTarget.currentLayout,
+        .imageLayout = renderTargetLayout,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = colorClearValue,

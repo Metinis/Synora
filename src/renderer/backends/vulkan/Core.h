@@ -1,7 +1,9 @@
 #include "Buffer.h"
 #include "Device.h"
+#include "StagingBuffer.h"
 #include "Swapchain.h"
 #include "renderer/IBackend.h"
+#include <optional>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
@@ -27,6 +29,15 @@ class VulkanBackend : public IBackend {
     void shutdown() override;
 
   private:
+    void initContext(Window &window);
+    void initPipeline();
+    void initFrameData();
+
+    std::optional<uint32_t>
+    beginFrame(Window &window); // returns currentImageIndex;
+    void recordRenderCmd(uint32_t currentImageIndex);
+    void endFrame(Window &window, uint32_t currentImageIndex);
+
     void recreateSwapchain(Window &window);
 
     static constexpr uint32_t c_MaxFramesInFlight{2};
@@ -40,10 +51,8 @@ class VulkanBackend : public IBackend {
 
     Swapchain m_Swapchain{};
 
-    Buffer m_StagingBuffer{};
+    StagingBuffer m_StagingBuffer{};
     Buffer m_VertexBuffer{};
-
-    VkCommandPool m_TransientCommandPool{};
 
     VkPipelineLayout m_GraphicsPipelineLayout{};
 

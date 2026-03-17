@@ -73,10 +73,10 @@ Device VK::createDevice(VkInstance instance, VkSurfaceKHR surface) {
         .physical = physicalDevice, .logical = device, .queues = queues};
 }
 
-void VK::destroyDevice(Device *device) {
-    vkDestroyDevice(device->logical, nullptr);
-    device->logical = {};
-    device->physical = {};
+void VK::destroyDevice(Device &device) {
+    vkDestroyDevice(device.logical, nullptr);
+    device.logical = {};
+    device.physical = {};
 }
 
 namespace {

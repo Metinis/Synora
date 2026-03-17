@@ -6,6 +6,7 @@
 #include "Instance.h"
 #include "Pipeline.h"
 #include "Renderpass.h"
+#include "StagingBuffer.h"
 #include "Swapchain.h"
 
 #include <GLFW/glfw3.h>
@@ -23,11 +24,84 @@ using namespace SYN;
 using namespace SYN::VK;
 
 namespace {
+constexpr uint32_t c_MB{1024 * 1024};
+
 VkShaderModule createShaderModule(const Device &device,
                                   const std::string &path);
 } // namespace
 
 void VulkanBackend::init(SYN::Window &window) {
+    initContext(window);
+
+    initPipeline();
+    initFrameData();
+
+    m_StagingBuffer = createStagingBuffer(m_Device, m_Allocator, c_MB * 64);
+
+    m_VertexBuffer =
+        createBuffer(m_Device, m_Allocator, c_MB * 64,
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                     0);
+
+    std::vector<Vertex> vertices{
+        {.pos = {-0.5, -0.5, 1.0}}, {.pos = {0.0, -0.5, 1.0}},
+        {.pos = {-0.5, 0.5, 1.0}},
+
+        {.pos = {0.0, -0.5, 1.0}},  {.pos = {0.0, 0.5, 1.0}},
+        {.pos = {-0.5, 0.5, 1.0}},
+    };
+
+    writeToBuffer(m_Device, vertices.data(), vertices.size() * sizeof(Vertex),
+                  m_StagingBuffer, m_VertexBuffer);
+}
+
+void SYN::VK::VulkanBackend::render(Window &window) {
+    // will eventually extract currentImageIndex into a seperate
+    // "getSurfaceImageAttachment" kindof function to return a handle so that a
+    // renderpass can reference that instead of what were doing here
+    std::optional<uint32_t> currentImageIndex{beginFrame(window)};
+    if (!currentImageIndex.has_value()) {
+        spdlog::warn("Could not complete render, beginFrame failed");
+        return;
+    }
+
+    recordRenderCmd(currentImageIndex.value());
+
+    endFrame(window, currentImageIndex.value());
+
+    m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
+}
+void VulkanBackend::shutdown() {
+    vkDeviceWaitIdle(m_Device.logical);
+
+    for (const auto &frame : m_FrameData) {
+        vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
+        vkDestroySemaphore(m_Device.logical, frame.imageAvailableSemaphore,
+                           nullptr);
+        vkDestroyCommandPool(m_Device.logical, frame.graphicsCmdPool, nullptr);
+    }
+
+    for (const auto &semaphore : m_RenderFinishedSemaphores) {
+        vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
+    }
+
+    vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
+                            nullptr);
+    vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
+
+    destroySwapchain(m_Swapchain, m_Device);
+    destroyStagingBuffer(m_StagingBuffer, m_Device, m_Allocator);
+    destroyBuffer(m_Allocator, m_VertexBuffer);
+    vmaDestroyAllocator(m_Allocator);
+    destroyDevice(m_Device);
+    vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+    destroyDebugMessenger(m_Instance, m_DebugUtilsMessenger);
+    vkDestroyInstance(m_Instance, nullptr);
+}
+
+void SYN::VK::VulkanBackend::initContext(Window &window) {
     m_Instance = createInstance();
 
     m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
@@ -48,93 +122,52 @@ void VulkanBackend::init(SYN::Window &window) {
         .vulkanApiVersion = VK_API_VERSION_1_3,
     };
 
-    m_Swapchain = createSwapchain(m_Device, m_Surface, window);
-
     res = vmaCreateAllocator(&allocatorCreateInfo, &m_Allocator);
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create Vulkan allocator");
     }
 
-    std::vector<Vertex> vertices{
-        {.pos = {-0.5, -0.5, 1.0}}, {.pos = {0.0, -0.5, 1.0}},
-        {.pos = {-0.5, 0.5, 1.0}},
+    m_Swapchain = createSwapchain(m_Device, m_Surface, window);
+}
 
-        {.pos = {0.0, -0.5, 1.0}},  {.pos = {0.0, 0.5, 1.0}},
-        {.pos = {-0.5, 0.5, 1.0}},
+void SYN::VK::VulkanBackend::initPipeline() {
+    VkShaderModule vertShaderModule{
+        createShaderModule(m_Device, "generated/shaders/first.vert.spv")};
+
+    VkShaderModule fragShaderModule{
+        createShaderModule(m_Device, "generated/shaders/first.frag.spv")};
+
+    VkPushConstantRange pushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .size = sizeof(PushConstants),
     };
 
-    constexpr size_t c_MB{1024 * 1024};
-    m_StagingBuffer = createBuffer(
-        m_Device, m_Allocator, c_MB * 64, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-            VMA_ALLOCATION_CREATE_MAPPED_BIT);
+    VkPipelineLayoutCreateInfo layoutCI{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantRange};
 
-    m_VertexBuffer =
-        createBuffer(m_Device, m_Allocator, c_MB * 64,
-                     VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     0);
-    VkCommandPoolCreateInfo transientCmdPoolCI{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-        .queueFamilyIndex = m_Device.queues[QueueFamily::transfer].familyIndex};
+    vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
+                           &m_GraphicsPipelineLayout);
+    GraphicsPipelineBuilder graphicsPipelineBuilder{};
+    m_GraphicsPipeline =
+        graphicsPipelineBuilder
+            .setShaderStage(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT)
+            .setShaderStage(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT)
+            .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+            .setFaceCulling(VK_CULL_MODE_BACK_BIT,
+                            VK_FRONT_FACE_COUNTER_CLOCKWISE)
+            .setPolygonMode(VK_POLYGON_MODE_FILL)
+            .addColorAttachment(m_Swapchain.format)
+            .disableDepthTest()
+            .disableMultisampling()
+            .build(m_Device, m_GraphicsPipelineLayout);
 
-    vkCreateCommandPool(m_Device.logical, &transientCmdPoolCI, nullptr,
-                        &m_TransientCommandPool);
+    vkDestroyShaderModule(m_Device.logical, vertShaderModule, nullptr);
+    vkDestroyShaderModule(m_Device.logical, fragShaderModule, nullptr);
+}
 
-    memcpy(m_StagingBuffer.mappedData, vertices.data(),
-           vertices.size() * sizeof(Vertex));
-
-    submitImmediateCmd(m_TransientCommandPool,
-                       m_Device.queues[QueueFamily::transfer].handle, m_Device,
-                       [&](VkCommandBuffer cmdBuffer) {
-                           VkBufferCopy region{
-                               .size = vertices.size() * sizeof(Vertex),
-                           };
-
-                           vkCmdCopyBuffer(cmdBuffer, m_StagingBuffer.handle,
-                                           m_VertexBuffer.handle, 1, &region);
-                       });
-
-    {
-
-        VkShaderModule vertShaderModule{
-            createShaderModule(m_Device, "generated/shaders/first.vert.spv")};
-
-        VkShaderModule fragShaderModule{
-            createShaderModule(m_Device, "generated/shaders/first.frag.spv")};
-
-        VkPushConstantRange pushConstantRange{
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-            .size = sizeof(PushConstants),
-        };
-
-        VkPipelineLayoutCreateInfo layoutCI{
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &pushConstantRange};
-
-        vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
-                               &m_GraphicsPipelineLayout);
-        GraphicsPipelineBuilder graphicsPipelineBuilder{};
-        m_GraphicsPipeline =
-            graphicsPipelineBuilder
-                .setShaderStage(fragShaderModule, VK_SHADER_STAGE_FRAGMENT_BIT)
-                .setShaderStage(vertShaderModule, VK_SHADER_STAGE_VERTEX_BIT)
-                .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
-                .setFaceCulling(VK_CULL_MODE_BACK_BIT,
-                                VK_FRONT_FACE_COUNTER_CLOCKWISE)
-                .setPolygonMode(VK_POLYGON_MODE_FILL)
-                .addColorAttachment(m_Swapchain.format)
-                .disableDepthTest()
-                .disableMultisampling()
-                .build(m_Device, m_GraphicsPipelineLayout);
-
-        vkDestroyShaderModule(m_Device.logical, vertShaderModule, nullptr);
-        vkDestroyShaderModule(m_Device.logical, fragShaderModule, nullptr);
-    }
-
+void SYN::VK::VulkanBackend::initFrameData() {
     for (size_t i{}; i < c_MaxFramesInFlight; i++) {
         VkCommandPoolCreateInfo graphicsCmdPoolCI{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -151,8 +184,8 @@ void VulkanBackend::init(SYN::Window &window) {
             .commandBufferCount = 1,
         };
         VkCommandBuffer graphicsCmdBuffer{};
-        res = vkAllocateCommandBuffers(m_Device.logical, &cmdBufferAllocInfo,
-                                       &graphicsCmdBuffer);
+        VkResult res{vkAllocateCommandBuffers(
+            m_Device.logical, &cmdBufferAllocInfo, &graphicsCmdBuffer)};
         if (res != VK_SUCCESS) {
             spdlog::error("Could not allocate command buffers, VkResult = {}",
                           static_cast<int>(res));
@@ -188,7 +221,7 @@ void VulkanBackend::init(SYN::Window &window) {
     }
 }
 
-void SYN::VK::VulkanBackend::render(Window &window) {
+std::optional<uint32_t> SYN::VK::VulkanBackend::beginFrame(Window &window) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     vkWaitForFences(m_Device.logical, 1, &frame.renderFinishedFence, VK_TRUE,
@@ -202,20 +235,24 @@ void SYN::VK::VulkanBackend::render(Window &window) {
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         spdlog::info("Recreating swapchain");
         recreateSwapchain(window);
-        return;
+        return {};
     }
 
     if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
         spdlog::error("Could not acquire swap chain image. VkResult = {}",
                       static_cast<int>(res));
     }
-
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     vkResetCommandPool(m_Device.logical, frame.graphicsCmdPool, 0);
-
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
+
+    return currentImageIndex;
+}
+
+void SYN::VK::VulkanBackend::recordRenderCmd(uint32_t currentImageIndex) {
+    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     VkImageMemoryBarrier2 colorAttachmentBarrier{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -246,7 +283,6 @@ void SYN::VK::VulkanBackend::render(Window &window) {
     Image swapchainImage{.handle = m_Swapchain.images[currentImageIndex],
                          .view = m_Swapchain.imageViews[currentImageIndex],
                          .extent = m_Swapchain.extent,
-                         .currentLayout = colorAttachmentBarrier.newLayout,
                          .subresourceRange =
                              colorAttachmentBarrier.subresourceRange};
 
@@ -255,7 +291,8 @@ void SYN::VK::VulkanBackend::render(Window &window) {
     uint32_t nVertices{6};
     cmdDefaultRenderPass(frame.graphicsCmdBuffer, m_GraphicsPipeline,
                          m_GraphicsPipelineLayout, pushConstants, nVertices,
-                         swapchainImage);
+                         swapchainImage,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     VkImageMemoryBarrier2 presentBarrier{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -282,13 +319,12 @@ void SYN::VK::VulkanBackend::render(Window &window) {
         .pImageMemoryBarriers = &presentBarrier,
     };
     vkCmdPipelineBarrier2(frame.graphicsCmdBuffer, &presentDependency);
+}
+void SYN::VK::VulkanBackend::endFrame(Window &window,
+                                      uint32_t currentImageIndex) {
+    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     vkEndCommandBuffer(frame.graphicsCmdBuffer);
-
-    VkCommandBufferSubmitInfo cmdBufferSubmitInfo{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-        .commandBuffer = frame.graphicsCmdBuffer,
-    };
 
     VkPipelineStageFlags waitStage{
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
@@ -317,8 +353,8 @@ void SYN::VK::VulkanBackend::render(Window &window) {
         .pImageIndices = &currentImageIndex,
     };
 
-    res = vkQueuePresentKHR(m_Device.queues[QueueFamily::present].handle,
-                            &presentInfo);
+    VkResult res{vkQueuePresentKHR(m_Device.queues[QueueFamily::present].handle,
+                                   &presentInfo)};
 
     if ((res == VK_SUBOPTIMAL_KHR) || (res == VK_ERROR_OUT_OF_DATE_KHR)) {
         spdlog::info("Recreating swapchain");
@@ -327,36 +363,6 @@ void SYN::VK::VulkanBackend::render(Window &window) {
         spdlog::error("Could not present image. VkResult = {}",
                       static_cast<int>(res));
     }
-
-    m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
-}
-void VulkanBackend::shutdown() {
-    vkDeviceWaitIdle(m_Device.logical);
-
-    for (const auto &frame : m_FrameData) {
-        vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
-        vkDestroySemaphore(m_Device.logical, frame.imageAvailableSemaphore,
-                           nullptr);
-        vkDestroyCommandPool(m_Device.logical, frame.graphicsCmdPool, nullptr);
-    }
-
-    for (const auto &semaphore : m_RenderFinishedSemaphores) {
-        vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
-    }
-
-    vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
-                            nullptr);
-    vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
-
-    destroySwapchain(&m_Swapchain, m_Device);
-    vkDestroyCommandPool(m_Device.logical, m_TransientCommandPool, nullptr);
-    destroyBuffer(m_Allocator, m_StagingBuffer);
-    destroyBuffer(m_Allocator, m_VertexBuffer);
-    vmaDestroyAllocator(m_Allocator);
-    destroyDevice(&m_Device);
-    vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
-    destroyDebugMessenger(m_Instance, m_DebugUtilsMessenger);
-    vkDestroyInstance(m_Instance, nullptr);
 }
 
 void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
@@ -364,7 +370,7 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
 
     Swapchain newSwapchain{
         createSwapchain(m_Device, m_Surface, window, m_Swapchain.handle)};
-    destroySwapchain(&m_Swapchain, m_Device);
+    destroySwapchain(m_Swapchain, m_Device);
     m_Swapchain = newSwapchain;
 }
 

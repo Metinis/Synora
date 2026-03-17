@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Device.h"
+#include "Image.h"
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -22,5 +23,5 @@ Swapchain createSwapchain(const Device &device, VkSurfaceKHR surface,
                           Window &window,
                           VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
 
-void destroySwapchain(Swapchain *swapchain, const Device &device);
+void destroySwapchain(Swapchain &swapchain, const Device &device);
 } // namespace SYN::VK

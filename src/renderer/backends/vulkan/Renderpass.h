@@ -18,5 +18,6 @@ struct PushConstants {
 void cmdDefaultRenderPass(VkCommandBuffer cmdBuffer, VkPipeline pipeline,
                           VkPipelineLayout layout,
                           const PushConstants &pushConstants,
-                          uint32_t vertexCount, Image &renderTarget);
+                          uint32_t vertexCount, Image &renderTarget,
+                          VkImageLayout renderTargetLayout);
 } // namespace SYN::VK

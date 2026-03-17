@@ -100,13 +100,13 @@ Swapchain SYN::VK::createSwapchain(const Device &device, VkSurfaceKHR surface,
     };
 }
 
-void SYN::VK::destroySwapchain(Swapchain *swapchain, const Device &device) {
-    for (const auto &imageView : swapchain->imageViews) {
+void SYN::VK::destroySwapchain(Swapchain &swapchain, const Device &device) {
+    for (const auto &imageView : swapchain.imageViews) {
         vkDestroyImageView(device.logical, imageView, nullptr);
     }
 
-    vkDestroySwapchainKHR(device.logical, swapchain->handle, nullptr);
-    *swapchain = {};
+    vkDestroySwapchainKHR(device.logical, swapchain.handle, nullptr);
+    swapchain = {};
 }
 
 namespace {
