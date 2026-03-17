@@ -1,5 +1,7 @@
 #pragma once
 
+#include <queue>
+
 #include "InputTypes.h"
 
 namespace SYN {
@@ -15,8 +17,7 @@ class Input {
 
     void onKeyEvent(int32_t keyCode, int32_t action);
 
-    void assignAction(InputKey key, ActionID action);
-    void removeAction(InputKey key, ActionID action);
+    bool isKeyDown(InputKey keyCode);
 
     void removeContext(InputContextHandle userHandle);
 
@@ -45,6 +46,8 @@ class Input {
     // an expected state.
     bool validateHandle(InputContextHandle userHandle, bool expectedState);
 
+    bool validateHandle(InputContextHandle userHandle);
+
     // Swaps corresponding input contexts and updates internal handle indices to
     // updated context positions.
     // Expects index into internal handle.
@@ -55,18 +58,23 @@ class Input {
     // input context.
     void rebuildDispatchList();
 
-    void processAction(ActionID action, InputState state);
+    void processInput(RawInput input);
 
     std::optional<SYN::InputContextHandle>
     addInputContext(uint8_t priority, std::unique_ptr<InputContext> context);
 
   private:
-    std::unordered_map<InputKey, std::vector<ActionID>> m_ActionMap;
+    struct ContextDispatch {
+        uint8_t m_ContextIndex;
+        uint8_t m_Priority;
+    };
+
+  private:
     std::array<bool, NUM_INPUT_KEYS> m_RawKeyStates;
-    std::vector<RawInput> m_RawInputQueue;
+    std::queue<RawInput> m_RawInputQueue;
 
     std::vector<InputContextHandle> m_InputContextHandles;
-    std::vector<uint8_t> m_DispatchIndices;
+    std::vector<ContextDispatch> m_DispatchIndices;
 
     std::vector<std::unique_ptr<InputContext>> m_InputContexts;
     uint8_t m_ActiveContextsCount;

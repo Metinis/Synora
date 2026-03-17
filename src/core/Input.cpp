@@ -164,10 +164,10 @@ void SYN::Input::onKeyEvent(int32_t keyCode, int32_t action) {
 
     if (action == GLFW_PRESS && !m_RawKeyStates[inputKeyIndex]) {
         m_RawKeyStates[inputKeyIndex] = true;
-        m_RawInputQueue.emplace_back(InputState::Down, currentKey.value());
+        m_RawInputQueue.emplace(InputState::Down, currentKey.value());
     } else if (action == GLFW_RELEASE && m_RawKeyStates[inputKeyIndex]) {
         m_RawKeyStates[inputKeyIndex] = false;
-        m_RawInputQueue.emplace_back(InputState::Up, currentKey.value());
+        m_RawInputQueue.emplace(InputState::Up, currentKey.value());
     }
 }
 
@@ -237,11 +237,10 @@ SYN::Input::addInputContext(uint8_t priority,
         return std::nullopt;
     }
 
-    m_InputContextHandles[freeIndex].m_Data |= 1;
-
     uint8_t currentObjectIndex = getIndex(m_InputContextHandles[freeIndex]);
 
     m_InputContexts[currentObjectIndex] = std::move(context);
+    m_InputContexts[currentObjectIndex]->setPriority(priority);
 
     InputContextHandle newHandle;
     newHandle.m_Data =
@@ -253,19 +252,20 @@ SYN::Input::addInputContext(uint8_t priority,
 }
 
 void SYN::Input::removeContext(InputContextHandle userHandle) {
-    if (!validateHandle(userHandle, true)) {
+    if (!validateHandle(userHandle)) {
         return;
     }
 
-    disableContext(userHandle);
-
     uint8_t userIndex = getIndex(userHandle);
+    if (m_InputContextHandles[userIndex].m_Data & 1) {
+        disableContext(userHandle);
+    }
+
     incrementGeneration(m_InputContextHandles[userIndex]);
     m_FreeSlots.push_back(userIndex);
 }
 
-bool SYN::Input::validateHandle(InputContextHandle userHandle,
-                                bool expectedState) {
+bool SYN::Input::validateHandle(InputContextHandle userHandle) {
     uint8_t userIndex = getIndex(userHandle);
     if (userIndex >= m_InputContextHandles.size()) {
         spdlog::error("Input context handle is beyond valid range. Invalid.");
@@ -274,26 +274,36 @@ bool SYN::Input::validateHandle(InputContextHandle userHandle,
 
     InputContextHandle currentContextHandle = m_InputContextHandles[userIndex];
 
-    if (!sameGeneration(currentContextHandle, userHandle) ||
-        isHandleActive(currentContextHandle) != expectedState) {
-        spdlog::error("Input context handle does not match expected state ({}) "
-                      "or outdated. Invalid.",
-                      expectedState);
+    if (!sameGeneration(currentContextHandle, userHandle)) {
+        spdlog::error("Input context handle is outdated. Invalid.");
         return false;
     }
 
     return true;
 }
 
+bool SYN::Input::validateHandle(InputContextHandle userHandle,
+                                bool expectedState) {
+    if (!validateHandle(userHandle))
+        return false;
+    uint8_t userIndex = getIndex(userHandle);
+    InputContextHandle currentContextHandle = m_InputContextHandles[userIndex];
+    if ((currentContextHandle.m_Data & 1) != expectedState) {
+        spdlog::error("Handle does not match expected state ({}). Invalid.",
+                      expectedState ? "true" : "false");
+        return false;
+    }
+    return true;
+}
+
 void SYN::Input::rebuildDispatchList() {
     m_DispatchIndices.clear();
     for (uint8_t i = 0; i < m_ActiveContextsCount; ++i) {
-        m_DispatchIndices.push_back(i);
+        m_DispatchIndices.push_back({i, m_InputContexts[i]->getPriority()});
     }
     std::sort(m_DispatchIndices.begin(), m_DispatchIndices.end(),
-              [&](uint8_t a, uint8_t b) {
-                  return m_InputContexts[a]->getPriority() -
-                         m_InputContexts[b]->getPriority();
+              [](ContextDispatch a, ContextDispatch b) {
+                  return a.m_Priority < b.m_Priority;
               });
 }
 
@@ -327,7 +337,8 @@ void SYN::Input::enableContext(InputContextHandle userHandle) {
     uint8_t userIndex = getIndex(userHandle);
 
     if (m_ActiveContextsCount < m_InputContexts.size()) {
-        swapHandlesAndContexts(userIndex, m_ActiveContextsCount);
+        swapHandlesAndContexts(userIndex,
+                               m_InputContextToHandle[m_ActiveContextsCount]);
     }
 
     InputContextHandle &handleToEnable = m_InputContextHandles[userIndex];
@@ -360,51 +371,27 @@ void SYN::Input::disableContext(InputContextHandle userHandle) {
     rebuildDispatchList();
 }
 
-void SYN::Input::processAction(ActionID action, InputState state) {
-    for (uint8_t dispatchIndex : m_DispatchIndices) {
+void SYN::Input::processInput(RawInput input) {
+    for (auto &[dispatchIndex, _] : m_DispatchIndices) {
         std::unique_ptr<InputContext> &inputContext =
             m_InputContexts[dispatchIndex];
-        if (inputContext->isActionEnabled(action)) {
-            inputContext->onActionReceive({state, action});
-            if (inputContext->consumesInput())
-                break;
-        }
+
+        inputContext->onInputReceived(input, m_RawKeyStates);
+        if (inputContext->consumesInput())
+            break;
     }
+}
+
+bool SYN::Input::isKeyDown(InputKey keyCode) {
+    return m_RawKeyStates[(Keycode)keyCode];
 }
 
 void SYN::Input::processInputQueue() {
     while (!m_RawInputQueue.empty()) {
-        RawInput currentInput = m_RawInputQueue.back();
-        m_RawInputQueue.pop_back();
-        if (m_ActionMap.find(currentInput.m_Code) == m_ActionMap.cend()) {
-            return;
-        }
-
-        const std::vector<ActionID> &actions =
-            m_ActionMap.at(currentInput.m_Code);
-        for (ActionID action : actions) {
-            processAction(action, currentInput.m_State);
-        }
+        RawInput currentInput = m_RawInputQueue.front();
+        m_RawInputQueue.pop();
+        processInput(currentInput);
     }
-}
-
-void SYN::Input::assignAction(InputKey key, ActionID action) {
-    if (m_ActionMap.size() == 0 &&
-        m_ActionMap.find(key) != m_ActionMap.cend()) {
-        const std::vector<ActionID> &actions = m_ActionMap.at(key);
-        if (std::find(actions.cbegin(), actions.cend(), action) !=
-            actions.cend()) {
-            return;
-        }
-    }
-    m_ActionMap[key].push_back(action);
-}
-
-void SYN::Input::removeAction(InputKey key, ActionID action) {
-    if (m_ActionMap.find(key) == m_ActionMap.cend())
-        return;
-    std::vector<ActionID> &actions = m_ActionMap.at(key);
-    actions.erase(std::remove(actions.begin(), actions.end(), action));
 }
 
 std::optional<SYN::InputContext *>

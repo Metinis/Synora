@@ -91,11 +91,6 @@ struct RawInput {
     InputKey m_Code;
 };
 
-struct ActionBinding {
-    InputState m_State;
-    ActionID m_Action;
-};
-
 // Needs to be updated everytime a new input key is added.
 constexpr uint32_t NUM_INPUT_KEYS = (uint32_t)InputKey::F12 + 1;
 
