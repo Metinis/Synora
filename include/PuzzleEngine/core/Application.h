@@ -14,6 +14,8 @@ class Application {
     static Application &get() { return *s_Instance; }
     virtual ~Application();
 
+    std::unique_ptr<Input> &GetInput();
+
   private:
     static Application *s_Instance;
     std::unique_ptr<Window> m_Window;
