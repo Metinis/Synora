@@ -5,7 +5,7 @@
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
 
-#include "../renderer/Renderer.h"
+#include "renderer/Renderer.h"
 
 using namespace SYN;
 
