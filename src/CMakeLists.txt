@@ -24,9 +24,10 @@ target_precompile_headers(PuzzleEngine
         "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_SOURCE_DIR}/include/PuzzleEngine/synpch.h>"
 )
 target_include_directories(PuzzleEngine
-        PRIVATE
+        PUBLIC
         ${PROJECT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(
