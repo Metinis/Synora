@@ -28,8 +28,8 @@ enum Action : SYN::ActionID {
 // This lets you keep game/UI state in your own structs, not inside contexts.
 struct GameplayState {
     std::string m_PlayerName;
-    int m_X = 0;
-    int m_Y = 0;
+    float m_X = 0;
+    float m_Y = 0;
     int m_Stamina = 100;
 };
 
@@ -106,48 +106,24 @@ int main() {
 
         (*gameplayCtx)->bindAction(SYN::InputKey::F, {Action::PrintStatus, {}});
 
+        // Let's make use of a vector axis for directional inputs. Useful
+        // for movement related code!
+        (*gameplayCtx)
+            ->addVectorAxis("Movement", {Action::MoveUp, Action::MoveDown,
+                                         Action::MoveRight, Action::MoveLeft});
+
+        // Now update player state based on input vector:
+        (*gameplayCtx)
+            ->addVectorAxisCallback("Movement", [&](float x, float y) {
+                gameplayState.m_X = x;
+                gameplayState.m_Y = y;
+                spdlog::info("{} moves in direction: ({}, {})",
+                             gameplayState.m_PlayerName, gameplayState.m_X,
+                             gameplayState.m_Y);
+            });
+
         // Action callbacks are associated with action IDs, not keys.
         // You can register lambdas that capture your game state.
-        (*gameplayCtx)
-            ->addActionCallback(Action::MoveUp, [&](SYN::InputState state) {
-                if (state == SYN::InputState::Up) {
-                    return;
-                }
-                gameplayState.m_Y += 1;
-                spdlog::info("{} moves up to ({}, {})",
-                             gameplayState.m_PlayerName, gameplayState.m_X,
-                             gameplayState.m_Y);
-            });
-        (*gameplayCtx)
-            ->addActionCallback(Action::MoveDown, [&](SYN::InputState state) {
-                if (state == SYN::InputState::Up) {
-                    return;
-                }
-                gameplayState.m_Y -= 1;
-                spdlog::info("{} moves down to ({}, {})",
-                             gameplayState.m_PlayerName, gameplayState.m_X,
-                             gameplayState.m_Y);
-            });
-        (*gameplayCtx)
-            ->addActionCallback(Action::MoveLeft, [&](SYN::InputState state) {
-                if (state == SYN::InputState::Up) {
-                    return;
-                }
-                gameplayState.m_X -= 1;
-                spdlog::info("{} moves left to ({}, {})",
-                             gameplayState.m_PlayerName, gameplayState.m_X,
-                             gameplayState.m_Y);
-            });
-        (*gameplayCtx)
-            ->addActionCallback(Action::MoveRight, [&](SYN::InputState state) {
-                if (state == SYN::InputState::Up) {
-                    return;
-                }
-                gameplayState.m_X += 1;
-                spdlog::info("{} moves right to ({}, {})",
-                             gameplayState.m_PlayerName, gameplayState.m_X,
-                             gameplayState.m_Y);
-            });
         (*gameplayCtx)
             ->addActionCallback(Action::Jump, [&](SYN::InputState state) {
                 if (state == SYN::InputState::Up) {
@@ -258,6 +234,9 @@ int main() {
 
     spdlog::info("-- Gameplay input restored --");
     simulateKey(input, GLFW_KEY_D, GLFW_PRESS);
+    simulateKey(input, GLFW_KEY_W, GLFW_PRESS);
+
+    simulateKey(input, GLFW_KEY_W, GLFW_RELEASE);
     simulateKey(input, GLFW_KEY_D, GLFW_RELEASE);
 
     spdlog::info("-- Disable gameplay context manually --");
@@ -269,6 +248,11 @@ int main() {
     input.enableContext(gameplayHandle.value());
     simulateKey(input, GLFW_KEY_A, GLFW_PRESS);
     simulateKey(input, GLFW_KEY_A, GLFW_RELEASE);
+
+    simulateKey(input, GLFW_KEY_A, GLFW_PRESS);
+    simulateKey(input, GLFW_KEY_S, GLFW_PRESS);
+    simulateKey(input, GLFW_KEY_A, GLFW_RELEASE);
+    simulateKey(input, GLFW_KEY_S, GLFW_RELEASE);
 
     spdlog::info("-- Intentional invalid handle usage (use-after-free) --");
     input.disableContext(uiHandle.value());
