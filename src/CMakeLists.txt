@@ -24,7 +24,9 @@ target_include_directories(
   Synora 
   PUBLIC 
   ${PROJECT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}
+  PRIVATE 
+  ${PROJECT_SOURCE_DIR}/src
+  ${PROJECT_SOURCE_DIR}/3rdparty/stb
 )
 target_link_libraries(
   Synora 
@@ -47,9 +49,11 @@ target_precompile_headers(PuzzleEngine
         "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_SOURCE_DIR}/include/PuzzleEngine/synpch.h>"
 )
 target_include_directories(PuzzleEngine
-        PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR}
+  PUBLIC 
+  ${PROJECT_SOURCE_DIR}/include
+  PRIVATE 
+  ${PROJECT_SOURCE_DIR}/src
+  ${PROJECT_SOURCE_DIR}/3rdparty/stb
 )
 
 target_link_libraries(
