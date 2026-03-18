@@ -57,6 +57,7 @@ class VulkanBackend : public IBackend {
     VmaAllocator_T *m_Allocator{};
 
     Swapchain m_Swapchain{};
+    VkCommandPool m_TransientCmdPool{};
 
     StagingBuffer m_StagingBuffer{};
     Buffer m_VertexBuffer{};
@@ -71,6 +72,8 @@ class VulkanBackend : public IBackend {
 
     std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
     std::vector<VkSemaphore> m_RenderFinishedSemaphores{};
+
+    std::vector<Image> uploadedImages;
 
     uint32_t m_CurrentFrameIndex{};
 };

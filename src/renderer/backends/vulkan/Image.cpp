@@ -69,3 +69,28 @@ void SYN::VK::destroyImage(const Device &device, VmaAllocator allocator,
 
     image = {};
 }
+
+void SYN::VK::transitionImageCmd(
+    VkCommandBuffer cmdBuffer, const Device &device, const Image &image,
+    VkImageLayout oldLayout, VkImageLayout newLayout,
+    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask,
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask) {
+
+    VkImageMemoryBarrier2 barrier{.sType =
+                                      VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                                  .srcStageMask = srcStageMask,
+                                  .srcAccessMask = srcAccessMask,
+                                  .dstStageMask = dstStageMask,
+                                  .dstAccessMask = dstAccessMask,
+                                  .oldLayout = oldLayout,
+                                  .newLayout = newLayout,
+                                  .image = image.handle,
+                                  .subresourceRange = image.subresourceRange};
+
+    VkDependencyInfo colorAttachmentDependency{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+    vkCmdPipelineBarrier2(cmdBuffer, &colorAttachmentDependency);
+}

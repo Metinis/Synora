@@ -7,6 +7,7 @@
 #include "Renderpass.h"
 #include "StagingBuffer.h"
 #include "Swapchain.h"
+#include "renderer/backends/vulkan/Image.h"
 
 #include <GLFW/glfw3.h>
 #include <cstring>
@@ -72,6 +73,12 @@ void VulkanBackend::init(SYN::Window &window) {
 
     writeToBuffer(m_Device, vertices.data(), vertices.size() * sizeof(Vertex),
                   m_StagingBuffer, m_VertexBuffer);
+
+    // Image texture{createImage(m_Device, m_Allocator,
+    // VK_FORMAT_R8G8B8A8_UNORM,
+    //                           {.width = 100, .height = 100},
+    //                           VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+    //                           VK_IMAGE_ASPECT_COLOR_BIT)};
 }
 
 void SYN::VK::VulkanBackend::render(Window &window) {
@@ -114,6 +121,7 @@ void VulkanBackend::shutdown() {
                             nullptr);
     vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
 
+    vkDestroyCommandPool(m_Device.logical, m_TransientCmdPool, nullptr);
     destroySwapchain(m_Swapchain, m_Device);
     destroyStagingBuffer(m_StagingBuffer, m_Device, m_Allocator);
     destroyBuffer(m_Allocator, m_VertexBuffer);
@@ -151,6 +159,15 @@ void SYN::VK::VulkanBackend::initContext(Window &window) {
     }
 
     m_Swapchain = createSwapchain(m_Device, m_Surface, window);
+
+    VkCommandPoolCreateInfo transientCmdPoolCI{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        .queueFamilyIndex =
+            m_Device.queues.at(QueueFamily::graphics).familyIndex};
+
+    vkCreateCommandPool(m_Device.logical, &transientCmdPoolCI, nullptr,
+                        &m_TransientCmdPool);
 }
 
 void SYN::VK::VulkanBackend::initDescriptorSetLayout() {

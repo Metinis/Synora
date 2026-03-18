@@ -7,6 +7,7 @@
 
 namespace SYN::VK {
 struct Device;
+struct Image;
 
 struct StagingBuffer {
     VkCommandPool cmdPool;
@@ -19,6 +20,10 @@ StagingBuffer createStagingBuffer(const Device &device, VmaAllocator allocator,
 void writeToBuffer(const Device &device, void *data, size_t size,
                    const StagingBuffer &stagingBuffer, const Buffer &dstBuffer);
 
+void writeToImage(const Device &device, void *data, size_t size,
+                  const StagingBuffer &stagingBuffer, const Image &dstImage);
+
 void destroyStagingBuffer(StagingBuffer &stagingBuffer, const Device &device,
                           VmaAllocator allocator);
+
 } // namespace SYN::VK
