@@ -43,6 +43,7 @@ Device VK::createDevice(VkInstance instance, VkSurfaceKHR surface) {
         .descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE,
         .descriptorBindingPartiallyBound = VK_TRUE,
         .runtimeDescriptorArray = VK_TRUE,
+        .timelineSemaphore = VK_TRUE,
         .bufferDeviceAddress = VK_TRUE,
     };
 
@@ -69,8 +70,13 @@ Device VK::createDevice(VkInstance instance, VkSurfaceKHR surface) {
     std::unordered_map<QueueFamily, Queue> queues{
         getDeviceQueues(device, queueFamilyInfo)};
 
-    return Device{
-        .physical = physicalDevice, .logical = device, .queues = queues};
+    VkPhysicalDeviceProperties deviceProps{};
+    vkGetPhysicalDeviceProperties(physicalDevice, &deviceProps);
+
+    return Device{.physical = physicalDevice,
+                  .logical = device,
+                  .queues = queues,
+                  .properties = deviceProps};
 }
 
 void VK::destroyDevice(Device &device) {
@@ -120,7 +126,7 @@ VkPhysicalDevice selectPhysicalDevice(VkInstance instance,
             features12.descriptorBindingStorageImageUpdateAfterBind &&
             features12.descriptorBindingStorageBufferUpdateAfterBind &&
             features12.descriptorBindingPartiallyBound &&
-            features12.runtimeDescriptorArray &&
+            features12.runtimeDescriptorArray && features12.timelineSemaphore &&
             features12.bufferDeviceAddress};
 
         bool features13Supported{features13.synchronization2 &&

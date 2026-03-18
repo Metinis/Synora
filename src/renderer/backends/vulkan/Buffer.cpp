@@ -16,16 +16,15 @@ Buffer SYN::VK::createBuffer(const Device &device, VmaAllocator allocator,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
 
-    VmaAllocationCreateInfo allocInfo = {
+    VmaAllocationCreateInfo allocCI = {
         .flags = allocFlags,
         .usage = VMA_MEMORY_USAGE_AUTO,
-
     };
 
     VkBuffer buffer{};
     VmaAllocation allocation{};
     VmaAllocationInfo allocationInfo{};
-    VkResult res{vmaCreateBuffer(allocator, &bufferCI, &allocInfo, &buffer,
+    VkResult res{vmaCreateBuffer(allocator, &bufferCI, &allocCI, &buffer,
                                  &allocation, &allocationInfo)};
     if (res != VK_SUCCESS) {
         spdlog::warn("Could not create Vulkan buffer. VkResult = {}",

@@ -57,6 +57,14 @@ SYN::VK::GraphicsPipelineBuilder::setPolygonMode(VkPolygonMode mode,
     return *this;
 }
 
+GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setDepthTest() {
+    m_DepthStencilStateCI.depthWriteEnable = VK_TRUE;
+    m_DepthStencilStateCI.depthCompareOp = VK_COMPARE_OP_LESS;
+    m_DepthStencilStateCI.depthTestEnable = VK_TRUE;
+
+    return *this;
+}
+
 SYN::VK::GraphicsPipelineBuilder &
 SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
     VkPipelineColorBlendAttachmentState blendState{
@@ -67,6 +75,13 @@ SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
 
     m_ColorBlendAttachmentStates.emplace_back(blendState);
     m_ColorFormats.emplace_back(format);
+
+    return *this;
+}
+
+SYN::VK::GraphicsPipelineBuilder &
+SYN::VK::GraphicsPipelineBuilder::enableDepthAttachment() {
+    m_DepthFormat = VK_FORMAT_D32_SFLOAT;
 
     return *this;
 }
@@ -104,6 +119,7 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .colorAttachmentCount = static_cast<uint32_t>(m_ColorFormats.size()),
         .pColorAttachmentFormats = m_ColorFormats.data(),
+        .depthAttachmentFormat = m_DepthFormat,
     };
 
     VkGraphicsPipelineCreateInfo pipelineCI{

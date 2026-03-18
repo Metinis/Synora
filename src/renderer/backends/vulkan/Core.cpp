@@ -2,7 +2,6 @@
 #include "Buffer.h"
 #include "Commands.h"
 #include "DebugMessenger.h"
-#include "Image.h"
 #include "Instance.h"
 #include "Pipeline.h"
 #include "Renderpass.h"
@@ -31,7 +30,9 @@ VkShaderModule createShaderModule(const Device &device,
 void VulkanBackend::init(SYN::Window &window) {
     initContext(window);
 
-    initBindlessPipelineLayout();
+    initDescriptorSetLayout();
+    initPipelineLayout();
+    initDescriptorSets();
     {
         std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths{
             {VK_SHADER_STAGE_VERTEX_BIT, "generated/shaders/first.vert.spv"},
@@ -46,6 +47,7 @@ void VulkanBackend::init(SYN::Window &window) {
                                 VK_FRONT_FACE_COUNTER_CLOCKWISE)
                 .setPolygonMode(VK_POLYGON_MODE_FILL)
                 .addColorAttachment(m_Swapchain.format)
+                .enableDepthAttachment()
                 .build(m_Device, m_BindlessPipelineLayout, shaderPaths);
     }
 
@@ -91,16 +93,22 @@ void SYN::VK::VulkanBackend::render(Window &window) {
 void VulkanBackend::shutdown() {
     vkDeviceWaitIdle(m_Device.logical);
 
-    for (const auto &frame : m_FrameData) {
+    for (auto &frame : m_FrameData) {
         vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
         vkDestroySemaphore(m_Device.logical, frame.imageAvailableSemaphore,
                            nullptr);
         vkDestroyCommandPool(m_Device.logical, frame.graphicsCmdPool, nullptr);
+        destroyImage(m_Device, m_Allocator, frame.depthImage);
     }
 
     for (const auto &semaphore : m_RenderFinishedSemaphores) {
         vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
     }
+
+    vkDestroyDescriptorSetLayout(m_Device.logical,
+                                 m_BindlessDescriptorSetLayout, nullptr);
+    vkDestroyDescriptorPool(m_Device.logical, m_BindlessDescriptorPool,
+                            nullptr);
 
     vkDestroyPipelineLayout(m_Device.logical, m_BindlessPipelineLayout,
                             nullptr);
@@ -145,19 +153,109 @@ void SYN::VK::VulkanBackend::initContext(Window &window) {
     m_Swapchain = createSwapchain(m_Device, m_Surface, window);
 }
 
-void SYN::VK::VulkanBackend::initBindlessPipelineLayout() {
+void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
+    uint32_t textureDescriptorCount{
+        std::min(c_MaxBindlessTextures,
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+
+    VkDescriptorSetLayoutBinding texturesLayoutBinding{
+        .binding = c_TextureBinding,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = textureDescriptorCount,
+        .stageFlags = VK_SHADER_STAGE_ALL,
+    };
+    VkDescriptorBindingFlags bindingFlags{
+        // VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | // this isnt used yet,
+        // will enable when we need it
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+        .sType =
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindingFlags = &bindingFlags};
+
+    VkDescriptorSetLayoutCreateInfo bindlessSetLayoutCI{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        // .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT
+        .pNext = &bindingFlagsCI,
+        .bindingCount = 1,
+        .pBindings = &texturesLayoutBinding,
+    };
+
+    VkResult res{vkCreateDescriptorSetLayout(m_Device.logical,
+                                             &bindlessSetLayoutCI, nullptr,
+                                             &m_BindlessDescriptorSetLayout)};
+
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create descriptor set layout. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
+}
+
+void SYN::VK::VulkanBackend::initPipelineLayout() {
     VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         .size = sizeof(PushConstants),
     };
-
     VkPipelineLayoutCreateInfo layoutCI{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &m_BindlessDescriptorSetLayout,
         .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &pushConstantRange};
+        .pPushConstantRanges = &pushConstantRange,
+    };
 
-    vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
-                           &m_BindlessPipelineLayout);
+    VkResult res{vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
+                                        &m_BindlessPipelineLayout)};
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create pipeline layout. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
+}
+
+void SYN::VK::VulkanBackend::initDescriptorSets() {
+    uint32_t textureDescriptorCount{
+        std::min(c_MaxBindlessTextures,
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+
+    VkDescriptorPoolSize combinedSamplersPoolSize{
+        .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = textureDescriptorCount,
+    };
+
+    VkDescriptorPoolCreateInfo bindlessDescriptorPoolCI{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        // .flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT
+        .maxSets = 1,
+        .poolSizeCount = 1,
+        .pPoolSizes = &combinedSamplersPoolSize};
+    VkResult res{vkCreateDescriptorPool(m_Device.logical,
+                                        &bindlessDescriptorPoolCI, nullptr,
+                                        &m_BindlessDescriptorPool)};
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create descriptor pool. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
+
+    VkDescriptorSetAllocateInfo bindlessSetAllocInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = m_BindlessDescriptorPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &m_BindlessDescriptorSetLayout,
+    };
+
+    res = vkAllocateDescriptorSets(m_Device.logical, &bindlessSetAllocInfo,
+                                   &m_BindlessDescriptorSet);
+
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not allocate descriptor sets. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
 }
 
 void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
@@ -197,11 +295,18 @@ void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
         vkCreateFence(m_Device.logical, &fenceCI, nullptr,
                       &renderFinishedFence);
 
+        Image depthImage{createImage(
+            m_Device, m_Allocator, VK_FORMAT_D32_SFLOAT, m_Swapchain.extent,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VK_IMAGE_ASPECT_DEPTH_BIT)};
+
         m_FrameData[i] =
             FrameData{.graphicsCmdPool = graphicsCmdPool,
                       .graphicsCmdBuffer = graphicsCmdBuffer,
                       .renderFinishedFence = renderFinishedFence,
-                      .imageAvailableSemaphore = imageAvailableSemaphore};
+                      .imageAvailableSemaphore = imageAvailableSemaphore,
+                      .depthImage = depthImage};
     }
     for (const auto &_ : swapchain.images) {
         VkSemaphoreCreateInfo semaphoreCI{
@@ -266,10 +371,32 @@ void SYN::VK::VulkanBackend::recordRenderCmd(uint32_t currentImageIndex) {
             .layerCount = 1,
         }};
 
+    VkImageMemoryBarrier2 depthAttachmentBarrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .srcAccessMask = VK_ACCESS_2_NONE,
+        .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        .dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        .srcQueueFamilyIndex =
+            m_Device.queues[QueueFamily::graphics].familyIndex,
+        .dstQueueFamilyIndex =
+            m_Device.queues[QueueFamily::graphics].familyIndex,
+        .image = frame.depthImage.handle,
+        .subresourceRange = frame.depthImage.subresourceRange};
+
+    std::vector<VkImageMemoryBarrier2> imageMemoryBarriers{
+        colorAttachmentBarrier, depthAttachmentBarrier};
+
     VkDependencyInfo colorAttachmentDependency{
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &colorAttachmentBarrier,
+        .imageMemoryBarrierCount =
+            static_cast<uint32_t>(imageMemoryBarriers.size()),
+        .pImageMemoryBarriers = imageMemoryBarriers.data(),
     };
     vkCmdPipelineBarrier2(frame.graphicsCmdBuffer, &colorAttachmentDependency);
 
@@ -284,7 +411,7 @@ void SYN::VK::VulkanBackend::recordRenderCmd(uint32_t currentImageIndex) {
     uint32_t nVertices{6};
     cmdDefaultRenderPass(frame.graphicsCmdBuffer, m_GraphicsPipeline,
                          m_BindlessPipelineLayout, pushConstants, nVertices,
-                         swapchainImage,
+                         swapchainImage, frame.depthImage,
                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     VkImageMemoryBarrier2 presentBarrier{

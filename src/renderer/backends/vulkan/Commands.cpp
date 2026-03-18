@@ -6,12 +6,6 @@
 using namespace SYN::VK;
 using namespace SYN;
 
-namespace {
-VkCommandBuffer beginTransientCmd(VkCommandPool cmdPool, const Device &device);
-void endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
-                     const Device &device, VkQueue queue);
-} // namespace
-
 void SYN::VK::submitImmediateCmd(
     VkCommandPool cmdPool, VkQueue queue, const Device &device,
     std::function<void(VkCommandBuffer)> immediateCmds) {
@@ -22,8 +16,8 @@ void SYN::VK::submitImmediateCmd(
     endTransientCmd(cmdPool, cmdBuffer, device, queue);
 }
 
-namespace {
-VkCommandBuffer beginTransientCmd(VkCommandPool cmdPool, const Device &device) {
+VkCommandBuffer SYN::VK::beginTransientCmd(VkCommandPool cmdPool,
+                                           const Device &device) {
     VkCommandBufferAllocateInfo cmdBufferAllocInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = cmdPool,
@@ -51,8 +45,11 @@ VkCommandBuffer beginTransientCmd(VkCommandPool cmdPool, const Device &device) {
 
     return cmdBuffer;
 }
-void endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
-                     const Device &device, VkQueue queue) {
+void SYN::VK::endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
+                              const Device &device, VkQueue queue,
+                              VkFence fence,
+                              std::span<VkSemaphore> waitSemaphores,
+                              std::span<VkSemaphore> signalSemaphores) {
     VkResult res{vkEndCommandBuffer(cmdBuffer)};
 
     if (res != VK_SUCCESS) {
@@ -62,13 +59,19 @@ void endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
 
     VkSubmitInfo submitInfo{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size()),
+        .pWaitSemaphores = waitSemaphores.data(),
         .commandBufferCount = 1,
         .pCommandBuffers = &cmdBuffer,
+        .signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size()),
+        .pSignalSemaphores = signalSemaphores.data(),
     };
 
-    VkFenceCreateInfo fenceInfo{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    VkFence fence{};
-    vkCreateFence(device.logical, &fenceInfo, nullptr, &fence);
+    if (fence == VK_NULL_HANDLE) {
+        VkFenceCreateInfo fenceInfo{.sType =
+                                        VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        vkCreateFence(device.logical, &fenceInfo, nullptr, &fence);
+    }
 
     res = vkQueueSubmit(queue, 1, &submitInfo, fence);
     if (res != VK_SUCCESS) {
@@ -81,4 +84,3 @@ void endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
     vkDestroyFence(device.logical, fence, nullptr);
     vkFreeCommandBuffers(device.logical, cmdPool, 1, &cmdBuffer);
 }
-} // namespace

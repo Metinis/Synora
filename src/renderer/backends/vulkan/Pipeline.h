@@ -30,13 +30,18 @@ class GraphicsPipelineBuilder {
     GraphicsPipelineBuilder &setPolygonMode(VkPolygonMode mode,
                                             float lineWidth = 1.f);
 
+    GraphicsPipelineBuilder &setDepthTest();
+
     GraphicsPipelineBuilder &addColorAttachment(VkFormat format);
+    // note there can only be one depth attachment
+    GraphicsPipelineBuilder &enableDepthAttachment();
 
   private:
     std::vector<VkPipelineColorBlendAttachmentState>
         m_ColorBlendAttachmentStates{};
 
     std::vector<VkFormat> m_ColorFormats{};
+    VkFormat m_DepthFormat{};
 
     VkPipelineInputAssemblyStateCreateInfo m_InputAssemblyStateCI;
     VkPipelineRasterizationStateCreateInfo m_RasterizationStateCI;

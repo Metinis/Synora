@@ -8,11 +8,16 @@ using namespace SYN;
 void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
                                    VkPipeline pipeline, VkPipelineLayout layout,
                                    const PushConstants &pushConstants,
-                                   uint32_t vertexCount, Image &renderTarget,
+                                   uint32_t vertexCount,
+                                   const Image &renderTarget,
+                                   const Image &depthTarget,
                                    VkImageLayout renderTargetLayout) {
 
     constexpr VkClearValue colorClearValue{
         .color = VkClearColorValue{{0.f, 0.f, 0.f, 0.f}}};
+
+    constexpr VkClearValue depthClearValue{.depthStencil =
+                                               VkClearDepthStencilValue{0.f}};
 
     VkRenderingAttachmentInfo colorAttachmentInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
@@ -23,13 +28,22 @@ void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
         .clearValue = colorClearValue,
     };
 
+    VkRenderingAttachmentInfo depthAttachmentInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = depthTarget.view,
+        .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = depthClearValue,
+    };
+
     VkRenderingInfo renderingInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .renderArea = VkRect2D{.extent = renderTarget.extent},
         .layerCount = 1,
         .colorAttachmentCount = 1,
         .pColorAttachments = &colorAttachmentInfo,
-
+        .pDepthAttachment = &depthAttachmentInfo,
     };
     vkCmdBeginRendering(cmdBuffer, &renderingInfo);
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
