@@ -202,6 +202,11 @@ bool isHandleActive(SYN::InputContextHandle handle) {
 }
 
 std::optional<SYN::InputContextHandle>
+SYN::Input::addInputContext(uint8_t priority) {
+    return addInputContext(priority, std::make_unique<InputContext>());
+}
+
+std::optional<SYN::InputContextHandle>
 SYN::Input::addInputContext(uint8_t priority,
                             std::unique_ptr<SYN::InputContext> context) {
     if (m_FreeSlots.empty()) {
@@ -396,11 +401,30 @@ void SYN::Input::processInputQueue() {
 
 std::optional<SYN::InputContext *>
 SYN::Input::getInputContext(SYN::InputContextHandle userHandle) {
-    if (!validateHandle(userHandle, 1)) {
+    if (!validateHandle(userHandle, true)) {
         spdlog::error("Cannot retrieve input context from invalid handle.");
         return std::nullopt;
     }
     uint8_t userIndex = getIndex(userHandle);
     uint8_t contextIndex = getIndex(m_InputContextHandles[userIndex]);
     return m_InputContexts[contextIndex].get();
+}
+
+void SYN::Input::setPriority(InputContextHandle userHandle, uint8_t priority) {
+    if (!validateHandle(userHandle, true)) {
+        spdlog::error("Cannot retrieve input context from invalid handle.");
+        return;
+    }
+
+    std::optional<SYN::InputContext *> inputContext =
+        getInputContext(userHandle);
+    assert(inputContext.has_value() &&
+           "Attempted to access input context with bad handle.");
+
+    InputContext *inputContextPtr = inputContext.value();
+    if (inputContextPtr->getPriority() == priority)
+        return;
+
+    inputContextPtr->setPriority(priority);
+    rebuildDispatchList();
 }

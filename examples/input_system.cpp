@@ -23,118 +23,18 @@ enum Action : SYN::ActionID {
     PrintStatus
 };
 
-// Creating your own input context to pass into the engine
-// requires deriving from InputContext and overriding onActionReceive.
-// More on how to pass the input context into the engine, and on binding actions
-// below.
-class GameplayContext : public SYN::InputContext {
-  public:
-    explicit GameplayContext(std::string playerName)
-        : m_PlayerName(std::move(playerName)) {
-        // If an input context consumes the current input, input will not
-        // propagate down to contexts with lower priority. This is useful when
-        // say, opening an inventory and wanting to prevent players from moving
-        // their character while the inventory is opened up. You don't have to
-        // explicitly disable a context, but instead make the higher context
-        // consume input.
-        setConsumesInput(false);
-        m_X = 0;
-        m_Y = 0;
-        m_Stamina = 100;
-    }
-
-    void
-    onActionReceive(std::tuple<ActionBinding, SYN::InputState> input) override {
-        auto &[binding, state] = input;
-        if (state == SYN::InputState::Up) {
-            return;
-        }
-
-        switch (binding.m_Action) {
-        case Action::MoveUp:
-            m_Y += 1;
-            spdlog::info("{} moves up to ({}, {})", m_PlayerName, m_X, m_Y);
-            break;
-        case Action::MoveDown:
-            m_Y -= 1;
-            spdlog::info("{} moves down to ({}, {})", m_PlayerName, m_X, m_Y);
-            break;
-        case Action::MoveLeft:
-            m_X -= 1;
-            spdlog::info("{} moves left to ({}, {})", m_PlayerName, m_X, m_Y);
-            break;
-        case Action::MoveRight:
-            m_X += 1;
-            spdlog::info("{} moves right to ({}, {})", m_PlayerName, m_X, m_Y);
-            break;
-        case Action::Jump:
-            spdlog::info("{} jumps!", m_PlayerName);
-            break;
-        case Action::Interact:
-            if (m_Stamina >= 10) {
-                m_Stamina -= 10;
-                spdlog::info("{} interacts. Stamina now {}", m_PlayerName,
-                             m_Stamina);
-            } else {
-                spdlog::warn("{} is too tired to interact.", m_PlayerName);
-            }
-            break;
-        case Action::PrintStatus:
-            spdlog::info("{} status -> pos=({}, {}), stamina={}", m_PlayerName,
-                         m_X, m_Y, m_Stamina);
-            break;
-        default:
-            break;
-        }
-    }
-
-  private:
+// Creating your own input context no longer requires inheritance.
+// Instead, you bind actions and then attach callbacks to those actions.
+// This lets you keep game/UI state in your own structs, not inside contexts.
+struct GameplayState {
     std::string m_PlayerName;
-    int m_X;
-    int m_Y;
-    int m_Stamina;
+    int m_X = 0;
+    int m_Y = 0;
+    int m_Stamina = 100;
 };
 
-class UIContext : public SYN::InputContext {
-  public:
-    UIContext() {
-        setConsumesInput(false);
-        m_MenuOpen = false;
-    }
-
-    void
-    onActionReceive(std::tuple<ActionBinding, SYN::InputState> input) override {
-        auto &[binding, state] = input;
-        if (state == SYN::InputState::Up) {
-            return;
-        }
-
-        switch (binding.m_Action) {
-        case Action::ToggleMenu:
-            m_MenuOpen = !m_MenuOpen;
-            setConsumesInput(m_MenuOpen);
-            spdlog::info("Menu {}", m_MenuOpen ? "opened" : "closed");
-            break;
-        case Action::OpenSettings:
-            spdlog::info("Settings opened");
-            break;
-        case Action::CloseSettings:
-            spdlog::info("Settings closed");
-            break;
-        default:
-            break;
-        }
-    }
-
-  private:
-    bool m_MenuOpen;
-};
-
-class DummyContext : public SYN::InputContext {
-  public:
-    DummyContext() { setConsumesInput(false); }
-
-    void onActionReceive(std::tuple<ActionBinding, SYN::InputState>) override {}
+struct UIState {
+    bool m_MenuOpen = false;
 };
 
 // This is handled in the application update loop for you.
@@ -154,18 +54,17 @@ int main() {
     // Don't actually do this. Just for testing purposes.
     SYN::Input &input = *inputRef;
 
-    // If your derived class has a constructor with arguments, you can pass
-    // it in addInputContexts after passing in the priority number
+    // Create input contexts by priority. Lower values = higher priority.
     //
-    // You will receive an integer handle if a context could be made
+    // You will receive an integer handle if a context could be made.
     // Do not store pointers to contexts, just the handles to them!
     std::optional<SYN::InputContextHandle> gameplayHandle =
-        input.addInputContext<GameplayContext>(5, "Avery");
+        input.addInputContext(0);
 
-    // Default constructor works too! Lower values = higher priority.
-    // In this case, uiHandle will process actions before gameplayHandle.
-    std::optional<SYN::InputContextHandle> uiHandle =
-        input.addInputContext<UIContext>(1);
+    // In this case, uiHandle will process actions after gameplayHandle.
+    // But we usually want the ui to process actions before gameplay, we'll
+    // change the priority of gameplayHandle below.
+    std::optional<SYN::InputContextHandle> uiHandle = input.addInputContext(1);
 
     if (!gameplayHandle || !uiHandle) {
         spdlog::critical("Failed to create input contexts");
@@ -173,12 +72,19 @@ int main() {
         return 1;
     }
 
+    // Now, gameplayHandle will run after uiHandle!
+    input.setPriority(gameplayHandle.value(), 4);
+
+    GameplayState gameplayState{"Avery"};
+    UIState uiState{};
+
     // You can retrieve the input context from its handle, assuming the handle
     // isn't outdated. getInputContext returns an std::optional<InputContext*>
     // with a pointer to an input context if the handle is valid.
     // Only use pointers in short blocks of code! Never store them across
     // function calls!
     if (auto gameplayCtx = input.getInputContext(gameplayHandle.value())) {
+        (*gameplayCtx)->setConsumesInput(false);
 
         // You may specify an ActionBinding and bind it to a key. An
         // ActionBinding is of the form { ActionID, vector<InputKey> modifiers
@@ -199,9 +105,85 @@ int main() {
                           {{Action::Jump, {}}, {Action::Interact, {}}});
 
         (*gameplayCtx)->bindAction(SYN::InputKey::F, {Action::PrintStatus, {}});
+
+        // Action callbacks are associated with action IDs, not keys.
+        // You can register lambdas that capture your game state.
+        (*gameplayCtx)
+            ->addActionCallback(Action::MoveUp, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                gameplayState.m_Y += 1;
+                spdlog::info("{} moves up to ({}, {})",
+                             gameplayState.m_PlayerName, gameplayState.m_X,
+                             gameplayState.m_Y);
+            });
+        (*gameplayCtx)
+            ->addActionCallback(Action::MoveDown, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                gameplayState.m_Y -= 1;
+                spdlog::info("{} moves down to ({}, {})",
+                             gameplayState.m_PlayerName, gameplayState.m_X,
+                             gameplayState.m_Y);
+            });
+        (*gameplayCtx)
+            ->addActionCallback(Action::MoveLeft, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                gameplayState.m_X -= 1;
+                spdlog::info("{} moves left to ({}, {})",
+                             gameplayState.m_PlayerName, gameplayState.m_X,
+                             gameplayState.m_Y);
+            });
+        (*gameplayCtx)
+            ->addActionCallback(Action::MoveRight, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                gameplayState.m_X += 1;
+                spdlog::info("{} moves right to ({}, {})",
+                             gameplayState.m_PlayerName, gameplayState.m_X,
+                             gameplayState.m_Y);
+            });
+        (*gameplayCtx)
+            ->addActionCallback(Action::Jump, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                spdlog::info("{} jumps!", gameplayState.m_PlayerName);
+            });
+        (*gameplayCtx)
+            ->addActionCallback(Action::Interact, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                if (gameplayState.m_Stamina >= 10) {
+                    gameplayState.m_Stamina -= 10;
+                    spdlog::info("{} interacts. Stamina now {}",
+                                 gameplayState.m_PlayerName,
+                                 gameplayState.m_Stamina);
+                } else {
+                    spdlog::warn("{} is too tired to interact.",
+                                 gameplayState.m_PlayerName);
+                }
+            });
+        (*gameplayCtx)
+            ->addActionCallback(
+                Action::PrintStatus, [&](SYN::InputState state) {
+                    if (state == SYN::InputState::Up) {
+                        return;
+                    }
+                    spdlog::info("{} status -> pos=({}, {}), stamina={}",
+                                 gameplayState.m_PlayerName, gameplayState.m_X,
+                                 gameplayState.m_Y, gameplayState.m_Stamina);
+                });
     }
 
     if (auto uiCtx = input.getInputContext(uiHandle.value())) {
+        (*uiCtx)->setConsumesInput(false);
         (*uiCtx)->bindAction(SYN::InputKey::Escape, {Action::ToggleMenu, {}});
 
         // Here is an example of modifier keys being used. They allow you to
@@ -213,6 +195,33 @@ int main() {
                                                 {SYN::InputKey::LeftCtrl,
                                                  SYN::InputKey::LeftShift}});
         (*uiCtx)->bindAction(SYN::InputKey::P, {Action::CloseSettings, {}});
+
+        (*uiCtx)->addActionCallback(
+            Action::ToggleMenu, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                uiState.m_MenuOpen = !uiState.m_MenuOpen;
+                if (auto liveUiCtx = input.getInputContext(uiHandle.value())) {
+                    (*liveUiCtx)->setConsumesInput(uiState.m_MenuOpen);
+                }
+                spdlog::info("Menu {}",
+                             uiState.m_MenuOpen ? "opened" : "closed");
+            });
+        (*uiCtx)->addActionCallback(Action::OpenSettings,
+                                    [&](SYN::InputState state) {
+                                        if (state == SYN::InputState::Up) {
+                                            return;
+                                        }
+                                        spdlog::info("Settings opened");
+                                    });
+        (*uiCtx)->addActionCallback(Action::CloseSettings,
+                                    [&](SYN::InputState state) {
+                                        if (state == SYN::InputState::Up) {
+                                            return;
+                                        }
+                                        spdlog::info("Settings closed");
+                                    });
     }
 
     spdlog::info("-- Simulated gameplay input --");
@@ -284,7 +293,7 @@ int main() {
 
     spdlog::info("-- Exhaust handle generations --");
     for (uint32_t i = 0; i < SYN::MAX_INPUT_CONTEXT_GENERATIONS + 2; ++i) {
-        auto temp = input.addInputContext<DummyContext>(10);
+        auto temp = input.addInputContext(10);
         if (!temp) {
             spdlog::warn("Generation exhausted at iteration {}", i);
             break;
@@ -296,7 +305,7 @@ int main() {
     std::vector<SYN::InputContextHandle> handles;
     handles.reserve(SYN::MAX_INPUT_CONTEXTS);
     while (true) {
-        auto h = input.addInputContext<DummyContext>(20);
+        auto h = input.addInputContext(20);
         if (!h) {
             spdlog::warn("Max context count reached at {} contexts",
                          handles.size());
