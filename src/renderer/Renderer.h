@@ -1,5 +1,6 @@
 #pragma once
 #include "IBackend.h"
+#include "PuzzleEngine/core/Application.h"
 
 namespace SYN {
 class Window;
@@ -9,7 +10,7 @@ class Renderer {
     Renderer() = default;
     ~Renderer() = default;
 
-    void init(Window &window);
+    void init(EngineContext* ctx);
     void render(Window &window);
     void addMesh(UUID meshID, const MeshData& meshData);
     //could make a renderable object struct with meshID, materialID etc, all that are needed for drawing

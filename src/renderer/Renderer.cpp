@@ -3,9 +3,9 @@
 
 using namespace SYN;
 
-void SYN::Renderer::init(Window &window) {
+void SYN::Renderer::init(EngineContext* ctx) {
     m_Backend = std::make_unique<VK::VulkanBackend>();
-    m_Backend->init(window);
+    m_Backend->init(ctx->window.get());
 }
 
 void SYN::Renderer::render(Window &window) { m_Backend->render(window); }

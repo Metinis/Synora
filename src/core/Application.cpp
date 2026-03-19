@@ -14,16 +14,16 @@ Application *Application::s_Instance = nullptr;
 Application::Application() {
     s_Instance = this;
 
-    m_Window = std::make_unique<Window>();
-    m_InputManager = std::make_unique<Input>();
-    m_Renderer = std::make_unique<Renderer>();
-    m_Scene = std::make_unique<Scene>();
+    m_EngineContext.window = std::make_unique<Window>();
+    m_EngineContext.inputManager = std::make_unique<Input>();
+    m_EngineContext.renderer = std::make_unique<Renderer>();
+    m_EngineContext.scene = std::make_unique<Scene>();
 
     ProjectConfig projectConfig {
         .resourceRoot = "", //todo add root
         .assetManager = std::make_unique<AssetManager>(),
     };
-    m_ProjectConfig = std::move(projectConfig);
+    m_EngineContext.projectConfig = std::move(projectConfig);
 }
 
 void Application::init() {
@@ -35,26 +35,27 @@ void Application::init() {
     // of passing raw pointer, but m_WindowData should
     // only be used as long as the Application is running,
     // and Input lifetime is tied to Application runtime.
-    m_WindowData = {m_InputManager.get()};
+    m_WindowData = {m_EngineContext.inputManager.get()};
 
-    glfwSetWindowUserPointer(m_Window->getHandle(), &m_WindowData);
+    glfwSetWindowUserPointer(m_EngineContext.window->getHandle(), &m_WindowData);
 
-    m_Window->init(Window::Config{"Synora Engine", 1280, 720});
-    m_InputManager->init(m_Window);
-    m_Renderer->init(*m_Window);
-    m_ProjectConfig.assetManager->init(m_Renderer.get());
-    m_Scene->init(m_Renderer.get(), m_ProjectConfig.assetManager.get());
+    m_EngineContext.window->init(Window::Config{"Synora Engine", 1280, 720});
 
-    m_Layers.push_back(m_Scene.get());
+    m_EngineContext.inputManager->init(&m_EngineContext);
+    m_EngineContext.renderer->init(&m_EngineContext);
+    m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
+    m_EngineContext.scene->init(&m_EngineContext);
+
+    m_Layers.push_back(m_EngineContext.scene.get());
 }
 
 void Application::run() {
     // while running and window open
-    while (m_IsRunning && m_Window->isRunning()) {
+    while (m_IsRunning && m_EngineContext.window->isRunning()) {
         glfwPollEvents();
 
         for (auto& l : m_Layers) {
-            l->onUpdate(m_Window->getDeltaTime());
+            l->onUpdate(m_EngineContext.window->getDeltaTime());
         }
         for (auto& l : m_Layers) {
             l->onRender();
@@ -63,14 +64,14 @@ void Application::run() {
             //ui render
         }
 
-        m_InputManager->processInputQueue();
+        m_EngineContext.inputManager->processInputQueue();
 
-        m_Renderer->render(*m_Window.get());
+        m_EngineContext.renderer->render(*m_EngineContext.window.get());
     }
 }
 
-void Application::shutdown() { m_Renderer->shutdown(); }
+void Application::shutdown() { m_EngineContext.renderer->shutdown(); }
 
-std::unique_ptr<Input> &Application::GetInput() { return m_InputManager; }
+std::unique_ptr<Input> &Application::GetInput() { return m_EngineContext.inputManager; }
 
 Application::~Application() = default;

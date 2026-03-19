@@ -13,7 +13,7 @@ namespace SYN {
     public:
         AssetManager() = default;
 
-        void init(Renderer* backend);
+        void init(EngineContext* ctx);
 
         //automatically gen ID
         template<typename T>

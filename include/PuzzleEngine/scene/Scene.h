@@ -1,6 +1,7 @@
 #pragma once
 #include <entt/entt.hpp>
 
+#include "PuzzleEngine/core/Application.h"
 #include "PuzzleEngine/core/Layer.h"
 #include "PuzzleEngine/scene/Entity.h"
 #include "scene/SceneState.h"
@@ -20,7 +21,7 @@ namespace SYN {
         void onDettach() override;
         void onRender() override;
 
-        void init(Renderer* renderer, AssetManager* assetManager);
+        void init(EngineContext* ctx);
         Entity createEntity();
 
         template<typename T>

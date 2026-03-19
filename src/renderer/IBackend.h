@@ -1,4 +1,5 @@
 #pragma once
+#include "PuzzleEngine/core/Application.h"
 #include "PuzzleEngine/project/UUID.h"
 
 struct MeshData;
@@ -11,7 +12,7 @@ class IBackend {
     IBackend() = default;
     virtual ~IBackend() = default;
 
-    virtual void init(Window &window) = 0;
+    virtual void init(Window* window) = 0;
     virtual void addMesh(UUID meshID, const MeshData& meshData) = 0;
     //could make a renderable object struct with meshID, materialID etc, all that are needed for drawing
     virtual void drawMesh(UUID meshID) = 0;

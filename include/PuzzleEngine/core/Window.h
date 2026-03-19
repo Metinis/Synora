@@ -1,6 +1,8 @@
 #pragma once
 #include <string_view>
 
+#include "Application.h"
+
 namespace SYN {
 class Window {
   public:

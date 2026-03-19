@@ -32,12 +32,12 @@ void Scene::onRender() {
     }
 }
 
-void Scene::init(Renderer* renderer, AssetManager* assetManager) {
-    m_Renderer = renderer;
+void Scene::init(EngineContext* ctx) {
+    m_Renderer = ctx->renderer.get();
     //testing
     auto e = createEntity();
     MeshComp mesh{};
-    auto id = assetManager->addAsset<MeshData>(MeshData{});
+    auto id = ctx->projectConfig.assetManager->addAsset<MeshData>(MeshData{});
     e.addComponent<MeshComp>(MeshComp{.id = id});
 }
 

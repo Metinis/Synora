@@ -1,5 +1,5 @@
 #include "PuzzleEngine/project/AssetManager.h"
 
-void SYN::AssetManager::init(Renderer *renderer) {
-    m_Renderer = renderer;
+void SYN::AssetManager::init(EngineContext* ctx) {
+    m_Renderer = ctx->renderer.get();
 }
