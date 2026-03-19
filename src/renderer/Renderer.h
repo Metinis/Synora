@@ -12,6 +12,7 @@ class Renderer {
     void init(Window &window);
     void render(Window &window);
     void shutdown();
+    [[nodiscard]] IBackend* getBackend() const {return m_Backend.get();}
 
   private:
     std::unique_ptr<IBackend> m_Backend;

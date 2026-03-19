@@ -1,10 +1,10 @@
 #pragma once
+#include "PuzzleEngine/project/UUID.h"
 
+//id is used to access Data through asset manager
 struct MeshComp {
-    //todo -> need to decide whether to use asset id here and access through asset manager
-    //or just store data directly?
-    int temp;
+    SYN::UUID id;
 };
 struct MaterialComp {
-    int temp;
+    SYN::UUID id;
 };

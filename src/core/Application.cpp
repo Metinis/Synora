@@ -3,7 +3,6 @@
 #include <PuzzleEngine/core/Input.h>
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
-
 #include "PuzzleEngine/project/AssetManager.h"
 #include "PuzzleEngine/scene/Scene.h"
 #include "renderer/Renderer.h"
@@ -15,6 +14,7 @@ Application *Application::s_Instance = nullptr;
 Application::Application() { s_Instance = this; }
 
 void Application::init() {
+    spdlog::set_level(spdlog::level::debug);
     // create window etc
     m_IsRunning = true;
 
@@ -40,12 +40,12 @@ void Application::init() {
     //init project stuff
     ProjectConfig projectConfig{
         .resourceRoot = "", //todo add root
-        .assetManager = std::make_unique<AssetManager>(),
+        .assetManager = std::make_unique<AssetManager>(m_Renderer->getBackend()),
     };
     m_ProjectConfig = std::make_unique<ProjectConfig>(std::move(projectConfig));
 
     //testing
-    m_ProjectConfig->assetManager->addAsset<MeshComp>(MeshComp{});
+    m_ProjectConfig->assetManager->addAsset<MeshData>(MeshData{});
 }
 
 void Application::run() {
