@@ -7,9 +7,26 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
+#include "PuzzleEngine/project/UUID.h"
+
+struct MeshData;
+struct MeshComp;
 struct VmaAllocator_T;
 
 namespace SYN::VK {
+
+struct VKMesh {
+    int temp;
+};
+
+struct VKMaterial {
+    int temp;
+};
+
+using VKResource = std::variant<
+    VKMesh,
+    VKMaterial
+>;
 
 struct FrameData {
     VkCommandPool graphicsCmdPool{};
@@ -25,7 +42,12 @@ class VulkanBackend : public IBackend {
 
     void init(Window &window) override;
 
+    void addMesh(UUID meshID, const MeshData& meshData) override;
+    //could make a renderable object struct with meshID, materialID etc, all that are needed for drawing
+    void drawMesh(UUID meshID) override;
+
     void render(Window &window) override;
+
     void shutdown() override;
 
   private:
@@ -62,6 +84,8 @@ class VulkanBackend : public IBackend {
     std::vector<VkSemaphore> m_RenderFinishedSemaphores{};
 
     uint32_t m_CurrentFrameIndex{};
+
+    std::unordered_map<UUID, VKResource> m_Resources{};
 };
 
 } // namespace SYN::VK

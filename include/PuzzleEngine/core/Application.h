@@ -1,5 +1,6 @@
 #pragma once
 #include "Layer.h"
+#include "PuzzleEngine/project/Project.h"
 
 namespace SYN {
 class Window;
@@ -24,6 +25,7 @@ class Application {
     std::unique_ptr<Input> m_InputManager;
     std::unique_ptr<Renderer> m_Renderer;
     std::unique_ptr<Scene> m_Scene;
+    ProjectConfig m_ProjectConfig;
 
     std::deque<ILayer*> m_Layers;
 

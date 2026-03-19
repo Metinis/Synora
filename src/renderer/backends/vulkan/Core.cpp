@@ -20,6 +20,9 @@
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
 
+#include "PuzzleEngine/project/Assets.h"
+#include "PuzzleEngine/scene/Components.h"
+
 using namespace SYN;
 using namespace SYN::VK;
 
@@ -55,6 +58,24 @@ void VulkanBackend::init(SYN::Window &window) {
 
     writeToBuffer(m_Device, vertices.data(), vertices.size() * sizeof(Vertex),
                   m_StagingBuffer, m_VertexBuffer);
+}
+
+void VulkanBackend::addMesh(UUID meshID, const MeshData &meshData) {
+    //todo create vk mesh here and add to m_Resources
+    VKMesh vkMesh{};
+    m_Resources[meshID] = vkMesh;
+    spdlog::debug("VK: Added Mesh ID: {}", meshID);
+}
+
+void VulkanBackend::drawMesh(UUID meshID) {
+    if (m_Resources.contains(meshID) && std::holds_alternative<VKMesh>(m_Resources[meshID])) {
+        VKMesh vkMesh = std::get<VKMesh>(m_Resources[meshID]);
+        //spdlog::debug("VK: Drawing mesh {}", meshID);
+        //todo do processing here
+    }
+    else {
+        spdlog::warn("VK: Mesh \"{}\" not found in backend!", meshID);
+    }
 }
 
 void SYN::VK::VulkanBackend::render(Window &window) {

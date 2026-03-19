@@ -7,10 +7,6 @@
 namespace SYN::VK {
 struct Image;
 
-struct alignas(16) Vertex {
-    glm::vec3 pos;
-};
-
 struct PushConstants {
     VkDeviceAddress vertexBuffer;
 };
