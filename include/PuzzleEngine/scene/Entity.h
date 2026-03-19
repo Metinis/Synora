@@ -14,7 +14,7 @@ namespace SYN {
         explicit Entity(entt::registry *registry, entt::entity handle);
 
         template<typename T>
-        T *getComponent() {
+        T &getComponent() {
             return m_Registry->get<T>(m_Handle);
         }
 

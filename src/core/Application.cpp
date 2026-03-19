@@ -11,47 +11,58 @@
 using namespace SYN;
 
 Application *Application::s_Instance = nullptr;
-Application::Application() { s_Instance = this; }
-
-void Application::init() {
-    spdlog::set_level(spdlog::level::debug);
-    // create window etc
-    m_IsRunning = true;
+Application::Application() {
+    s_Instance = this;
 
     m_Window =
         std::make_unique<Window>(Window::Config{"Synora Engine", 1280, 720});
 
     m_InputManager = std::make_unique<Input>();
     m_Renderer = std::make_unique<Renderer>();
+    m_Scene = std::make_unique<Scene>();
+}
+
+void Application::init() {
+    spdlog::set_level(spdlog::level::debug);
+    // create window etc
+    m_IsRunning = true;
 
     // Could make Input a shared pointer instead
     // of passing raw pointer, but m_WindowData should
     // only be used as long as the Application is running,
     // and Input lifetime is tied to Application runtime.
 
-    m_Layers.push_back(m_Scene.get());
+    //init project stuff
+
 
     m_WindowData = {m_InputManager.get()};
 
     glfwSetWindowUserPointer(m_Window->getHandle(), &m_WindowData);
     m_InputManager->init(m_Window);
     m_Renderer->init(*m_Window);
-
-    //init project stuff
     ProjectConfig projectConfig{
         .resourceRoot = "", //todo add root
         .assetManager = std::make_unique<AssetManager>(m_Renderer->getBackend()),
     };
     m_ProjectConfig = std::make_unique<ProjectConfig>(std::move(projectConfig));
-
-    //testing
-    m_ProjectConfig->assetManager->addAsset<MeshData>(MeshData{});
+    m_Scene->init(m_Renderer->getBackend(), m_ProjectConfig->assetManager.get());
+    m_Layers.push_back(m_Scene.get());
 }
 
 void Application::run() {
     // while running and window open
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
+
+        for (auto& l : m_Layers) {
+            l->onUpdate(m_Window->getDeltaTime());
+        }
+        for (auto& l : m_Layers) {
+            l->onRender();
+        }
+        for (auto& l : m_Layers) {
+            //ui render
+        }
 
         m_InputManager->processInputQueue();
 
