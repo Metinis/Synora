@@ -85,11 +85,11 @@ void SYN::VK::writeToBuffer(const Device &device, void *data, size_t size,
     }
 }
 
-void SYN::VK::writeToImage(const Device &device, void *data, size_t size,
-                           const StagingBuffer &stagingBuffer,
-                           const Image &dstImage) {
-    size_t bytesPerPixel{size /
-                         (dstImage.extent.width * dstImage.extent.height)};
+void SYN::VK::writeToImageCmd(const Device &device, VkCommandBuffer cmdBuffer,
+                              void *data, int width, int height,
+                              size_t bytesPerPixel,
+                              const StagingBuffer &stagingBuffer,
+                              const Image &dstImage) {
     size_t rowSize{bytesPerPixel * dstImage.extent.width};
     size_t rowsPerChunk{stagingBuffer.buffer.size / rowSize};
 
@@ -100,11 +100,16 @@ void SYN::VK::writeToImage(const Device &device, void *data, size_t size,
         return;
     }
 
+    if (width != dstImage.extent.width || height != dstImage.extent.height) {
+        spdlog::warn("Could not write to Vulkan image, src image width or "
+                     "height does not match dst image width or height");
+        assert(false);
+        return;
+    }
+
     auto chunkCount{static_cast<size_t>(
         std::ceil(static_cast<float>(dstImage.extent.height) /
                   static_cast<float>(rowsPerChunk)))};
-
-    VkCommandBuffer cmdBuffer{beginTransientCmd(stagingBuffer.cmdPool, device)};
 
     for (size_t row{}; row < dstImage.extent.height; row += rowsPerChunk) {
         size_t rowsThisChunk{
@@ -138,9 +143,6 @@ void SYN::VK::writeToImage(const Device &device, void *data, size_t size,
             cmdBuffer, stagingBuffer.buffer.handle, dstImage.handle,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     }
-
-    endTransientCmd(stagingBuffer.cmdPool, cmdBuffer, device,
-                    device.queues.at(QueueFamily::transfer).handle);
 }
 
 void SYN::VK::destroyStagingBuffer(StagingBuffer &stagingBuffer,

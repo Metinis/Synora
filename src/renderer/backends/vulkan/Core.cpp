@@ -10,13 +10,19 @@
 #include "renderer/backends/vulkan/Image.h"
 
 #include <GLFW/glfw3.h>
+#include <algorithm>
 #include <cstring>
 #include <glm/glm.hpp>
+#include <iterator>
+#include <ranges>
 #include <spdlog/spdlog.h>
+#include <stb_image.h>
 #include <vk_mem_alloc.h>
 
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
+
+#include <queue>
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -26,6 +32,9 @@ constexpr uint32_t c_MB{1024 * 1024};
 
 VkShaderModule createShaderModule(const Device &device,
                                   const std::string &path);
+
+// TODO: change this, its a temp until asset manager is made
+
 } // namespace
 
 void VulkanBackend::init(SYN::Window &window) {
@@ -64,21 +73,119 @@ void VulkanBackend::init(SYN::Window &window) {
                      0);
 
     std::vector<Vertex> vertices{
-        {.pos = {-0.5, -0.5, 1.0}}, {.pos = {0.0, -0.5, 1.0}},
-        {.pos = {-0.5, 0.5, 1.0}},
+        {
+            .pos = {-0.5, -0.5, 1.0},
+            .u = 0,
+            .v = 0,
+        },
+        {
+            .pos = {0.0, -0.5, 1.0},
+            .u = 1,
+            .v = 0,
+        },
+        {
+            .pos = {-0.5, 0.5, 1.0},
+            .u = 0,
+            .v = 1,
+        },
 
-        {.pos = {0.0, -0.5, 1.0}},  {.pos = {0.0, 0.5, 1.0}},
-        {.pos = {-0.5, 0.5, 1.0}},
+        {
+            .pos = {0.0, -0.5, 1.0},
+            .u = 1,
+            .v = 0,
+        },
+        {
+            .pos = {0.0, 0.5, 1.0},
+            .u = 1,
+            .v = 1,
+        },
+        {
+            .pos = {-0.5, 0.5, 1.0},
+            .u = 0,
+            .v = 1,
+        },
     };
 
     writeToBuffer(m_Device, vertices.data(), vertices.size() * sizeof(Vertex),
                   m_StagingBuffer, m_VertexBuffer);
 
-    // Image texture{createImage(m_Device, m_Allocator,
-    // VK_FORMAT_R8G8B8A8_UNORM,
-    //                           {.width = 100, .height = 100},
-    //                           VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-    //                           VK_IMAGE_ASPECT_COLOR_BIT)};
+    stbi_set_flip_vertically_on_load(true);
+
+    int imageWidth{};
+    int imageHeight{};
+    int channelsInImage{};
+    std::string imagePath{"resources/textures/missing_texture.png"};
+    stbi_uc *imageBytes{stbi_load(imagePath.c_str(), &imageWidth, &imageHeight,
+                                  &channelsInImage, 4)};
+
+    if (imageBytes == nullptr) {
+        spdlog::warn("Could not load {}", imagePath);
+        return;
+    }
+
+    Image image = {createImage(m_Device, m_Allocator, VK_FORMAT_R8G8B8A8_UNORM,
+                               {.width = static_cast<uint32_t>(imageWidth),
+                                .height = static_cast<uint32_t>(imageHeight)},
+                               VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                   VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_IMAGE_ASPECT_COLOR_BIT)};
+
+    auto cmdBufferRecordCommands{[&](VkCommandBuffer cmdBuffer) {
+        transitionImageCmd(
+            cmdBuffer, m_Device, image, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+        writeToImageCmd(m_Device, cmdBuffer, imageBytes, imageWidth,
+                        imageHeight, channelsInImage * sizeof(stbi_uc),
+                        m_StagingBuffer, image);
+
+        transitionImageCmd(
+            cmdBuffer, m_Device, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    }};
+    submitImmediateCmd(m_TransientCmdPool,
+                       m_Device.queues.at(QueueFamily::transfer).handle,
+                       m_Device, cmdBufferRecordCommands);
+
+    m_SparseUploadedTextures.emplace_back(image);
+
+    VkSamplerCreateInfo samplerCI{
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_NEAREST,
+        .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .anisotropyEnable = VK_TRUE,
+        .maxAnisotropy =
+            std::min(4.f, m_Device.properties.limits.maxSamplerAnisotropy),
+        .maxLod = VK_LOD_CLAMP_NONE};
+    vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_DefaultSampler);
+
+    VkDescriptorImageInfo descriptorImageInfo{
+        .sampler = m_DefaultSampler,
+        .imageView = image.view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+
+    VkWriteDescriptorSet descriptorSetWrite{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = m_BindlessDescriptorSet,
+        .dstBinding = c_TextureBinding,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &descriptorImageInfo,
+    };
+    vkUpdateDescriptorSets(m_Device.logical, 1, &descriptorSetWrite, 0,
+                           nullptr);
+
+    stbi_image_free(imageBytes);
 }
 
 void SYN::VK::VulkanBackend::render(Window &window) {
@@ -99,6 +206,14 @@ void SYN::VK::VulkanBackend::render(Window &window) {
 }
 void VulkanBackend::shutdown() {
     vkDeviceWaitIdle(m_Device.logical);
+
+    vkDestroySampler(m_Device.logical, m_DefaultSampler, nullptr);
+    for (auto &image : m_SparseUploadedTextures) {
+        if (image.handle == VK_NULL_HANDLE) {
+            continue;
+        }
+        destroyImage(m_Device, m_Allocator, image);
+    }
 
     for (auto &frame : m_FrameData) {
         vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
@@ -273,6 +388,12 @@ void SYN::VK::VulkanBackend::initDescriptorSets() {
                       static_cast<int>(res));
         assert(false);
     }
+
+    m_TextureSlotFreelist.resize(textureDescriptorCount);
+    m_SparseUploadedTextures.resize(textureDescriptorCount);
+    for (size_t i{}; i < textureDescriptorCount; i++) {
+        m_TextureSlotFreelist[i] = i;
+    }
 }
 
 void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
@@ -426,10 +547,10 @@ void SYN::VK::VulkanBackend::recordRenderCmd(uint32_t currentImageIndex) {
     PushConstants pushConstants{.vertexBuffer = m_VertexBuffer.deviceAddress};
 
     uint32_t nVertices{6};
-    cmdDefaultRenderPass(frame.graphicsCmdBuffer, m_GraphicsPipeline,
-                         m_BindlessPipelineLayout, pushConstants, nVertices,
-                         swapchainImage, frame.depthImage,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    defaultRenderPassCmd(
+        frame.graphicsCmdBuffer, m_GraphicsPipeline, m_BindlessPipelineLayout,
+        pushConstants, m_BindlessDescriptorSet, nVertices, swapchainImage,
+        frame.depthImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     VkImageMemoryBarrier2 presentBarrier{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -500,6 +621,132 @@ void SYN::VK::VulkanBackend::endFrame(Window &window,
         spdlog::error("Could not present image. VkResult = {}",
                       static_cast<int>(res));
     }
+}
+
+// note this fella dont work yet
+void SYN::VK::VulkanBackend::updateTextures(
+    std::span<size_t> textureAssetIDs,
+    const std::unordered_map<size_t, LoadedImage> &assetIDToLoadedImage) {
+
+    assert(std::is_sorted(m_TextureSlotFreelist.begin(),
+                          m_TextureSlotFreelist.end()));
+
+    std::unordered_set<size_t> requiredAssetIDs(textureAssetIDs.begin(),
+                                                textureAssetIDs.end());
+
+    {
+        std::vector<size_t> staleAssetIDs{};
+
+        auto uploadedAssetIDs{std::views::keys(m_AssetIDToTextureSlot)};
+
+        for (const auto &[id, slot] : m_AssetIDToTextureSlot) {
+            if (!requiredAssetIDs.contains(id))
+                staleAssetIDs.push_back(id);
+        }
+
+        std::vector<size_t> newFreeTextureSlots{};
+        for (auto id : staleAssetIDs) {
+            size_t textureSlot{m_AssetIDToTextureSlot.at(id)};
+            newFreeTextureSlots.emplace_back(textureSlot);
+            m_AssetIDToTextureSlot.erase(id);
+            destroyImage(m_Device, m_Allocator,
+                         m_SparseUploadedTextures[textureSlot]);
+        }
+        std::sort(newFreeTextureSlots.begin(), newFreeTextureSlots.end());
+
+        std::vector<size_t> newFreelist{};
+        newFreelist.reserve(newFreeTextureSlots.size() +
+                            m_TextureSlotFreelist.size());
+        std::merge(m_TextureSlotFreelist.begin(), m_TextureSlotFreelist.end(),
+                   newFreeTextureSlots.begin(), newFreeTextureSlots.end(),
+                   std::back_inserter(newFreelist));
+
+        m_TextureSlotFreelist = std::move(newFreelist);
+    }
+
+    auto uploadedAssetIDs{std::views::keys(m_AssetIDToTextureSlot)};
+
+    std::vector<size_t> assetIDsToLoad{};
+    for (const auto &id : requiredAssetIDs) {
+        if (!m_AssetIDToTextureSlot.contains(id))
+            assetIDsToLoad.push_back(id);
+    }
+
+    std::vector<VkWriteDescriptorSet> descriptorWrites{};
+    descriptorWrites.reserve(assetIDsToLoad.size());
+
+    std::vector<VkDescriptorImageInfo> descriptorImageInfos{};
+    descriptorImageInfos.reserve(assetIDsToLoad.size());
+
+    for (size_t i{}; i < assetIDsToLoad.size(); i++) {
+        if (m_TextureSlotFreelist.empty()) {
+            spdlog::warn("Could not upload texture, all slots are being used");
+            break;
+        }
+        size_t textureSlot{m_TextureSlotFreelist.back()};
+        m_TextureSlotFreelist.pop_back();
+
+        size_t id{assetIDsToLoad[i]};
+        m_AssetIDToTextureSlot[id] = textureSlot;
+
+        const LoadedImage &loadedImage{assetIDToLoadedImage.at(id)};
+
+        {
+            Image image = {createImage(
+                m_Device, m_Allocator, VK_FORMAT_R8G8B8A8_UNORM,
+                {.width = static_cast<uint32_t>(loadedImage.width),
+                 .height = static_cast<uint32_t>(loadedImage.height)},
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT)};
+
+            VkCommandBuffer cmdBuffer{
+                beginTransientCmd(m_TransientCmdPool, m_Device)};
+
+            transitionImageCmd(
+                cmdBuffer, m_Device, image, VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+            writeToImageCmd(m_Device, cmdBuffer, loadedImage.data,
+                            loadedImage.width, loadedImage.height,
+                            loadedImage.channels * sizeof(uint8_t),
+                            m_StagingBuffer, image);
+
+            transitionImageCmd(cmdBuffer, m_Device, image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                               VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                               VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                               VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                               VK_ACCESS_2_SHADER_READ_BIT);
+
+            endTransientCmd(m_TransientCmdPool, cmdBuffer, m_Device,
+                            m_Device.queues.at(QueueFamily::transfer).handle);
+
+            m_SparseUploadedTextures[textureSlot] = std::move(image);
+        }
+
+        descriptorImageInfos.emplace_back(VkDescriptorImageInfo{
+            .sampler = m_DefaultSampler,
+            .imageView = m_SparseUploadedTextures[textureSlot].view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        });
+
+        descriptorWrites.emplace_back(VkWriteDescriptorSet{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = m_BindlessDescriptorSet,
+            .dstBinding = c_TextureBinding,
+            .dstArrayElement = static_cast<uint32_t>(textureSlot),
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &descriptorImageInfos.back(),
+        });
+    }
+
+    vkUpdateDescriptorSets(m_Device.logical, descriptorWrites.size(),
+                           descriptorWrites.data(), 0, nullptr);
 }
 
 void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {

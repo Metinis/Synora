@@ -65,7 +65,7 @@ void SYN::InputContext::updateVectorAxes(ActionID action, InputState state) {
                 continue;
             }
 
-            float axisLength = std::sqrtf(axisLength2);
+            float axisLength = std::sqrt(axisLength2);
 
             float normalizedX = vectorAxis.m_X / axisLength;
             float normalizedY = vectorAxis.m_Y / axisLength;

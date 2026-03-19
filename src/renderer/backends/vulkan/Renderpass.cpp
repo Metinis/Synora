@@ -5,13 +5,14 @@
 using namespace SYN::VK;
 using namespace SYN;
 
-void SYN::VK::cmdDefaultRenderPass(VkCommandBuffer cmdBuffer,
-                                   VkPipeline pipeline, VkPipelineLayout layout,
-                                   const PushConstants &pushConstants,
-                                   uint32_t vertexCount,
-                                   const Image &renderTarget,
-                                   const Image &depthTarget,
-                                   VkImageLayout renderTargetLayout) {
+void SYN::VK::defaultRenderPassCmd(
+    VkCommandBuffer cmdBuffer, VkPipeline pipeline, VkPipelineLayout layout,
+    const PushConstants &pushConstants, VkDescriptorSet bindlessDescriptorSet,
+    uint32_t vertexCount, const Image &renderTarget, const Image &depthTarget,
+    VkImageLayout renderTargetLayout) {
+
+    vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
+                            0, 1, &bindlessDescriptorSet, 0, nullptr);
 
     constexpr VkClearValue colorClearValue{
         .color = VkClearColorValue{{0.f, 0.f, 0.f, 0.f}}};

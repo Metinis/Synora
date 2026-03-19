@@ -12,6 +12,7 @@ struct Image {
     VkImageView view;
     VkExtent2D extent;
     VkImageSubresourceRange subresourceRange;
+    VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
 
     VmaAllocation allocation;
 };

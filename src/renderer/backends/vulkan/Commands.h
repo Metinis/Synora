@@ -17,4 +17,5 @@ void endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
                      VkFence fence = VK_NULL_HANDLE,
                      std::span<VkSemaphore> waitSemaphores = {},
                      std::span<VkSemaphore> signalSemaphores = {});
+
 } // namespace SYN::VK

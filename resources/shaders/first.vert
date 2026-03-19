@@ -3,9 +3,12 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 layout(set = 0, binding = 0) uniform sampler2D textures[];
+layout(location = 0) out vec2 outUV;
 
 struct Vertex {
     vec3 pos;
+    float u;
+    float v;
 };
 
 layout(buffer_reference, std430) buffer readonly VertexBuffer {
@@ -17,5 +20,8 @@ layout(push_constant, std430) uniform PushConstants {
 };
 
 void main() {
-	gl_Position = vec4(vertexBuffer.vertices[gl_VertexIndex].pos, 1.f);
+    Vertex vertex = vertexBuffer.vertices[gl_VertexIndex];
+
+    outUV = vec2(vertex.u, vertex.v);
+	gl_Position = vec4(vertex.pos.xyz, 1.f);
 }
