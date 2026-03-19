@@ -8,14 +8,17 @@
 namespace SYN {
     class Entity;
 
+    //probably split scene into scene manager and scene contain like this
     class Scene : public ILayer {
     public:
         Scene();
         ~Scene() override = default;
+
         void onUpdate(float dt) override;
         void onAttach() override;
         void onDettach() override;
         void onRender() override;
+
         void init();
         Entity createEntity();
 
@@ -31,4 +34,5 @@ namespace SYN {
         SceneState m_SceneState;
         friend class Entity;
     };
+
 }
