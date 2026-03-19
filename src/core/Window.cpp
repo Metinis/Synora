@@ -21,6 +21,15 @@ SYN::Window::Window(const Config &config) {
 
 bool SYN::Window::isRunning() const { return !glfwWindowShouldClose(m_Window); }
 
+void SYN::Window::calculateDeltaTime() {
+    auto currentTime = static_cast<float>(glfwGetTime());
+    m_DeltaTime = currentTime - m_LastTime;
+    m_LastTime = currentTime;
+}
+float SYN::Window::getDeltaTime() const {
+    return m_DeltaTime;
+}
+
 SYN::Window::~Window() { glfwDestroyWindow(m_Window); }
 
 struct GLFWwindow *SYN::Window::getHandle() { return m_Window; }
