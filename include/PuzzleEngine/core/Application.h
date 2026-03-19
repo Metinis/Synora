@@ -1,9 +1,11 @@
 #pragma once
+#include "Layer.h"
 
 namespace SYN {
 class Window;
 class Input;
 class Renderer;
+class Scene;
 
 class Application {
   public:
@@ -21,6 +23,9 @@ class Application {
     std::unique_ptr<Window> m_Window;
     std::unique_ptr<Input> m_InputManager;
     std::unique_ptr<Renderer> m_Renderer;
+    std::unique_ptr<Scene> m_Scene;
+
+    std::deque<ILayer*> m_Layers;
 
     bool m_IsRunning{};
 

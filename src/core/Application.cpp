@@ -4,7 +4,7 @@
 #include <PuzzleEngine/core/Input.h>
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
-
+#include "PuzzleEngine/Scene/Scene.h"
 #include "renderer/Renderer.h"
 
 using namespace SYN;
@@ -26,6 +26,8 @@ void Application::init() {
     // of passing raw pointer, but m_WindowData should
     // only be used as long as the Application is running,
     // and Input lifetime is tied to Application runtime.
+
+    m_Layers.push_back(m_Scene.get());
 
     m_WindowData = {m_InputManager.get()};
 

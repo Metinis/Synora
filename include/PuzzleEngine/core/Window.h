@@ -16,8 +16,12 @@ class Window {
     ~Window();
 
     struct GLFWwindow *getHandle();
+    void calculateDeltaTime();
+    float getDeltaTime() const;
 
   private:
     struct GLFWwindow *m_Window{};
+    float m_LastTime;
+    float m_DeltaTime;
 };
 } // namespace SYN
