@@ -171,8 +171,8 @@ void SYN::Input::onKeyEvent(int32_t keyCode, int32_t action) {
     }
 }
 
-void SYN::Input::init(const std::unique_ptr<Window> &window) {
-    glfwSetKeyCallback(window->getHandle(), keyCallback);
+void SYN::Input::init(EngineContext* ctx) {
+    glfwSetKeyCallback(ctx->window->getHandle(), keyCallback);
 }
 
 uint8_t getHandleGeneration(SYN::InputContextHandle handle) {

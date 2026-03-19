@@ -40,7 +40,7 @@ class VulkanBackend : public IBackend {
     VulkanBackend() = default;
     ~VulkanBackend() = default;
 
-    void init(Window &window) override;
+    void init(Window* window) override;
 
     void addMesh(UUID meshID, const MeshData& meshData) override;
     //could make a renderable object struct with meshID, materialID etc, all that are needed for drawing
@@ -51,7 +51,7 @@ class VulkanBackend : public IBackend {
     void shutdown() override;
 
   private:
-    void initContext(Window &window);
+    void initContext(Window* window);
     void initPipeline();
     void initFrameData();
 

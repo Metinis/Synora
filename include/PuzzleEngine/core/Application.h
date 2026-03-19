@@ -8,6 +8,13 @@ class Input;
 class Renderer;
 class Scene;
 
+struct EngineContext {
+  std::unique_ptr<Window> window;
+  std::unique_ptr<Input> inputManager;
+  std::unique_ptr<Renderer> renderer;
+  std::unique_ptr<Scene> scene;
+  ProjectConfig projectConfig;
+};
 class Application {
   public:
     Application();
@@ -21,11 +28,8 @@ class Application {
 
   private:
     static Application *s_Instance;
-    std::unique_ptr<Window> m_Window;
-    std::unique_ptr<Input> m_InputManager;
-    std::unique_ptr<Renderer> m_Renderer;
-    std::unique_ptr<Scene> m_Scene;
-    ProjectConfig m_ProjectConfig;
+
+    EngineContext m_EngineContext;
 
     std::deque<ILayer*> m_Layers;
 

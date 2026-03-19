@@ -33,7 +33,7 @@ VkShaderModule createShaderModule(const Device &device,
                                   const std::string &path);
 } // namespace
 
-void VulkanBackend::init(SYN::Window &window) {
+void VulkanBackend::init(Window* window) {
     initContext(window);
 
     initPipeline();
@@ -122,12 +122,12 @@ void VulkanBackend::shutdown() {
     vkDestroyInstance(m_Instance, nullptr);
 }
 
-void SYN::VK::VulkanBackend::initContext(Window &window) {
+void SYN::VK::VulkanBackend::initContext(Window* window) {
     m_Instance = createInstance();
 
     m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
 
-    VkResult res{glfwCreateWindowSurface(m_Instance, window.getHandle(),
+    VkResult res{glfwCreateWindowSurface(m_Instance, window->getHandle(),
                                          nullptr, &m_Surface)};
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create Vulkan surface");
@@ -148,7 +148,7 @@ void SYN::VK::VulkanBackend::initContext(Window &window) {
         spdlog::error("Could not create Vulkan allocator");
     }
 
-    m_Swapchain = createSwapchain(m_Device, m_Surface, window);
+    m_Swapchain = createSwapchain(m_Device, m_Surface, *window);
 }
 
 void SYN::VK::VulkanBackend::initPipeline() {
