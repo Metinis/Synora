@@ -6,6 +6,7 @@ class Window;
 class Input;
 class Renderer;
 class Scene;
+struct ProjectConfig;
 
 class Application {
   public:
@@ -24,6 +25,7 @@ class Application {
     std::unique_ptr<Input> m_InputManager;
     std::unique_ptr<Renderer> m_Renderer;
     std::unique_ptr<Scene> m_Scene;
+    std::unique_ptr<ProjectConfig> m_ProjectConfig;
 
     std::deque<ILayer*> m_Layers;
 

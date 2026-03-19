@@ -5,3 +5,6 @@ struct MeshComp {
     //or just store data directly?
     int temp;
 };
+struct MaterialComp {
+    int temp;
+};

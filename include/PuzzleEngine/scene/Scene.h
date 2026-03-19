@@ -2,7 +2,7 @@
 #include <entt/entt.hpp>
 
 #include "PuzzleEngine/core/Layer.h"
-#include "PuzzleEngine/Scene/Entity.h"
+#include "PuzzleEngine/scene/Entity.h"
 #include "scene/SceneState.h"
 
 namespace SYN {

@@ -1,11 +1,13 @@
 #include <GLFW/glfw3.h>
-
 #include <PuzzleEngine/core/Application.h>
 #include <PuzzleEngine/core/Input.h>
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
-#include "PuzzleEngine/Scene/Scene.h"
+
+#include "PuzzleEngine/project/AssetManager.h"
+#include "PuzzleEngine/scene/Scene.h"
 #include "renderer/Renderer.h"
+#include "PuzzleEngine/project/Project.h"
 
 using namespace SYN;
 
@@ -34,6 +36,16 @@ void Application::init() {
     glfwSetWindowUserPointer(m_Window->getHandle(), &m_WindowData);
     m_InputManager->init(m_Window);
     m_Renderer->init(*m_Window);
+
+    //init project stuff
+    ProjectConfig projectConfig{
+        .resourceRoot = "", //todo add root
+        .assetManager = std::make_unique<AssetManager>(),
+    };
+    m_ProjectConfig = std::make_unique<ProjectConfig>(std::move(projectConfig));
+
+    //testing
+    m_ProjectConfig->assetManager->addAsset<MeshComp>(MeshComp{});
 }
 
 void Application::run() {
