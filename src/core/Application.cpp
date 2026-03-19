@@ -42,8 +42,8 @@ void Application::init() {
     m_Window->init(Window::Config{"Synora Engine", 1280, 720});
     m_InputManager->init(m_Window);
     m_Renderer->init(*m_Window);
-    m_ProjectConfig.assetManager->init(m_Renderer->getBackend());
-    m_Scene->init(m_Renderer->getBackend(), m_ProjectConfig.assetManager.get());
+    m_ProjectConfig.assetManager->init(m_Renderer.get());
+    m_Scene->init(m_Renderer.get(), m_ProjectConfig.assetManager.get());
 
     m_Layers.push_back(m_Scene.get());
 }

@@ -3,10 +3,10 @@
 
 #include "PuzzleEngine/core/Layer.h"
 #include "PuzzleEngine/scene/Entity.h"
-#include "renderer/IBackend.h"
 #include "scene/SceneState.h"
 
 namespace SYN {
+    class Renderer;
     class AssetManager;
 
     //probably split scene into scene manager and scene contain like this
@@ -20,7 +20,7 @@ namespace SYN {
         void onDettach() override;
         void onRender() override;
 
-        void init(IBackend* backend, AssetManager* assetManager);
+        void init(Renderer* renderer, AssetManager* assetManager);
         Entity createEntity();
 
         template<typename T>
@@ -32,7 +32,7 @@ namespace SYN {
             return ret;
         }
     private:
-        IBackend* m_Backend;
+        Renderer* m_Renderer;
         SceneState m_SceneState;
         friend class Entity;
     };

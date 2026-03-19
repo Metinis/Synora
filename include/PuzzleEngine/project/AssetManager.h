@@ -5,16 +5,15 @@
 #include "spdlog/spdlog.h"
 #include "Assets.h"
 #include "renderer/IBackend.h"
+#include "renderer/Renderer.h"
 #include "renderer/backends/vulkan/Core.h"
 
 namespace SYN {
-    //todo add more variants here as needed
-
     class AssetManager {
     public:
         AssetManager() = default;
 
-        void init(IBackend* backend);
+        void init(Renderer* backend);
 
         //automatically gen ID
         template<typename T>
@@ -25,7 +24,7 @@ namespace SYN {
             //generate mesh data if we added one
             spdlog::debug("Asset added: {}", id);
             if constexpr (std::is_same_v<T, MeshData>) {
-                m_Backend->addMesh(id, asset);
+                m_Renderer->addMesh(id, asset);
             }
             return id;
         }
@@ -38,7 +37,7 @@ namespace SYN {
             //generate mesh data if we added one
             spdlog::debug("Asset created: %d", id);
             if (std::holds_alternative<MeshData>(asset)) {
-                m_Backend->addMesh(id, std::get<MeshData>(asset));
+                m_Renderer->addMesh(id, std::get<MeshData>(asset));
             }
         }
 
@@ -56,6 +55,6 @@ namespace SYN {
         ~AssetManager() = default;
     private:
         std::unordered_map<UUID, AssetType> m_AssetMap{};
-        IBackend* m_Backend{};
+        Renderer* m_Renderer{};
     };
 }

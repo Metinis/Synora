@@ -3,6 +3,7 @@
 #include "PuzzleEngine/project/AssetManager.h"
 #include "PuzzleEngine/Scene/Components.h"
 #include "renderer/IBackend.h"
+#include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"
 
 using namespace SYN;
@@ -27,12 +28,12 @@ void Scene::onRender() {
     //spdlog::debug("Scene: Render");
     for (auto &e : getEntities<MeshComp>()) {
         auto& meshComp = e.getComponent<MeshComp>();
-        m_Backend->drawMesh(meshComp.id);
+        m_Renderer->drawMesh(meshComp.id);
     }
 }
 
-void Scene::init(IBackend* backend, AssetManager* assetManager) {
-    m_Backend = backend;
+void Scene::init(Renderer* renderer, AssetManager* assetManager) {
+    m_Renderer = renderer;
     //testing
     auto e = createEntity();
     MeshComp mesh{};
