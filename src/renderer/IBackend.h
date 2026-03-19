@@ -9,6 +9,7 @@ class IBackend {
     virtual ~IBackend() = default;
 
     virtual void init(Window &window) = 0;
+    virtual void render(Window &window) = 0;
     virtual void shutdown() = 0;
 
   private:

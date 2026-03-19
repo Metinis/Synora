@@ -4,7 +4,7 @@
 #include <PuzzleEngine/core/Input.h>
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
-#include <PuzzleEngine/Scene/Scene.h>
+
 #include "renderer/Renderer.h"
 
 using namespace SYN;
@@ -21,9 +21,6 @@ void Application::init() {
 
     m_InputManager = std::make_unique<Input>();
     m_Renderer = std::make_unique<Renderer>();
-    m_Scene = std::make_unique<Scene>();
-    m_Layers.push_back(m_Scene.get());
-    //push any sort of ui/overlay to front
 
     // Could make Input a shared pointer instead
     // of passing raw pointer, but m_WindowData should
@@ -42,19 +39,14 @@ void Application::run() {
     while (m_IsRunning && m_Window->isRunning()) {
         glfwPollEvents();
 
-        for (auto& layer : m_Layers) {
-            if (layer->isLayerActive)
-                layer->onUpdate(m_Window->getDeltaTime());
-        }
+        m_InputManager->processInputQueue();
 
-        for (auto& layer : m_Layers) {
-            //could pass renderer stuff here
-            if (layer->isLayerActive)
-                layer->onRender();
-        }
+        m_Renderer->render(*m_Window.get());
     }
 }
 
 void Application::shutdown() { m_Renderer->shutdown(); }
+
+std::unique_ptr<Input> &Application::GetInput() { return m_InputManager; }
 
 Application::~Application() = default;
