@@ -12,7 +12,9 @@ namespace SYN {
 
     class AssetManager {
     public:
-        AssetManager(IBackend* backend) : m_Backend{ backend }{};
+        AssetManager() = default;
+
+        void init(IBackend* backend);
 
         //automatically gen ID
         template<typename T>

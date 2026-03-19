@@ -14,12 +14,16 @@ Application *Application::s_Instance = nullptr;
 Application::Application() {
     s_Instance = this;
 
-    m_Window =
-        std::make_unique<Window>(Window::Config{"Synora Engine", 1280, 720});
-
+    m_Window = std::make_unique<Window>();
     m_InputManager = std::make_unique<Input>();
     m_Renderer = std::make_unique<Renderer>();
     m_Scene = std::make_unique<Scene>();
+
+    ProjectConfig projectConfig {
+        .resourceRoot = "", //todo add root
+        .assetManager = std::make_unique<AssetManager>(),
+    };
+    m_ProjectConfig = std::move(projectConfig);
 }
 
 void Application::init() {
@@ -31,21 +35,16 @@ void Application::init() {
     // of passing raw pointer, but m_WindowData should
     // only be used as long as the Application is running,
     // and Input lifetime is tied to Application runtime.
-
-    //init project stuff
-
-
     m_WindowData = {m_InputManager.get()};
 
     glfwSetWindowUserPointer(m_Window->getHandle(), &m_WindowData);
+
+    m_Window->init(Window::Config{"Synora Engine", 1280, 720});
     m_InputManager->init(m_Window);
     m_Renderer->init(*m_Window);
-    ProjectConfig projectConfig{
-        .resourceRoot = "", //todo add root
-        .assetManager = std::make_unique<AssetManager>(m_Renderer->getBackend()),
-    };
-    m_ProjectConfig = std::make_unique<ProjectConfig>(std::move(projectConfig));
-    m_Scene->init(m_Renderer->getBackend(), m_ProjectConfig->assetManager.get());
+    m_ProjectConfig.assetManager->init(m_Renderer->getBackend());
+    m_Scene->init(m_Renderer->getBackend(), m_ProjectConfig.assetManager.get());
+
     m_Layers.push_back(m_Scene.get());
 }
 

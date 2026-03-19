@@ -11,7 +11,8 @@ class Window {
     };
 
   public:
-    Window(const Config &config);
+    Window();
+    void init(const Config &config);
     bool isRunning() const;
     ~Window();
 

@@ -70,7 +70,7 @@ void VulkanBackend::addMesh(UUID meshID, const MeshData &meshData) {
 void VulkanBackend::drawMesh(UUID meshID) {
     if (m_Resources.contains(meshID) && std::holds_alternative<VKMesh>(m_Resources[meshID])) {
         VKMesh vkMesh = std::get<VKMesh>(m_Resources[meshID]);
-        spdlog::debug("VK: Drawing mesh {}", meshID);
+        //spdlog::debug("VK: Drawing mesh {}", meshID);
         //todo do processing here
     }
     else {

@@ -4,7 +4,11 @@
 
 #include <spdlog/spdlog.h>
 
-SYN::Window::Window(const Config &config) {
+SYN::Window::Window() {
+
+}
+
+void SYN::Window::init(const Config &config) {
     if (!glfwInit())
         spdlog::error("Failed to initialize GLFW!");
 
