@@ -1,6 +1,7 @@
 #include "Image.h"
 #include "Device.h"
 #include "renderer/backends/vulkan/Buffer.h"
+#include "renderer/backends/vulkan/Commands.h"
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
@@ -70,11 +71,15 @@ void SYN::VK::destroyImage(const Device &device, VmaAllocator allocator,
     image = {};
 }
 
-void SYN::VK::transitionImageCmd(
-    VkCommandBuffer cmdBuffer, const Device &device, const Image &image,
-    VkImageLayout oldLayout, VkImageLayout newLayout,
-    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask,
-    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask) {
+void SYN::VK::transitionImage(VkCommandPool cmdPool, const Device &device,
+                              const Image &image, VkImageLayout oldLayout,
+                              VkImageLayout newLayout,
+                              VkPipelineStageFlags2 srcStageMask,
+                              VkAccessFlags2 srcAccessMask,
+                              VkPipelineStageFlags2 dstStageMask,
+                              VkAccessFlags2 dstAccessMask) {
+
+    VkCommandBuffer cmdBuffer{beginTransientCmd(cmdPool, device)};
 
     VkImageMemoryBarrier2 barrier{.sType =
                                       VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -93,4 +98,7 @@ void SYN::VK::transitionImageCmd(
         .pImageMemoryBarriers = &barrier,
     };
     vkCmdPipelineBarrier2(cmdBuffer, &colorAttachmentDependency);
+    endTransientCmd(cmdBuffer);
+    submitCmdBuffer(cmdPool, cmdBuffer, device,
+                    device.queues.at(QueueFamily::compute).handle);
 }

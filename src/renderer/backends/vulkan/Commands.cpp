@@ -13,7 +13,9 @@ void SYN::VK::submitImmediateCmd(
 
     immediateCmds(cmdBuffer);
 
-    endTransientCmd(cmdPool, cmdBuffer, device, queue);
+    std::array<VkCommandBuffer, 1> cmdBuffers{cmdBuffer};
+    endTransientCmd(cmdBuffer);
+    submitCmdBuffers(cmdPool, cmdBuffers, device, queue);
 }
 
 VkCommandBuffer SYN::VK::beginTransientCmd(VkCommandPool cmdPool,
@@ -45,18 +47,59 @@ VkCommandBuffer SYN::VK::beginTransientCmd(VkCommandPool cmdPool,
 
     return cmdBuffer;
 }
-void SYN::VK::endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
-                              const Device &device, VkQueue queue,
-                              VkFence fence,
-                              std::span<VkSemaphore> waitSemaphores,
-                              std::span<VkSemaphore> signalSemaphores) {
+void SYN::VK::endTransientCmd(VkCommandBuffer cmdBuffer) {
     VkResult res{vkEndCommandBuffer(cmdBuffer)};
 
     if (res != VK_SUCCESS) {
         spdlog::error("Could not end command buffer, VkResult = {}",
                       static_cast<int>(res));
     }
+}
 
+void SYN::VK::submitCmdBuffers(VkCommandPool cmdPool,
+                               std::span<VkCommandBuffer> cmdBuffers,
+                               const Device &device, VkQueue queue,
+                               VkFence fence,
+                               std::span<VkSemaphore> waitSemaphores,
+                               std::span<VkSemaphore> signalSemaphores) {
+
+    VkSubmitInfo submitInfo{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size()),
+        .pWaitSemaphores = waitSemaphores.data(),
+        .commandBufferCount = static_cast<uint32_t>(cmdBuffers.size()),
+        .pCommandBuffers = cmdBuffers.data(),
+        .signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size()),
+        .pSignalSemaphores = signalSemaphores.data(),
+    };
+
+    bool fenceCreated{};
+    if (fence == VK_NULL_HANDLE) {
+        VkFenceCreateInfo fenceInfo{.sType =
+                                        VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        vkCreateFence(device.logical, &fenceInfo, nullptr, &fence);
+        fenceCreated = true;
+    }
+
+    VkResult res{vkQueueSubmit(queue, 1, &submitInfo, fence)};
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not submit command buffer, VkResult = {}",
+                      static_cast<int>(res));
+    }
+
+    if (fenceCreated) {
+        vkWaitForFences(device.logical, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(device.logical, fence, nullptr);
+        vkFreeCommandBuffers(device.logical, cmdPool, cmdBuffers.size(),
+                             cmdBuffers.data());
+    }
+}
+
+void SYN::VK::submitCmdBuffer(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
+                              const Device &device, VkQueue queue,
+                              VkFence fence,
+                              std::span<VkSemaphore> waitSemaphores,
+                              std::span<VkSemaphore> signalSemaphores) {
     VkSubmitInfo submitInfo{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .waitSemaphoreCount = static_cast<uint32_t>(waitSemaphores.size()),
@@ -67,20 +110,23 @@ void SYN::VK::endTransientCmd(VkCommandPool cmdPool, VkCommandBuffer cmdBuffer,
         .pSignalSemaphores = signalSemaphores.data(),
     };
 
+    bool fenceCreated{};
     if (fence == VK_NULL_HANDLE) {
         VkFenceCreateInfo fenceInfo{.sType =
                                         VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         vkCreateFence(device.logical, &fenceInfo, nullptr, &fence);
+        fenceCreated = true;
     }
 
-    res = vkQueueSubmit(queue, 1, &submitInfo, fence);
+    VkResult res{vkQueueSubmit(queue, 1, &submitInfo, fence)};
     if (res != VK_SUCCESS) {
         spdlog::error("Could not submit command buffer, VkResult = {}",
                       static_cast<int>(res));
     }
 
-    vkWaitForFences(device.logical, 1, &fence, VK_TRUE, UINT64_MAX);
-
-    vkDestroyFence(device.logical, fence, nullptr);
-    vkFreeCommandBuffers(device.logical, cmdPool, 1, &cmdBuffer);
+    if (fenceCreated) {
+        vkWaitForFences(device.logical, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(device.logical, fence, nullptr);
+        vkFreeCommandBuffers(device.logical, cmdPool, 1, &cmdBuffer);
+    }
 }
