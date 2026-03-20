@@ -22,7 +22,8 @@
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
 
-#include <queue>
+#include "PuzzleEngine/project/Assets.h"
+#include "PuzzleEngine/scene/Components.h"
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -35,7 +36,7 @@ VkShaderModule createShaderModule(const Device &device,
 
 } // namespace
 
-void VulkanBackend::init(SYN::Window &window) {
+void VulkanBackend::init(Window *window) {
     initContext(window);
 
     initDescriptorSetLayout();
@@ -181,6 +182,24 @@ void VulkanBackend::init(SYN::Window &window) {
     stbi_image_free(imageBytes);
 }
 
+void VulkanBackend::addMesh(UUID meshID, const MeshData &meshData) {
+    // todo create vk mesh here and add to m_Resources
+    VKMesh vkMesh{};
+    m_Resources[meshID] = vkMesh;
+    spdlog::debug("VK: Added Mesh ID: {}", meshID);
+}
+
+void VulkanBackend::drawMesh(UUID meshID) {
+    if (m_Resources.contains(meshID) &&
+        std::holds_alternative<VKMesh>(m_Resources[meshID])) {
+        VKMesh vkMesh = std::get<VKMesh>(m_Resources[meshID]);
+        // spdlog::debug("VK: Drawing mesh {}", meshID);
+        // todo do processing here
+    } else {
+        spdlog::warn("VK: Mesh \"{}\" not found in backend!", meshID);
+    }
+}
+
 void SYN::VK::VulkanBackend::render(Window &window) {
     // will eventually extract currentImageIndex into a seperate
     // "getSurfaceImageAttachment" kindof function to return a handle so that a
@@ -239,12 +258,12 @@ void VulkanBackend::shutdown() {
     vkDestroyInstance(m_Instance, nullptr);
 }
 
-void SYN::VK::VulkanBackend::initContext(Window &window) {
+void SYN::VK::VulkanBackend::initContext(Window *window) {
     m_Instance = createInstance();
 
     m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
 
-    VkResult res{glfwCreateWindowSurface(m_Instance, window.getHandle(),
+    VkResult res{glfwCreateWindowSurface(m_Instance, window->getHandle(),
                                          nullptr, &m_Surface)};
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create Vulkan surface");
@@ -265,7 +284,7 @@ void SYN::VK::VulkanBackend::initContext(Window &window) {
         spdlog::error("Could not create Vulkan allocator");
     }
 
-    m_Swapchain = createSwapchain(m_Device, m_Surface, window);
+    m_Swapchain = createSwapchain(m_Device, m_Surface, *window);
 
     VkCommandPoolCreateInfo transientCmdPoolCI{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,

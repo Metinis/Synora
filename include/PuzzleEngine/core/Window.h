@@ -1,6 +1,8 @@
 #pragma once
 #include <string_view>
 
+#include "Application.h"
+
 namespace SYN {
 class Window {
   public:
@@ -11,7 +13,8 @@ class Window {
     };
 
   public:
-    Window(const Config &config);
+    Window();
+    void init(const Config &config);
     bool isRunning() const;
     ~Window();
 

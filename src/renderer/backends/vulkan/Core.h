@@ -10,9 +10,23 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
+#include "PuzzleEngine/project/UUID.h"
+
+struct MeshData;
+struct MeshComp;
 struct VmaAllocator_T;
 
 namespace SYN::VK {
+
+struct VKMesh {
+    int temp;
+};
+
+struct VKMaterial {
+    int temp;
+};
+
+using VKResource = std::variant<VKMesh, VKMaterial>;
 
 struct FrameData {
     VkCommandPool graphicsCmdPool{};
@@ -28,9 +42,15 @@ class VulkanBackend : public IBackend {
     VulkanBackend() = default;
     ~VulkanBackend() = default;
 
-    void init(Window &window) override;
+    void init(Window *window) override;
+
+    void addMesh(UUID meshID, const MeshData &meshData) override;
+    // could make a renderable object struct with meshID, materialID etc, all
+    // that are needed for drawing
+    void drawMesh(UUID meshID) override;
 
     void render(Window &window) override;
+
     void shutdown() override;
 
   private:
@@ -45,7 +65,7 @@ class VulkanBackend : public IBackend {
     static constexpr uint32_t c_TextureBinding{0};
     static constexpr uint32_t c_MaxBindlessTextures{1024};
 
-    void initContext(Window &window);
+    void initContext(Window *window);
     void initDescriptorSetLayout();
     void initPipelineLayout();
     void initDescriptorSets();
@@ -86,6 +106,8 @@ class VulkanBackend : public IBackend {
     std::vector<Image> m_Textures;
 
     uint32_t m_CurrentFrameIndex{};
+
+    std::unordered_map<UUID, VKResource> m_Resources{};
 };
 
 } // namespace SYN::VK

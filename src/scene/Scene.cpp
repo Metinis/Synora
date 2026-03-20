@@ -1,35 +1,38 @@
-#include "PuzzleEngine/Scene/Scene.h"
+#include "PuzzleEngine/scene/Scene.h"
 
-#include "PuzzleEngine/Scene/Components.h"
+#include "PuzzleEngine/project/AssetManager.h"
+#include "PuzzleEngine/scene/Components.h"
+#include "renderer/IBackend.h"
+#include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"
 
 using namespace SYN;
 
-Scene::Scene() {
-
-}
+Scene::Scene() {}
 
 void Scene::onUpdate(float dt) {
-    //spdlog::debug("Scene: Update");
+    // spdlog::debug("Scene: Update");
 }
 
-void Scene::onAttach() {
-    spdlog::debug("Scene: Attached");
-}
+void Scene::onAttach() { spdlog::debug("Scene: Attached"); }
 
-void Scene::onDettach() {
-    spdlog::debug("Scene: Dettached");
-}
+void Scene::onDettach() { spdlog::debug("Scene: Dettached"); }
 
 void Scene::onRender() {
-    //spdlog::debug("Scene: Render");
+    // spdlog::debug("Scene: Render");
+    for (auto &e : getEntities<MeshComp>()) {
+        auto &meshComp = e.getComponent<MeshComp>();
+        m_Renderer->drawMesh(meshComp.id);
+    }
 }
 
-void Scene::init() {
-    //testing
+void Scene::init(EngineContext *ctx) {
+    m_Renderer = ctx->renderer.get();
+    // testing
     auto e = createEntity();
     MeshComp mesh{};
-    e.addComponent<MeshComp>(mesh);
+    auto id = ctx->projectConfig.assetManager->addAsset<MeshData>(MeshData{});
+    e.addComponent<MeshComp>(MeshComp{.id = id});
 }
 
 Entity Scene::createEntity() {
