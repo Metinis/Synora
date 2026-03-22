@@ -1,19 +1,16 @@
-#include "Buffer.h"
-#include "Device.h"
-#include "DynamicUBO.h"
-#include "Image.h"
-#include "SlotMap.h"
-#include "StagingBuffer.h"
-#include "Swapchain.h"
+#include "core/Buffer.h"
+#include "core/Device.h"
+#include "core/DynamicUBO.h"
+#include "core/Image.h"
+#include "core/SlotMap.h"
+#include "core/StagingBuffer.h"
+#include "core/Swapchain.h"
 #include "renderer/IBackend.h"
-#include <map>
-#include <optional>
+#include "renderer/RenderTypes.h"
+
 #include <stb_image.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
-
-#include "PuzzleEngine/project/UUID.h"
-#include "renderer/RenderTypes.h"
 
 struct MeshData;
 struct MeshComp;
@@ -62,6 +59,10 @@ class VulkanBackend : public IBackend {
 
         uint32_t swapchainImageIndex{};
         TextureHandle swapchainImageHandle{};
+    };
+
+    struct PushConstants {
+        VkDeviceAddress vertexBuffer;
     };
 
     static constexpr uint32_t c_MaxFramesInFlight{2};
