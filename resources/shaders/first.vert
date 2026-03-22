@@ -10,10 +10,10 @@ struct Vertex {
     float u;
     float v;
 };
-
 layout(buffer_reference, std430) buffer readonly VertexBuffer {
     Vertex vertices[];
 };
+
 
 layout(push_constant, std430) uniform PushConstants {
     VertexBuffer vertexBuffer;

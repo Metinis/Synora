@@ -10,8 +10,7 @@ using namespace SYN;
 
 Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                            VkFormat format, VkExtent2D extent,
-                           VkImageUsageFlags usage,
-                           VkImageAspectFlagBits aspect) {
+                           VkImageUsageFlags usage, VkImageAspectFlags aspect) {
     VkImageCreateInfo imageCI{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,

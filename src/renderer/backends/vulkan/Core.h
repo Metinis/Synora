@@ -1,6 +1,8 @@
 #include "Buffer.h"
 #include "Device.h"
+#include "DynamicUBO.h"
 #include "Image.h"
+#include "SlotMap.h"
 #include "StagingBuffer.h"
 #include "Swapchain.h"
 #include "renderer/IBackend.h"
@@ -11,31 +13,13 @@
 #include <vulkan/vulkan_core.h>
 
 #include "PuzzleEngine/project/UUID.h"
+#include "renderer/RenderTypes.h"
 
 struct MeshData;
 struct MeshComp;
 struct VmaAllocator_T;
 
 namespace SYN::VK {
-
-struct VKMesh {
-    int temp;
-};
-
-struct VKMaterial {
-    int temp;
-};
-
-using VKResource = std::variant<VKMesh, VKMaterial>;
-
-struct FrameData {
-    VkCommandPool graphicsCmdPool{};
-    VkCommandBuffer graphicsCmdBuffer{};
-    VkFence renderFinishedFence{};
-    VkSemaphore imageAvailableSemaphore{};
-
-    Image depthImage{};
-};
 
 class VulkanBackend : public IBackend {
   public:
@@ -44,21 +28,40 @@ class VulkanBackend : public IBackend {
 
     void init(Window *window) override;
 
-    void addMesh(UUID meshID, const MeshData &meshData) override;
-    // could make a renderable object struct with meshID, materialID etc, all
-    // that are needed for drawing
-    void drawMesh(UUID meshID) override;
+    BufferHandle createBuffer(const BufferDesc &desc) override;
+    void uploadToBuffer(BufferHandle handle, size_t size, void *data) override;
+    void destroyBuffer(BufferHandle &handle) override;
 
-    void render(Window &window) override;
+    TextureHandle createTexture(const TextureDesc &desc) override;
+    void uploadToTexture(TextureHandle handle, uint32_t width, uint32_t height,
+                         uint32_t stride, void *data) override;
+    void destroyTexture(TextureHandle &handle) override;
+
+    void beginFrame(Window &window) override;
+    void endFrame(Window &window) override;
+
+    RenderPassHandle beginRenderPassCmd(const RenderPassDesc &desc) override;
+    void endRenderPassCmd(RenderPassHandle &renderPass) override;
+
+    void drawCmd(BufferHandle vertexBuffer, size_t nVertices) override;
+
+    TextureHandle getSwapchainTextureCmd() override;
+    Viewport getSwapchainViewport() override;
 
     void shutdown() override;
 
   private:
-    struct LoadedImage {
-        int width{};
-        int height{};
-        int channels{};
-        stbi_uc *data{};
+    struct FrameData {
+        VkCommandPool graphicsCmdPool{};
+        VkCommandBuffer graphicsCmdBuffer{};
+
+        VkFence renderFinishedFence{};
+        VkSemaphore imageAvailableSemaphore{};
+
+        DynamicUBO UBOBuffer;
+
+        uint32_t swapchainImageIndex{};
+        TextureHandle swapchainImageHandle{};
     };
 
     static constexpr uint32_t c_MaxFramesInFlight{2};
@@ -71,13 +74,13 @@ class VulkanBackend : public IBackend {
     void initDescriptorSets();
     void initFrameData(const Swapchain &swapchain);
 
-    std::optional<uint32_t>
-    beginFrame(Window &window); // returns currentImageIndex;
     void recordRenderCmd(uint32_t currentImageIndex);
-    void endFrame(Window &window, uint32_t currentImageIndex);
 
     void recreateSwapchain(Window &window);
 
+    uint32_t m_CurrentFrameIndex{};
+
+    // context
     VkInstance m_Instance{};
     VkSurfaceKHR m_Surface{};
     VkDebugUtilsMessengerEXT m_DebugUtilsMessenger{};
@@ -86,28 +89,32 @@ class VulkanBackend : public IBackend {
     VmaAllocator_T *m_Allocator{};
 
     Swapchain m_Swapchain{};
+
+    // global
     VkCommandPool m_TransientCmdPool{};
 
-    VkPipelineLayout m_BindlessPipelineLayout{};
+    VkPipelineLayout m_PipelineLayout{};
 
-    VkDescriptorPool m_BindlessDescriptorPool{};
+    VkDescriptorPool m_DescriptorPool{};
+
     VkDescriptorSetLayout m_BindlessDescriptorSetLayout{};
-    VkDescriptorSet m_BindlessDescriptorSet{};
+    VkDescriptorSetLayout m_UBODescriptorSetLayout{};
 
+    VkDescriptorSet m_BindlessDescriptorSet{};
+    VkDescriptorSet m_UBODescriptorSet{};
+
+    VkSampler m_DefaultSampler{};
     VkPipeline m_GraphicsPipeline{};
 
+    StagingBuffer m_StagingBuffer{};
+
+    // per frame
     std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
     std::vector<VkSemaphore> m_RenderFinishedSemaphores{};
 
-    VkSampler m_DefaultSampler{};
-
-    StagingBuffer m_StagingBuffer{};
-    Buffer m_VertexBuffer{};
-    std::vector<Image> m_Textures;
-
-    uint32_t m_CurrentFrameIndex{};
-
-    std::unordered_map<UUID, VKResource> m_Resources{};
+    // resources
+    SlotMap<BufferHandle, Buffer> m_Buffers{};
+    SlotMap<TextureHandle, Image> m_Textures{};
 };
 
 } // namespace SYN::VK

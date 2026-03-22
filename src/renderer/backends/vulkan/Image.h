@@ -12,14 +12,14 @@ struct Image {
     VkImageView view;
     VkExtent2D extent;
     VkImageSubresourceRange subresourceRange;
-    VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
 
     VmaAllocation allocation;
+    VkImageLayout currentLayout;
 };
 
 Image createImage(const Device &device, VmaAllocator allocator, VkFormat format,
                   VkExtent2D extent, VkImageUsageFlags usage,
-                  VkImageAspectFlagBits aspect);
+                  VkImageAspectFlags aspect);
 void destroyImage(const Device &device, VmaAllocator allocator, Image &image);
 
 void transitionImage(VkCommandPool cmdPool, const Device &device,

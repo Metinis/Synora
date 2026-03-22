@@ -1,6 +1,7 @@
 #pragma once
 #include "IBackend.h"
 #include "PuzzleEngine/core/Application.h"
+#include <unordered_map>
 
 namespace SYN {
 class Window;
@@ -10,16 +11,22 @@ class Renderer {
     Renderer() = default;
     ~Renderer() = default;
 
-    void init(EngineContext* ctx);
+    void init(EngineContext *ctx);
     void render(Window &window);
-    void addMesh(UUID meshID, const MeshData& meshData);
-    //could make a renderable object struct with meshID, materialID etc, all that are needed for drawing
+    void addMesh(UUID meshID, const MeshData &meshData);
+    // could make a renderable object struct with meshID, materialID etc, all
+    // that are needed for drawing
     void drawMesh(UUID meshID);
     void shutdown();
-    [[nodiscard]] IBackend* getBackend() const {return m_Backend.get();}
+    [[nodiscard]] IBackend *getBackend() const { return m_Backend.get(); }
 
   private:
     std::unique_ptr<IBackend> m_Backend;
+    Window *m_Window;
+
+    TextureHandle m_DepthTexture;
+    std::unordered_map<UUID, TextureHandle> m_Textures;
+    std::unordered_map<UUID, BufferHandle> m_Buffers;
 };
 
 } // namespace SYN

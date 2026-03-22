@@ -1,6 +1,8 @@
 #pragma once
 #include "PuzzleEngine/core/Application.h"
+#include "PuzzleEngine/project/Assets.h"
 #include "PuzzleEngine/project/UUID.h"
+#include "RenderTypes.h"
 
 struct MeshData;
 
@@ -12,12 +14,49 @@ class IBackend {
     IBackend() = default;
     virtual ~IBackend() = default;
 
-    virtual void init(Window* window) = 0;
-    virtual void addMesh(UUID meshID, const MeshData& meshData) = 0;
-    //could make a renderable object struct with meshID, materialID etc, all that are needed for drawing
-    virtual void drawMesh(UUID meshID) = 0;
-    virtual void render(Window &window) = 0;
+    virtual void init(Window *window) = 0;
+    virtual BufferHandle createBuffer(const BufferDesc &desc) = 0;
+    virtual void uploadToBuffer(BufferHandle handle, size_t size,
+                                void *data) = 0;
+    virtual void destroyBuffer(BufferHandle &handle) = 0;
+
+    virtual TextureHandle createTexture(const TextureDesc &desc) = 0;
+    virtual void uploadToTexture(TextureHandle handle, uint32_t width,
+                                 uint32_t height, uint32_t stride,
+                                 void *data) = 0;
+    virtual void destroyTexture(TextureHandle &handle) = 0;
+
+    virtual void beginFrame(Window &window) = 0;
+    // submits and presents frame
+    virtual void endFrame(Window &window) = 0;
+
+    virtual RenderPassHandle beginRenderPassCmd(const RenderPassDesc &desc) = 0;
+    virtual void endRenderPassCmd(RenderPassHandle &renderPass) = 0;
+
+    // virtual void uploadUniformsCmd(RenderPassHandle renderPass,
+    //                                const void *uniformData,
+    //                                size_t uniformSize) = 0;
+
+    // template <typename T>
+    // void uploadUniformsCmd(RenderPassHandle renderPass, const T &uniformData)
+    // {
+    //     uploadUniformsCmd(renderPass, &uniformData, sizeof(uniformData));
+    // }
+
+    virtual void drawCmd(BufferHandle vertexBuffer, size_t nVertices) = 0;
+    // virtual void drawIndexedCmd(BufferHandle vertexBuffer,
+    //                             BufferHandle indexBuffer, size_t nIndices);
+
+    virtual TextureHandle getSwapchainTextureCmd() = 0;
+    virtual Viewport getSwapchainViewport() = 0;
+
+    // returns the index of the texture in the bindless sampler2D array that
+    // is valid to access in the renderPass
+    // virtual uint32_t getShaderSamplerIndex(RenderPassHandle renderPass,
+    //                                        TextureHandle texture) = 0;
+
     virtual void shutdown() = 0;
+
   private:
 };
 
