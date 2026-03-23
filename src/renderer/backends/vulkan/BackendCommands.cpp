@@ -35,6 +35,11 @@ struct StageAccess {
     VkAccessFlags2 accessMask;
 };
 
+enum AccessMask : uint32_t {
+    ACCESS_WRITE_BIT = 0b1,
+    ACCESS_READ_BIT = 0b10,
+};
+
 StageAccess getStageAccess(VkImageLayout layout);
 
 VkImageMemoryBarrier2 makeImageMemoryBarrier(const Image &image,
@@ -83,7 +88,12 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
             },
         .currentLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
-    frame.swapchainImageHandle = m_Textures.insert(std::move(swapchainImage));
+    if (!m_Attachments.contains(m_SwapchainAttachmentHandle)) {
+        spdlog::warn("Swapchain was not properly added to list of attachments");
+        m_SwapchainAttachmentHandle = m_Attachments.insert({});
+    }
+    m_Attachments[m_SwapchainAttachmentHandle][m_CurrentFrameIndex] =
+        swapchainImage;
 
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -98,9 +108,10 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
 void SYN::VK::VulkanBackend::endFrame(Window &window) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
-    VkImageMemoryBarrier2 presentBarrier{
-        makeImageMemoryBarrier(m_Textures[frame.swapchainImageHandle],
-                               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)};
+    VkImageMemoryBarrier2 presentBarrier{makeImageMemoryBarrier(
+        m_Attachments[m_SwapchainAttachmentHandle][m_CurrentFrameIndex],
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        VK_ACCESS_2_NONE)};
 
     VkDependencyInfo presentDependency{
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -151,7 +162,6 @@ void SYN::VK::VulkanBackend::endFrame(Window &window) {
                       static_cast<int>(res));
     }
 
-    m_Textures.remove(frame.swapchainImageHandle);
     m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
 }
 
@@ -166,39 +176,50 @@ SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
     VkRenderingAttachmentInfo depthAttachmentInfo{};
 
     for (const auto &attachment : desc.colorAttachments) {
-        Image &image{m_Textures[attachment.textureHandle]};
+        Image &image{
+            m_Attachments[attachment.textureHandle][m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         colorAttachmentInfos.emplace_back(
             makeAttachmentInfo(image, attachment, targetLayout));
 
         if (image.currentLayout != targetLayout) {
-            attachmentBarriers.emplace_back(
-                makeImageMemoryBarrier(image, targetLayout));
+            attachmentBarriers.emplace_back(makeImageMemoryBarrier(
+                image, targetLayout,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT));
             image.currentLayout = targetLayout;
         }
     }
     if (desc.depthAttachment.has_value()) {
         WriteAttachment attachment{desc.depthAttachment.value()};
-        Image &image{m_Textures[attachment.textureHandle]};
+        Image &image{
+            m_Attachments[attachment.textureHandle][m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL};
         depthAttachmentInfo =
             makeAttachmentInfo(image, attachment, targetLayout);
 
         if (image.currentLayout != targetLayout) {
 
-            attachmentBarriers.emplace_back(
-                makeImageMemoryBarrier(image, targetLayout));
+            attachmentBarriers.emplace_back(makeImageMemoryBarrier(
+                image, targetLayout,
+                VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT));
             image.currentLayout = targetLayout;
         }
     }
 
     for (const auto &handle : desc.readAttachments) {
-        Image &image{m_Textures[handle]};
+        Image &image{m_Attachments[handle][m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         if (image.currentLayout != targetLayout) {
-            attachmentBarriers.emplace_back(
-                makeImageMemoryBarrier(image, targetLayout));
+            attachmentBarriers.emplace_back(makeImageMemoryBarrier(
+                image, targetLayout,
+                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                    VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                VK_ACCESS_2_SHADER_SAMPLED_READ_BIT));
             image.currentLayout = targetLayout;
         }
     }
@@ -269,7 +290,7 @@ void SYN::VK::VulkanBackend::drawCmd(BufferHandle vertexBufferHandle,
 
 TextureHandle SYN::VK::VulkanBackend::getSwapchainTextureCmd() {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
-    return frame.swapchainImageHandle;
+    return m_SwapchainAttachmentHandle;
 }
 
 Viewport SYN::VK::VulkanBackend::getSwapchainViewport() {
@@ -348,6 +369,8 @@ StageAccess getStageAccess(VkImageLayout layout) {
     case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
         return {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT};
+    case VK_IMAGE_LAYOUT_GENERAL:
+        return {};
     case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
         return {VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,

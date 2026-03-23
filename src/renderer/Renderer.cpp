@@ -72,11 +72,12 @@ void Renderer::addMesh(UUID meshID, const MeshData &meshData) {
         return;
     }
 
-    TextureHandle texture{m_Backend->createTexture(
-        TextureDesc{.width = static_cast<uint32_t>(imageWidth),
-                    .height = static_cast<uint32_t>(imageHeight),
-                    .stride = static_cast<uint32_t>(channelsInImage),
-                    .type = TextureType::srgb})};
+    TextureHandle texture{m_Backend->createTexture(TextureDesc{
+        .width = static_cast<uint32_t>(imageWidth),
+        .height = static_cast<uint32_t>(imageHeight),
+        .type = TextureType::srgb,
+        .usageMask = TEXTURE_USAGE_SAMPLED_BIT,
+    })};
     Viewport swapchainViewport{m_Backend->getSwapchainViewport()};
 
     m_Backend->uploadToTexture(texture, imageWidth, imageHeight,
@@ -85,11 +86,11 @@ void Renderer::addMesh(UUID meshID, const MeshData &meshData) {
 
     m_Textures[meshID] = texture;
 
-    TextureHandle depthTexture{
-        m_Backend->createTexture(TextureDesc{.width = swapchainViewport.width,
-                                             .height = swapchainViewport.height,
-                                             .stride = 4,
-                                             .type = TextureType::depth})};
+    TextureHandle depthTexture{m_Backend->createTexture(
+        TextureDesc{.width = swapchainViewport.width,
+                    .height = swapchainViewport.height,
+                    .type = TextureType::depth,
+                    .usageMask = TEXTURE_USAGE_ATTACHMENT_BIT})};
     m_DepthTexture = depthTexture;
 }
 

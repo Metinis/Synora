@@ -70,12 +70,21 @@ void SYN::VK::VulkanBackend::init(Window *window) {
         .maxLod = VK_LOD_CLAMP_NONE};
 
     vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_DefaultSampler);
+
+    m_SwapchainAttachmentHandle = m_Attachments.insert({});
 }
 
 void SYN::VK::VulkanBackend::shutdown() {
     vkDeviceWaitIdle(m_Device.logical);
 
     vkDestroySampler(m_Device.logical, m_DefaultSampler, nullptr);
+
+    // for (auto [handle, textures] : m_Attachments) {
+    //     for (auto texture : textures) {
+    //         spdlog::warn("Texture {} may have been leaked", handle.id);
+    //         destroyImage(m_Device, m_Allocator, texture);
+    //     }
+    // }
 
     for (auto [handle, texture] : m_Textures) {
         spdlog::warn("Texture {} may have been leaked", handle.id);
@@ -211,6 +220,11 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
         spdlog::error("Could not create descriptor set layout. VkResult = {}",
                       static_cast<int>(res));
         assert(false);
+    }
+
+    m_BindlessTextureIndexFreelist.reserve(c_MaxBindlessTextures);
+    for (size_t i{}; i < c_MaxBindlessTextures; i++) {
+        m_BindlessTextureIndexFreelist.emplace_back(i);
     }
 }
 

@@ -13,12 +13,16 @@ template <typename T> struct GPUResourceHandle {
 };
 
 enum class TextureType { invalid, srgb, depth, rgba };
+enum TextureUsageFlags {
+    TEXTURE_USAGE_SAMPLED_BIT = 0b1,
+    TEXTURE_USAGE_ATTACHMENT_BIT = 0b10
+};
 struct TextureDesc {
     uint32_t width;
     uint32_t height;
-    uint32_t stride;
 
     TextureType type;
+    TextureUsageFlags usageMask;
 };
 
 struct BufferDesc {

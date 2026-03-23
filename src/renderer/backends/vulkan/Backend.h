@@ -58,7 +58,6 @@ class VulkanBackend : public IBackend {
         DynamicUBO UBOBuffer;
 
         uint32_t swapchainImageIndex{};
-        TextureHandle swapchainImageHandle{};
     };
 
     struct PushConstants {
@@ -104,10 +103,14 @@ class VulkanBackend : public IBackend {
     VkDescriptorSet m_BindlessDescriptorSet{};
     VkDescriptorSet m_UBODescriptorSet{};
 
+    std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
+
     VkSampler m_DefaultSampler{};
     VkPipeline m_GraphicsPipeline{};
 
     StagingBuffer m_StagingBuffer{};
+
+    TextureHandle m_SwapchainAttachmentHandle{};
 
     // per frame
     std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
@@ -116,6 +119,8 @@ class VulkanBackend : public IBackend {
     // resources
     SlotMap<BufferHandle, Buffer> m_Buffers{};
     SlotMap<TextureHandle, Image> m_Textures{};
+    SlotMap<TextureHandle, std::array<Image, c_MaxFramesInFlight>>
+        m_Attachments{};
 };
 
 } // namespace SYN::VK
