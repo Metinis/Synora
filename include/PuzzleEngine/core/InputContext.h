@@ -5,36 +5,63 @@
 namespace SYN {
 class InputContext final {
   public:
-    struct ActionBinding {
-        ActionID m_Action;
-        std::vector<SYN::InputKey> m_RequiredModifiers;
+    struct Trigger {
+        RawInputType triggerType;
+        std::optional<InputKey> key;
+        std::optional<MouseButton> mouseButton;
     };
 
-    using ActionCallback = std::function<void(InputState)>;
+    struct ActionBinding {
+        ActionID action;
+        std::vector<SYN::InputKey> requiredModifiers;
+    };
+
+    using StateCallback = std::function<void(InputState)>;
+    using Vec2Callback = std::function<void(double, double)>;
+
+    using ActionCallback = std::variant<StateCallback, Vec2Callback>;
+
     using VectorAxisCallback = std::function<void(float, float)>;
 
     struct VectorAxis {
-        float m_X;
-        float m_Y;
+        float x;
+        float y;
 
-        std::optional<ActionID> m_Up;
-        std::optional<ActionID> m_Down;
-        std::optional<ActionID> m_Right;
-        std::optional<ActionID> m_Left;
+        std::optional<ActionID> up;
+        std::optional<ActionID> down;
+        std::optional<ActionID> right;
+        std::optional<ActionID> left;
     };
 
   public:
     InputContext() = default;
     virtual ~InputContext() = default;
 
+    // Bind multiple actions to either mouse move, scroll, or mouse delta. This
+    // will overwrite any previous bindings. If trigger type is not of the
+    // specified types above, the action will not be bound. For keys, or mouse
+    // buttons, just pass in the key/button code directly.
+    void bindActions(RawInputType type,
+                     const std::vector<ActionBinding> &bindings);
+
     // Bind multiple actions to a key. This will overwrite any previous
     // bindings.
     void bindActions(InputKey key, const std::vector<ActionBinding> &bindings);
-    // Bind a single action to a key. This will overwrite any previous bindings.
-    void bindAction(InputKey key, ActionBinding binding);
+
+    // Bind multiple actions to a mouse button. This will overwrite any previous
+    // bindings.
+    void bindActions(MouseButton mouseButton,
+                     const std::vector<ActionBinding> &bindings);
 
     // Removes any bound actions to specified key (if it exists)
-    void unbindKey(InputKey key);
+    void unbindTrigger(InputKey key);
+
+    // Removes any bound actions to specified mouse (if it exists)
+    void unbindTrigger(MouseButton mouseButton);
+
+    // Removes any bound actions to specified type (mouse cursor pos, mouse
+    // delta, scroll wheel) if it exists
+    void unbindTrigger(RawInputType type);
 
     // Will overwrite previous action callbacks bound to action if they
     // exist
@@ -67,10 +94,13 @@ class InputContext final {
     addVectorAxisCallbacks(const std::string &name,
                            const std::vector<VectorAxisCallback> &callback);
 
-    bool isKeyBound(InputKey key);
+    bool isTriggerBound(InputKey key);
+    bool isTriggerBound(MouseButton mouseButton);
+    bool isTriggerBound(RawInputType type);
 
-    // Returns copy of action bindings bound to specified key
-    std::optional<std::vector<ActionBinding>> getBindings(SYN::InputKey key);
+    std::optional<std::vector<ActionBinding>> getBindings(InputKey key);
+    std::optional<std::vector<ActionBinding>> getBindings(MouseButton button);
+    std::optional<std::vector<ActionBinding>> getBindings(RawInputType type);
 
     uint8_t getPriority() const;
 
@@ -81,11 +111,24 @@ class InputContext final {
     void onInputReceived(RawInput input,
                          const std::array<bool, NUM_INPUT_KEYS> &keyStates);
 
-    void onActionReceive(std::tuple<ActionBinding, InputState> actionBinding);
+    void onActionReceive(ActionBinding binding, RawInput input);
 
     void setPriority(uint8_t priority);
 
     friend class Input;
+
+  private:
+    struct TriggerHash {
+        std::size_t operator()(const Trigger &trigger) const {
+            uint32_t code = 0;
+            if (trigger.triggerType == RawInputType::Key) {
+                code = (uint32_t)trigger.key.value();
+            } else if (trigger.triggerType == RawInputType::MouseButton) {
+                code = (uint32_t)trigger.mouseButton.value();
+            }
+            return ((uint32_t)trigger.triggerType << 16) ^ code;
+        }
+    };
 
   private:
     // Will call callbacks attached to a vector axis with (0, 0).
@@ -94,7 +137,17 @@ class InputContext final {
 
     void removeVectorAxisFromAction(const std::string &name);
 
-    void updateVectorAxes(ActionID action, InputState state);
+    void updateVectorAxes(ActionID action, RawInput input);
+
+    void updateAxisWithDiscreteDelta(const std::string &vectorAxisName,
+                                     ActionID action,
+                                     InputContext::VectorAxis &vectorAxis,
+                                     float delta);
+
+    void updateAxisWithMouseDelta(const std::string &vectorAxisName,
+                                  ActionID action,
+                                  InputContext::VectorAxis &vectorAxis,
+                                  float dx, float dy);
 
   private:
     bool m_ShouldConsumeInput;
@@ -106,7 +159,23 @@ class InputContext final {
         m_VectorAxisCallbacks;
 
     std::unordered_map<ActionID, std::vector<ActionCallback>> m_ActionCallbacks;
-    std::unordered_map<SYN::InputKey, std::vector<ActionBinding>>
+    std::unordered_map<Trigger, std::vector<ActionBinding>, TriggerHash>
         m_EnabledActions;
 };
+
+inline bool operator==(const InputContext::Trigger &triggerA,
+                       const InputContext::Trigger &triggerB) {
+    if (triggerA.triggerType != triggerB.triggerType)
+        return false;
+
+    if (triggerA.triggerType == RawInputType::Key) {
+        if (triggerA.key.value() != triggerB.key.value())
+            return false;
+    } else if (triggerA.triggerType == RawInputType::MouseButton) {
+        if (triggerA.mouseButton.value() != triggerB.mouseButton.value())
+            return false;
+    }
+
+    return true;
+}
 } // namespace SYN
