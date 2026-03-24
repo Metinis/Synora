@@ -13,10 +13,13 @@ class GraphicsPipelineBuilder {
     ~GraphicsPipelineBuilder() = default;
 
     void reset();
-    VkPipeline build(const Device &device, VkPipelineLayout layout);
 
-    GraphicsPipelineBuilder &setShaderStage(VkShaderModule module,
-                                            VkShaderStageFlagBits stage);
+    VkPipeline build(const Device &device, VkPipelineLayout layout,
+                     std::span<VkPipelineShaderStageCreateInfo> shaderStageCIs);
+
+    VkPipeline
+    build(const Device &device, VkPipelineLayout layout,
+          std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths);
 
     GraphicsPipelineBuilder &
     setInputAssembly(VkPrimitiveTopology topology,
@@ -27,17 +30,18 @@ class GraphicsPipelineBuilder {
     GraphicsPipelineBuilder &setPolygonMode(VkPolygonMode mode,
                                             float lineWidth = 1.f);
 
-    GraphicsPipelineBuilder &addColorAttachment(VkFormat format);
+    GraphicsPipelineBuilder &setDepthTest();
 
-    GraphicsPipelineBuilder &disableMultisampling();
-    GraphicsPipelineBuilder &disableDepthTest();
+    GraphicsPipelineBuilder &addColorAttachment(VkFormat format);
+    // note there can only be one depth attachment
+    GraphicsPipelineBuilder &enableDepthAttachment();
 
   private:
-    std::vector<VkPipelineShaderStageCreateInfo> m_ShaderStageCIs{};
     std::vector<VkPipelineColorBlendAttachmentState>
         m_ColorBlendAttachmentStates{};
 
     std::vector<VkFormat> m_ColorFormats{};
+    VkFormat m_DepthFormat{};
 
     VkPipelineInputAssemblyStateCreateInfo m_InputAssemblyStateCI;
     VkPipelineRasterizationStateCreateInfo m_RasterizationStateCI;

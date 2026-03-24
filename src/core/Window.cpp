@@ -4,7 +4,11 @@
 
 #include <spdlog/spdlog.h>
 
-SYN::Window::Window(const Config &config) {
+SYN::Window::Window() {
+
+}
+
+void SYN::Window::init(const Config &config) {
     if (!glfwInit())
         spdlog::error("Failed to initialize GLFW!");
 
@@ -20,6 +24,15 @@ SYN::Window::Window(const Config &config) {
 }
 
 bool SYN::Window::isRunning() const { return !glfwWindowShouldClose(m_Window); }
+
+void SYN::Window::calculateDeltaTime() {
+    auto currentTime = static_cast<float>(glfwGetTime());
+    m_DeltaTime = currentTime - m_LastTime;
+    m_LastTime = currentTime;
+}
+float SYN::Window::getDeltaTime() const {
+    return m_DeltaTime;
+}
 
 SYN::Window::~Window() { glfwDestroyWindow(m_Window); }
 

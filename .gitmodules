@@ -19,3 +19,6 @@
 [submodule "3rdparty/VulkanMemoryAllocator"]
 	path = 3rdparty/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "3rdparty/stb"]
+	path = 3rdparty/stb
+	url = https://github.com/nothings/stb

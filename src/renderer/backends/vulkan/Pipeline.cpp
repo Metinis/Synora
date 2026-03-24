@@ -1,15 +1,20 @@
 #include "Pipeline.h"
 #include "Device.h"
+#include <fstream>
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
 using namespace SYN::VK;
 
+namespace {
+VkShaderModule createShaderModule(const Device &device,
+                                  const std::string &path);
+}
+
 SYN::VK::GraphicsPipelineBuilder::GraphicsPipelineBuilder() { reset(); }
 
 void SYN::VK::GraphicsPipelineBuilder::reset() {
-    m_ShaderStageCIs.clear();
     m_ColorBlendAttachmentStates.clear();
 
     m_InputAssemblyStateCI = {
@@ -17,25 +22,13 @@ void SYN::VK::GraphicsPipelineBuilder::reset() {
     };
     m_RasterizationStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    // default disabled
     m_MultisampleStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
+    // default disabled
     m_DepthStencilStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-}
-
-GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::setShaderStage(VkShaderModule module,
-                                                 VkShaderStageFlagBits stage) {
-    VkPipelineShaderStageCreateInfo stageCI{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = stage,
-        .module = module,
-        .pName = "main",
-    };
-
-    m_ShaderStageCIs.emplace_back(stageCI);
-
-    return *this;
 }
 
 GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setInputAssembly(
@@ -64,6 +57,14 @@ SYN::VK::GraphicsPipelineBuilder::setPolygonMode(VkPolygonMode mode,
     return *this;
 }
 
+GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setDepthTest() {
+    m_DepthStencilStateCI.depthWriteEnable = VK_TRUE;
+    m_DepthStencilStateCI.depthCompareOp = VK_COMPARE_OP_LESS;
+    m_DepthStencilStateCI.depthTestEnable = VK_TRUE;
+
+    return *this;
+}
+
 SYN::VK::GraphicsPipelineBuilder &
 SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
     VkPipelineColorBlendAttachmentState blendState{
@@ -78,26 +79,16 @@ SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
     return *this;
 }
 
-GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::disableMultisampling() {
-    m_MultisampleStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-        .minSampleShading = 1.f};
-
-    return *this;
-}
-GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::disableDepthTest() {
-    m_DepthStencilStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthCompareOp = VK_COMPARE_OP_NEVER,
-        .maxDepthBounds = 1.f};
+SYN::VK::GraphicsPipelineBuilder &
+SYN::VK::GraphicsPipelineBuilder::enableDepthAttachment() {
+    m_DepthFormat = VK_FORMAT_D32_SFLOAT;
 
     return *this;
 }
 
-VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
-                                                   VkPipelineLayout layout) {
+VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
+    const Device &device, VkPipelineLayout layout,
+    std::span<VkPipelineShaderStageCreateInfo> shaderStageCIs) {
 
     VkPipelineVertexInputStateCreateInfo vertexInputStateCI{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -128,13 +119,14 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .colorAttachmentCount = static_cast<uint32_t>(m_ColorFormats.size()),
         .pColorAttachmentFormats = m_ColorFormats.data(),
+        .depthAttachmentFormat = m_DepthFormat,
     };
 
     VkGraphicsPipelineCreateInfo pipelineCI{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = &renderingCI,
-        .stageCount = static_cast<uint32_t>(m_ShaderStageCIs.size()),
-        .pStages = m_ShaderStageCIs.data(),
+        .stageCount = static_cast<uint32_t>(shaderStageCIs.size()),
+        .pStages = shaderStageCIs.data(),
         .pVertexInputState = &vertexInputStateCI,
         .pInputAssemblyState = &m_InputAssemblyStateCI,
         .pTessellationState = nullptr,
@@ -155,3 +147,84 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(const Device &device,
     }
     return pipeline;
 }
+
+VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
+    const Device &device, VkPipelineLayout layout,
+    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths) {
+
+    std::vector<VkShaderModule> shaderModules{};
+    shaderModules.reserve(shaderPaths.size());
+    std::vector<VkPipelineShaderStageCreateInfo> shaderStageCIs{};
+    shaderStageCIs.reserve(shaderPaths.size());
+
+    for (const auto &[stage, path] : shaderPaths) {
+        VkShaderModule shaderModule{createShaderModule(device, path)};
+        shaderModules.emplace_back(shaderModule);
+
+        VkPipelineShaderStageCreateInfo shaderStageCI{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = stage,
+            .module = shaderModule,
+            .pName = "main",
+        };
+        shaderStageCIs.emplace_back(shaderStageCI);
+    }
+
+    VkPipeline pipeline{build(device, layout, shaderStageCIs)};
+
+    for (auto shaderModule : shaderModules) {
+        vkDestroyShaderModule(device.logical, shaderModule, nullptr);
+    }
+
+    return pipeline;
+}
+
+namespace {
+
+// TODO: add default shaders for if theres an error
+VkShaderModule createShaderModule(const Device &device,
+                                  const std::string &path) {
+    std::ifstream file(path, std::ios::in | std::ios::binary | std::ios::ate);
+
+    if (!file.is_open()) {
+        spdlog::error("Could not open {}, shader module creation failed", path);
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+    std::streampos fileSize{file.tellg()};
+    if (fileSize < 0) {
+        spdlog::error("Tellg failed, shader module creation failed", path);
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+
+    if ((fileSize % sizeof(uint32_t)) != 0) {
+        spdlog::error("Could not create shader module, {} file size was not a "
+                      "multiple of 32 "
+                      "and may be malformed",
+                      path);
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+
+    std::vector<uint32_t> shaderCode(fileSize / sizeof(uint32_t));
+    file.seekg(0, std::ios::beg);
+    file.read(reinterpret_cast<char *>(shaderCode.data()), fileSize);
+
+    VkShaderModuleCreateInfo shaderModuleCI{
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = shaderCode.size() * sizeof(uint32_t), // byte size
+        .pCode = shaderCode.data()};
+
+    VkShaderModule shaderModule{};
+    VkResult res{vkCreateShaderModule(device.logical, &shaderModuleCI, nullptr,
+                                      &shaderModule)};
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create shader module of {},  VkResult = {}",
+                      path, static_cast<int>(res));
+        assert(false);
+        return VK_NULL_HANDLE;
+    }
+    return shaderModule;
+}
+} // namespace

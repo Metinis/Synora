@@ -9,15 +9,19 @@ struct Image;
 
 struct alignas(16) Vertex {
     glm::vec3 pos;
+    float u;
+    alignas(16) float v;
 };
 
 struct PushConstants {
     VkDeviceAddress vertexBuffer;
 };
 
-void cmdDefaultRenderPass(VkCommandBuffer cmdBuffer, VkPipeline pipeline,
+void defaultRenderPassCmd(VkCommandBuffer cmdBuffer, VkPipeline pipeline,
                           VkPipelineLayout layout,
                           const PushConstants &pushConstants,
-                          uint32_t vertexCount, Image &renderTarget,
+                          VkDescriptorSet bindlessDescriptorSet,
+                          uint32_t vertexCount, const Image &renderTarget,
+                          const Image &depthTarget,
                           VkImageLayout renderTargetLayout);
 } // namespace SYN::VK

@@ -25,6 +25,7 @@ struct Device {
     VkDevice logical;
 
     std::unordered_map<QueueFamily, Queue> queues;
+    VkPhysicalDeviceProperties properties{};
 };
 
 Device createDevice(VkInstance instance, VkSurfaceKHR surface);

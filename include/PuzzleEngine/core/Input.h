@@ -2,6 +2,7 @@
 
 #include <queue>
 
+#include "Application.h"
 #include "InputTypes.h"
 
 namespace SYN {
@@ -13,7 +14,7 @@ class Input {
     Input() = default;
     ~Input() = default;
 
-    void init(const std::unique_ptr<Window> &window);
+    void init(EngineContext* ctx);
 
     void onKeyEvent(int32_t keyCode, int32_t action);
     void onMouseButtonEvent(int32_t buttonCode, int32_t action);
