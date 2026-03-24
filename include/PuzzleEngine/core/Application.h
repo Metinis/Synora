@@ -29,7 +29,7 @@ class Application {
 
   private:
     struct WindowPointers {
-        Input *m_Input;
+        Input *input;
     };
     WindowPointers m_WindowData;
 };
