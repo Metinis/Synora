@@ -1,12 +1,12 @@
+#include "PuzzleEngine/project/AssetManager.h"
+#include "PuzzleEngine/project/Project.h"
+#include "PuzzleEngine/scene/Scene.h"
+#include "renderer/Renderer.h"
 #include <GLFW/glfw3.h>
 #include <PuzzleEngine/core/Application.h>
 #include <PuzzleEngine/core/Input.h>
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
-#include "PuzzleEngine/project/AssetManager.h"
-#include "PuzzleEngine/scene/Scene.h"
-#include "renderer/Renderer.h"
-#include "PuzzleEngine/project/Project.h"
 
 using namespace SYN;
 
@@ -19,8 +19,8 @@ Application::Application() {
     m_EngineContext.renderer = std::make_unique<Renderer>();
     m_EngineContext.scene = std::make_unique<Scene>();
 
-    ProjectConfig projectConfig {
-        .resourceRoot = "", //todo add root
+    ProjectConfig projectConfig{
+        .resourceRoot = "", // todo add root
         .assetManager = std::make_unique<AssetManager>(),
     };
     m_EngineContext.projectConfig = std::move(projectConfig);
@@ -30,14 +30,6 @@ void Application::init() {
     spdlog::set_level(spdlog::level::debug);
     // create window etc
     m_IsRunning = true;
-
-    // Could make Input a shared pointer instead
-    // of passing raw pointer, but m_WindowData should
-    // only be used as long as the Application is running,
-    // and Input lifetime is tied to Application runtime.
-    m_WindowData = {m_EngineContext.inputManager.get()};
-
-    glfwSetWindowUserPointer(m_EngineContext.window->getHandle(), &m_WindowData);
 
     m_EngineContext.window->init(Window::Config{"Synora Engine", 1280, 720});
 
@@ -54,14 +46,14 @@ void Application::run() {
     while (m_IsRunning && m_EngineContext.window->isRunning()) {
         glfwPollEvents();
 
-        for (auto& l : m_Layers) {
+        for (auto &l : m_Layers) {
             l->onUpdate(m_EngineContext.window->getDeltaTime());
         }
-        for (auto& l : m_Layers) {
+        for (auto &l : m_Layers) {
             l->onRender();
         }
-        for (auto& l : m_Layers) {
-            //ui render
+        for (auto &l : m_Layers) {
+            // ui render
         }
 
         m_EngineContext.inputManager->processInputQueue();
@@ -72,6 +64,8 @@ void Application::run() {
 
 void Application::shutdown() { m_EngineContext.renderer->shutdown(); }
 
-std::unique_ptr<Input> &Application::GetInput() { return m_EngineContext.inputManager; }
+std::unique_ptr<Input> &Application::GetInput() {
+    return m_EngineContext.inputManager;
+}
 
 Application::~Application() = default;

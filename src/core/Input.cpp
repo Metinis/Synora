@@ -9,7 +9,7 @@
 
 struct WindowPointers {
     SYN::Input *input;
-};
+} WindowData;
 
 static std::optional<SYN::InputKey> translateGLFWKey(int32_t keyCode) {
     switch (keyCode) {
@@ -263,11 +263,18 @@ void SYN::Input::onMouseButtonEvent(int32_t buttonCode, int32_t action) {
     }
 }
 
-void SYN::Input::init(const std::unique_ptr<Window> &window) {
-    glfwSetKeyCallback(window->getHandle(), keyCallback);
-    glfwSetMouseButtonCallback(window->getHandle(), mouseButtonCallback);
-    glfwSetCursorPosCallback(window->getHandle(), cursorPositionCallback);
-    glfwSetScrollCallback(window->getHandle(), scrollCallback);
+void SYN::Input::init(EngineContext *ctx) {
+
+    // Given this is a global, it might not make sense to use
+    // glfwSetWindowUserPointer. It will be kept this way for now,
+    // in case I backpedal the decision of making this global.
+    WindowData.input = ctx->inputManager.get();
+    glfwSetWindowUserPointer(ctx->window->getHandle(), &WindowData);
+
+    glfwSetKeyCallback(ctx->window->getHandle(), keyCallback);
+    glfwSetMouseButtonCallback(ctx->window->getHandle(), mouseButtonCallback);
+    glfwSetCursorPosCallback(ctx->window->getHandle(), cursorPositionCallback);
+    glfwSetScrollCallback(ctx->window->getHandle(), scrollCallback);
 }
 
 uint8_t getHandleGeneration(SYN::InputContextHandle handle) {
