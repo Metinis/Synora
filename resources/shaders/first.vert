@@ -17,6 +17,7 @@ layout(buffer_reference, std430) buffer readonly VertexBuffer {
 
 layout(push_constant, std430) uniform PushConstants {
     VertexBuffer vertexBuffer;
+    uint textureIndex;
 };
 
 void main() {

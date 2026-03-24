@@ -4,6 +4,13 @@
 #include "renderer/IBackend.h"
 #include "renderer/RenderTypes.h"
 
+namespace {
+struct PushConstants {
+    uint64_t vertexBuffer;
+    uint32_t textureIndex;
+};
+} // namespace
+
 using namespace SYN;
 
 void SYN::Renderer::init(EngineContext *ctx) {
@@ -107,10 +114,15 @@ void Renderer::drawMesh(UUID meshID) {
     RenderPassDesc firstRenderPassDesc{.colorAttachments = colorAttachments,
                                        .depthAttachment = depthAttachment,
                                        .viewport = swapchainViewport};
-    RenderPassHandle renderPass{
-        m_Backend->beginRenderPassCmd(firstRenderPassDesc)};
-    m_Backend->drawCmd(m_Buffers[meshID], 3);
-    m_Backend->endRenderPassCmd(renderPass);
+    PushConstants pushConstants{
+        .vertexBuffer = m_Backend->getBufferAddressCmd(m_Buffers[meshID]),
+        .textureIndex = m_Backend->getShaderSamplerIndexCmd(m_Textures[meshID]),
+    };
+
+    m_Backend->setPushConstantsCmd(pushConstants);
+    m_Backend->beginRenderPassCmd(firstRenderPassDesc);
+    m_Backend->drawCmd(m_Buffers[meshID], 6);
+    m_Backend->endRenderPassCmd();
 
     m_Backend->endFrame(*m_Window);
 }

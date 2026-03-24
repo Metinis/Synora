@@ -40,13 +40,20 @@ class VulkanBackend : public IBackend {
     void beginFrame(Window &window) override;
     void endFrame(Window &window) override;
 
-    RenderPassHandle beginRenderPassCmd(const RenderPassDesc &desc) override;
-    void endRenderPassCmd(RenderPassHandle &renderPass) override;
+    void beginRenderPassCmd(const RenderPassDesc &desc) override;
+    void endRenderPassCmd() override;
+
+    void setPushConstantsCmd(const void *data, size_t size) override;
 
     void drawCmd(BufferHandle vertexBuffer, size_t nVertices) override;
 
     AttachmentHandle getSwapchainAttachmentCmd() override;
     Viewport getSwapchainViewport() override;
+
+    uint32_t getShaderSamplerIndexCmd(TextureHandle texture) override;
+    uint32_t getShaderSamplerIndexCmd(AttachmentHandle attachment) override;
+
+    uint64_t getBufferAddressCmd(BufferHandle buffer) override;
 
     void shutdown() override;
 
@@ -81,9 +88,9 @@ class VulkanBackend : public IBackend {
         AttachmentSize size;
         bool isSampleable;
     };
-
     struct PushConstants {
         VkDeviceAddress vertexBuffer;
+        uint32_t textureIndex;
     };
 
     void initContext(Window *window);

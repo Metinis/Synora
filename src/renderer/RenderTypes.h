@@ -65,7 +65,6 @@ struct RenderPassDesc {
     std::optional<WriteAttachment> depthAttachment;
     Viewport viewport;
 };
-using RenderPassHandle = GPUResourceHandle<RenderPassDesc>;
 
 } // namespace SYN
 

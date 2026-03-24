@@ -154,8 +154,7 @@ void SYN::VK::VulkanBackend::endFrame(Window &window) {
     m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
 }
 
-RenderPassHandle
-SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
+void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     std::vector<VkImageMemoryBarrier2> attachmentBarriers{};
@@ -262,23 +261,32 @@ SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
     // TODO: add a way to create pipelines and use those instead
     vkCmdBindPipeline(frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       m_GraphicsPipeline);
-    // TODO: later on maybe we wanna add some per render pass stuff?
-    return {};
 }
-void SYN::VK::VulkanBackend::endRenderPassCmd(RenderPassHandle &renderPass) {
+void SYN::VK::VulkanBackend::endRenderPassCmd() {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
     vkCmdEndRendering(frame.graphicsCmdBuffer);
+}
+
+void SYN::VK::VulkanBackend::setPushConstantsCmd(const void *data,
+                                                 size_t size) {
+    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+    if (size > 128) {
+        spdlog::warn("Push constant size is greater than minimum required size "
+                     "by vulkan");
+        if (size > m_Device.properties.limits.maxPushConstantsSize) {
+            spdlog::error(
+                "Push constant size is greater than max size allowed by "
+                "current device; clamping");
+            size = m_Device.properties.limits.maxPushConstantsSize;
+        }
+    }
+    vkCmdPushConstants(frame.graphicsCmdBuffer, m_PipelineLayout,
+                       VK_SHADER_STAGE_ALL, 0, size, data);
 }
 
 void SYN::VK::VulkanBackend::drawCmd(BufferHandle vertexBufferHandle,
                                      size_t nVertices) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
-    Buffer vertexBuffer{m_Buffers[vertexBufferHandle]};
-    PushConstants pushConstants{.vertexBuffer = vertexBuffer.deviceAddress};
-
-    vkCmdPushConstants(frame.graphicsCmdBuffer, m_PipelineLayout,
-                       VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants),
-                       &pushConstants);
 
     vkCmdDraw(frame.graphicsCmdBuffer, nVertices, 1, 0, 0);
 }
@@ -290,6 +298,25 @@ AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
 Viewport SYN::VK::VulkanBackend::getSwapchainViewport() {
     return Viewport{.width = m_Swapchain.extent.width,
                     .height = m_Swapchain.extent.height};
+}
+
+uint32_t
+SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(TextureHandle handle) {
+    return m_Textures[handle].bindlessSamplerIndex;
+}
+uint32_t
+SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(AttachmentHandle handle) {
+    const Attachment &attachment{m_Attachments[handle]};
+    if (!attachment.isSampleable) {
+        spdlog::warn("Trying to get the sampler index for non-sampled "
+                     "attachment, returning a default instead");
+        return 0; // TODO: make this a default texture
+    }
+    return attachment.bindlessSamplerIndices[m_CurrentFrameIndex];
+}
+
+uint64_t SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
+    return m_Buffers[handle].deviceAddress;
 }
 
 namespace {

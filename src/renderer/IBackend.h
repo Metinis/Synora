@@ -33,8 +33,13 @@ class IBackend {
     // submits and presents frame
     virtual void endFrame(Window &window) = 0;
 
-    virtual RenderPassHandle beginRenderPassCmd(const RenderPassDesc &desc) = 0;
-    virtual void endRenderPassCmd(RenderPassHandle &renderPass) = 0;
+    virtual void beginRenderPassCmd(const RenderPassDesc &desc) = 0;
+    virtual void endRenderPassCmd() = 0;
+
+    virtual void setPushConstantsCmd(const void *data, size_t size) = 0;
+    template <typename T> void setPushConstantsCmd(const T &pushConstants) {
+        setPushConstantsCmd(&pushConstants, sizeof(pushConstants));
+    }
 
     // virtual void uploadUniformsCmd(RenderPassHandle renderPass,
     //                                const void *uniformData,
@@ -47,16 +52,17 @@ class IBackend {
     // }
 
     virtual void drawCmd(BufferHandle vertexBuffer, size_t nVertices) = 0;
-    // virtual void drawIndexedCmd(BufferHandle vertexBuffer,
-    //                             BufferHandle indexBuffer, size_t nIndices);
 
     virtual AttachmentHandle getSwapchainAttachmentCmd() = 0;
     virtual Viewport getSwapchainViewport() = 0;
 
     // returns the index of the texture in the bindless sampler2D array that
     // is valid to access in the renderPass
-    // virtual uint32_t getShaderSamplerIndex(RenderPassHandle renderPass,
-    //                                        TextureHandle texture) = 0;
+    virtual uint32_t getShaderSamplerIndexCmd(TextureHandle texture) = 0;
+
+    // only for attachments that are sampleable
+    virtual uint32_t getShaderSamplerIndexCmd(AttachmentHandle attachment) = 0;
+    virtual uint64_t getBufferAddressCmd(BufferHandle buffer) = 0;
 
     virtual void shutdown() = 0;
 
