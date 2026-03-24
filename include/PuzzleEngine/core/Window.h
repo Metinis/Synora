@@ -5,9 +5,9 @@ namespace SYN {
 class Window {
   public:
     struct Config {
-        std::string_view m_Title;
-        uint16_t m_Width;
-        uint16_t m_Height;
+        std::string_view title;
+        uint16_t width;
+        uint16_t height;
     };
 
   public:
