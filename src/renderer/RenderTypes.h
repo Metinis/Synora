@@ -13,16 +13,23 @@ template <typename T> struct GPUResourceHandle {
 };
 
 enum class TextureType { invalid, srgb, depth, rgba };
-enum TextureUsageFlags {
-    TEXTURE_USAGE_SAMPLED_BIT = 0b1,
-    TEXTURE_USAGE_ATTACHMENT_BIT = 0b10
-};
+
 struct TextureDesc {
     uint32_t width;
     uint32_t height;
 
     TextureType type;
-    TextureUsageFlags usageMask;
+};
+
+enum class AttachmentSize : uint32_t { fixed, relative };
+
+struct AttachmentDesc {
+    uint32_t width{};  // ignored if size is relative
+    uint32_t height{}; // ignored if size is relative
+    AttachmentSize size{AttachmentSize::relative};
+
+    TextureType type;
+    bool isSampleable;
 };
 
 struct BufferDesc {
@@ -31,6 +38,7 @@ struct BufferDesc {
 
 // we use the descriptions to keep the handle types different
 using TextureHandle = GPUResourceHandle<TextureDesc>;
+using AttachmentHandle = GPUResourceHandle<AttachmentDesc>;
 using BufferHandle = GPUResourceHandle<BufferDesc>;
 
 struct Viewport {
@@ -42,7 +50,7 @@ enum class StoreOp { store, dontCare };
 enum class LoadOp { load, clear, dontCare };
 
 struct WriteAttachment {
-    TextureHandle textureHandle;
+    AttachmentHandle handle;
     StoreOp storeOp{StoreOp::store};
     LoadOp loadOp{LoadOp::clear};
     union {
@@ -52,7 +60,7 @@ struct WriteAttachment {
 };
 
 struct RenderPassDesc {
-    std::span<TextureHandle> readAttachments;
+    std::span<AttachmentHandle> readAttachments;
     std::span<WriteAttachment> colorAttachments;
     std::optional<WriteAttachment> depthAttachment;
     Viewport viewport;

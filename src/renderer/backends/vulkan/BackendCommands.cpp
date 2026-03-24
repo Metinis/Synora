@@ -30,27 +30,6 @@ VkRenderingAttachmentInfo makeAttachmentInfo(const Image &image,
                                              const WriteAttachment &attachment,
                                              VkImageLayout targetLayout);
 
-struct StageAccess {
-    VkPipelineStageFlags2 stageMask;
-    VkAccessFlags2 accessMask;
-};
-
-enum AccessMask : uint32_t {
-    ACCESS_WRITE_BIT = 0b1,
-    ACCESS_READ_BIT = 0b10,
-};
-
-StageAccess getStageAccess(VkImageLayout layout);
-
-VkImageMemoryBarrier2 makeImageMemoryBarrier(const Image &image,
-                                             VkImageLayout targetLayout,
-                                             uint32_t srcQueueFamilyIndex = 0,
-                                             uint32_t dstQueueFamilyIndex = 0);
-
-struct PushConstants {
-    VkDeviceAddress vertexBuffer;
-};
-
 } // namespace
 
 void SYN::VK::VulkanBackend::beginFrame(Window &window) {
@@ -76,6 +55,16 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
                       static_cast<int>(res));
     }
 
+    for (auto &image : frame.imagesToFree) {
+        destroyImage(m_Device, m_Allocator, image);
+    }
+    for (auto &buffer : frame.buffersToFree) {
+        VK::destroyBuffer(m_Allocator, buffer);
+    }
+    for (auto &index : frame.bindlessTexturesToFree) {
+        m_BindlessTextureIndexFreelist.emplace_back(index);
+    }
+
     Image swapchainImage{
         .handle = m_Swapchain.images[frame.swapchainImageIndex],
         .view = m_Swapchain.imageViews[frame.swapchainImageIndex],
@@ -92,7 +81,7 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
         spdlog::warn("Swapchain was not properly added to list of attachments");
         m_SwapchainAttachmentHandle = m_Attachments.insert({});
     }
-    m_Attachments[m_SwapchainAttachmentHandle][m_CurrentFrameIndex] =
+    m_Attachments[m_SwapchainAttachmentHandle].images[m_CurrentFrameIndex] =
         swapchainImage;
 
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
@@ -109,7 +98,7 @@ void SYN::VK::VulkanBackend::endFrame(Window &window) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     VkImageMemoryBarrier2 presentBarrier{makeImageMemoryBarrier(
-        m_Attachments[m_SwapchainAttachmentHandle][m_CurrentFrameIndex],
+        m_Attachments[m_SwapchainAttachmentHandle].images[m_CurrentFrameIndex],
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
         VK_ACCESS_2_NONE)};
 
@@ -177,7 +166,8 @@ SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
 
     for (const auto &attachment : desc.colorAttachments) {
         Image &image{
-            m_Attachments[attachment.textureHandle][m_CurrentFrameIndex]};
+            m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
+
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         colorAttachmentInfos.emplace_back(
             makeAttachmentInfo(image, attachment, targetLayout));
@@ -193,13 +183,12 @@ SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
     if (desc.depthAttachment.has_value()) {
         WriteAttachment attachment{desc.depthAttachment.value()};
         Image &image{
-            m_Attachments[attachment.textureHandle][m_CurrentFrameIndex]};
+            m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL};
         depthAttachmentInfo =
             makeAttachmentInfo(image, attachment, targetLayout);
 
         if (image.currentLayout != targetLayout) {
-
             attachmentBarriers.emplace_back(makeImageMemoryBarrier(
                 image, targetLayout,
                 VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
@@ -211,7 +200,13 @@ SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
     }
 
     for (const auto &handle : desc.readAttachments) {
-        Image &image{m_Attachments[handle][m_CurrentFrameIndex]};
+        Attachment &attachment{m_Attachments[handle]};
+        if (!attachment.isSampleable) {
+            spdlog::warn("Trying to sample non-sampleable image");
+            assert(false);
+            continue;
+        }
+        Image &image{attachment.images[m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         if (image.currentLayout != targetLayout) {
@@ -288,8 +283,7 @@ void SYN::VK::VulkanBackend::drawCmd(BufferHandle vertexBufferHandle,
     vkCmdDraw(frame.graphicsCmdBuffer, nVertices, 1, 0, 0);
 }
 
-TextureHandle SYN::VK::VulkanBackend::getSwapchainTextureCmd() {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
     return m_SwapchainAttachmentHandle;
 }
 
@@ -360,58 +354,5 @@ VkRenderingAttachmentInfo makeAttachmentInfo(const Image &image,
     };
 
     return attachmentInfo;
-}
-
-StageAccess getStageAccess(VkImageLayout layout) {
-    switch (layout) {
-    case VK_IMAGE_LAYOUT_UNDEFINED:
-        return {VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE};
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-        return {VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT};
-    case VK_IMAGE_LAYOUT_GENERAL:
-        return {};
-    case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
-        return {VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
-    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-        return {VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                    VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                VK_ACCESS_2_SHADER_READ_BIT};
-    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-        return {VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                VK_ACCESS_2_TRANSFER_READ_BIT};
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-        return {VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                VK_ACCESS_2_TRANSFER_WRITE_BIT};
-    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-        return {VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE};
-    default:
-        spdlog::warn("Unspecified layout encountered");
-        assert(false);
-        return {VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT};
-    }
-}
-
-VkImageMemoryBarrier2 makeImageMemoryBarrier(const Image &image,
-                                             VkImageLayout targetLayout,
-                                             uint32_t srcQueueFamilyIndex,
-                                             uint32_t dstQueueFamilyIndex) {
-    StageAccess srcStageAccess{getStageAccess(image.currentLayout)};
-    StageAccess dstStageAccess{getStageAccess(targetLayout)};
-    return VkImageMemoryBarrier2{.sType =
-                                     VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                                 .srcStageMask = srcStageAccess.stageMask,
-                                 .srcAccessMask = srcStageAccess.accessMask,
-                                 .dstStageMask = dstStageAccess.stageMask,
-                                 .dstAccessMask = dstStageAccess.accessMask,
-                                 .oldLayout = image.currentLayout,
-                                 .newLayout = targetLayout,
-                                 .srcQueueFamilyIndex = srcQueueFamilyIndex,
-                                 .dstQueueFamilyIndex = dstQueueFamilyIndex,
-                                 .image = image.handle,
-                                 .subresourceRange = image.subresourceRange};
 }
 } // namespace

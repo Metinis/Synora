@@ -26,6 +26,9 @@ class IBackend {
                                  void *data) = 0;
     virtual void destroyTexture(TextureHandle &handle) = 0;
 
+    virtual AttachmentHandle createAttachment(const AttachmentDesc &desc) = 0;
+    virtual void destroyAttachment(AttachmentHandle &handle) = 0;
+
     virtual void beginFrame(Window &window) = 0;
     // submits and presents frame
     virtual void endFrame(Window &window) = 0;
@@ -47,7 +50,7 @@ class IBackend {
     // virtual void drawIndexedCmd(BufferHandle vertexBuffer,
     //                             BufferHandle indexBuffer, size_t nIndices);
 
-    virtual TextureHandle getSwapchainTextureCmd() = 0;
+    virtual AttachmentHandle getSwapchainAttachmentCmd() = 0;
     virtual Viewport getSwapchainViewport() = 0;
 
     // returns the index of the texture in the bindless sampler2D array that

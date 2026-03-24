@@ -72,12 +72,10 @@ void Renderer::addMesh(UUID meshID, const MeshData &meshData) {
         return;
     }
 
-    TextureHandle texture{m_Backend->createTexture(TextureDesc{
-        .width = static_cast<uint32_t>(imageWidth),
-        .height = static_cast<uint32_t>(imageHeight),
-        .type = TextureType::srgb,
-        .usageMask = TEXTURE_USAGE_SAMPLED_BIT,
-    })};
+    TextureHandle texture{m_Backend->createTexture(
+        TextureDesc{.width = static_cast<uint32_t>(imageWidth),
+                    .height = static_cast<uint32_t>(imageHeight),
+                    .type = TextureType::srgb})};
     Viewport swapchainViewport{m_Backend->getSwapchainViewport()};
 
     m_Backend->uploadToTexture(texture, imageWidth, imageHeight,
@@ -86,24 +84,22 @@ void Renderer::addMesh(UUID meshID, const MeshData &meshData) {
 
     m_Textures[meshID] = texture;
 
-    TextureHandle depthTexture{m_Backend->createTexture(
-        TextureDesc{.width = swapchainViewport.width,
-                    .height = swapchainViewport.height,
-                    .type = TextureType::depth,
-                    .usageMask = TEXTURE_USAGE_ATTACHMENT_BIT})};
-    m_DepthTexture = depthTexture;
+    AttachmentHandle depthAttachment{m_Backend->createAttachment(
+        AttachmentDesc{.type = TextureType::depth})};
+    m_DepthAttachment = depthAttachment;
 }
 
 void Renderer::drawMesh(UUID meshID) {
     m_Backend->beginFrame(*m_Window);
-    TextureHandle swapchainImage{m_Backend->getSwapchainTextureCmd()};
+    AttachmentHandle swapchainAttachment{
+        m_Backend->getSwapchainAttachmentCmd()};
     std::array<WriteAttachment, 1> colorAttachments{
         WriteAttachment{
-            .textureHandle = swapchainImage,
+            .handle = swapchainAttachment,
             .clearColor = glm::vec4(0.f, 0.f, 0.f, 0.f),
         },
     };
-    WriteAttachment depthAttachment{.textureHandle = m_DepthTexture,
+    WriteAttachment depthAttachment{.handle = m_DepthAttachment,
                                     .clearDepth = 0.f};
 
     Viewport swapchainViewport{m_Backend->getSwapchainViewport()};
@@ -119,4 +115,14 @@ void Renderer::drawMesh(UUID meshID) {
     m_Backend->endFrame(*m_Window);
 }
 
-void SYN::Renderer::shutdown() { m_Backend->shutdown(); }
+void SYN::Renderer::shutdown() {
+    for (auto &[assetID, texture] : m_Textures) {
+        m_Backend->destroyTexture(texture);
+    }
+    for (auto &[assetID, buffer] : m_Buffers) {
+        m_Backend->destroyBuffer(buffer);
+    }
+    m_Backend->destroyAttachment(m_DepthAttachment);
+
+    m_Backend->shutdown();
+}

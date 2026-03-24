@@ -24,7 +24,7 @@ class Renderer {
     std::unique_ptr<IBackend> m_Backend;
     Window *m_Window;
 
-    TextureHandle m_DepthTexture;
+    AttachmentHandle m_DepthAttachment;
     std::unordered_map<UUID, TextureHandle> m_Textures;
     std::unordered_map<UUID, BufferHandle> m_Buffers;
 };

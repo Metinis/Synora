@@ -34,6 +34,9 @@ class VulkanBackend : public IBackend {
                          uint32_t stride, void *data) override;
     void destroyTexture(TextureHandle &handle) override;
 
+    AttachmentHandle createAttachment(const AttachmentDesc &desc) override;
+    void destroyAttachment(AttachmentHandle &handle) override;
+
     void beginFrame(Window &window) override;
     void endFrame(Window &window) override;
 
@@ -42,12 +45,16 @@ class VulkanBackend : public IBackend {
 
     void drawCmd(BufferHandle vertexBuffer, size_t nVertices) override;
 
-    TextureHandle getSwapchainTextureCmd() override;
+    AttachmentHandle getSwapchainAttachmentCmd() override;
     Viewport getSwapchainViewport() override;
 
     void shutdown() override;
 
   private:
+    static constexpr uint32_t c_MaxFramesInFlight{2};
+    static constexpr uint32_t c_TextureBinding{0};
+    static constexpr uint32_t c_MaxBindlessTextures{1024};
+
     struct FrameData {
         VkCommandPool graphicsCmdPool{};
         VkCommandBuffer graphicsCmdBuffer{};
@@ -57,24 +64,33 @@ class VulkanBackend : public IBackend {
 
         DynamicUBO UBOBuffer;
 
+        std::vector<Image> imagesToFree;
+        std::vector<Buffer> buffersToFree;
+        std::vector<uint32_t> bindlessTexturesToFree;
+
         uint32_t swapchainImageIndex{};
+    };
+
+    struct Texture {
+        Image image;
+        uint32_t bindlessSamplerIndex;
+    };
+    struct Attachment {
+        std::array<Image, c_MaxFramesInFlight> images;
+        std::array<uint32_t, c_MaxFramesInFlight> bindlessSamplerIndices;
+        AttachmentSize size;
+        bool isSampleable;
     };
 
     struct PushConstants {
         VkDeviceAddress vertexBuffer;
     };
 
-    static constexpr uint32_t c_MaxFramesInFlight{2};
-    static constexpr uint32_t c_TextureBinding{0};
-    static constexpr uint32_t c_MaxBindlessTextures{1024};
-
     void initContext(Window *window);
     void initDescriptorSetLayout();
     void initPipelineLayout();
     void initDescriptorSets();
     void initFrameData(const Swapchain &swapchain);
-
-    void recordRenderCmd(uint32_t currentImageIndex);
 
     void recreateSwapchain(Window &window);
 
@@ -110,7 +126,7 @@ class VulkanBackend : public IBackend {
 
     StagingBuffer m_StagingBuffer{};
 
-    TextureHandle m_SwapchainAttachmentHandle{};
+    AttachmentHandle m_SwapchainAttachmentHandle{};
 
     // per frame
     std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
@@ -118,9 +134,8 @@ class VulkanBackend : public IBackend {
 
     // resources
     SlotMap<BufferHandle, Buffer> m_Buffers{};
-    SlotMap<TextureHandle, Image> m_Textures{};
-    SlotMap<TextureHandle, std::array<Image, c_MaxFramesInFlight>>
-        m_Attachments{};
+    SlotMap<TextureHandle, Texture> m_Textures{};
+    SlotMap<AttachmentHandle, Attachment> m_Attachments{};
 };
 
 } // namespace SYN::VK

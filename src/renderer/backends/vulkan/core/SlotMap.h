@@ -74,6 +74,12 @@ template <HandleConcept Handle, typename T> class SlotMap {
         return false;
     }
 
+    void clear() {
+        m_Data.clear();
+        m_Occupied.clear();
+        m_SlotFreeList.clear();
+    }
+
     SlotMapIterator<Handle, T> begin() {
         auto it{m_Data.begin()};
         uint32_t index{};

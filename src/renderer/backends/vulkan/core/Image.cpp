@@ -2,6 +2,7 @@
 #include "Buffer.h"
 #include "Commands.h"
 #include "Device.h"
+#include "Swapchain.h"
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
@@ -59,6 +60,8 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                  .view = view,
                  .extent = extent,
                  .subresourceRange = viewCI.subresourceRange,
+                 .format = format,
+                 .usage = usage,
                  .allocation = allocation};
 }
 

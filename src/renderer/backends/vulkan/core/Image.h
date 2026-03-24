@@ -6,19 +6,21 @@
 
 namespace SYN::VK {
 struct Device;
+struct Swapchain;
 
 struct Image {
     VkImage handle;
     VkImageView view;
     VkExtent2D extent;
     VkImageSubresourceRange subresourceRange;
+    VkFormat format;
+    VkImageUsageFlags usage;
 
     VmaAllocation allocation;
     VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
     VkPipelineStageFlags2 lastStageMask{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
     VkAccessFlags2 lastAccessMask{VK_ACCESS_2_MEMORY_READ_BIT |
                                   VK_ACCESS_2_MEMORY_WRITE_BIT};
-    uint32_t bindlessTextureIndex{UINT32_MAX};
 };
 
 Image createImage(const Device &device, VmaAllocator allocator, VkFormat format,

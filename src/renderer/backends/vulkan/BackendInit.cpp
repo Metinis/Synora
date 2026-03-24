@@ -8,6 +8,7 @@
 #include "core/Pipeline.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
+#include "renderer/RenderTypes.h"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -71,7 +72,14 @@ void SYN::VK::VulkanBackend::init(Window *window) {
 
     vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_DefaultSampler);
 
-    m_SwapchainAttachmentHandle = m_Attachments.insert({});
+    m_SwapchainAttachmentHandle = m_Attachments.insert(Attachment{
+        .size = AttachmentSize::fixed, // technically its relative, but relative
+                                       // triggers recreation when the swapchain
+                                       // goes out of date, when the images
+                                       // arent created but instead acquired
+                                       // from the swapchain. Hence we use fixed
+        .isSampleable = false,         // tis an output
+    });
 }
 
 void SYN::VK::VulkanBackend::shutdown() {
@@ -79,22 +87,28 @@ void SYN::VK::VulkanBackend::shutdown() {
 
     vkDestroySampler(m_Device.logical, m_DefaultSampler, nullptr);
 
-    // for (auto [handle, textures] : m_Attachments) {
-    //     for (auto texture : textures) {
-    //         spdlog::warn("Texture {} may have been leaked", handle.id);
-    //         destroyImage(m_Device, m_Allocator, texture);
-    //     }
-    // }
+    for (const auto &[handle, attachment] : m_Attachments) {
+        if (handle == m_SwapchainAttachmentHandle) {
+            continue;
+        }
+        for (auto image : attachment.images) {
+            spdlog::warn("Texture {} may have been leaked", handle.id);
+            destroyImage(m_Device, m_Allocator, image);
+        }
+    }
+    m_Attachments.clear();
 
     for (auto [handle, texture] : m_Textures) {
         spdlog::warn("Texture {} may have been leaked", handle.id);
-        destroyImage(m_Device, m_Allocator, texture);
+        destroyImage(m_Device, m_Allocator, texture.image);
     }
+    m_Textures.clear();
 
     for (auto [handle, buffer] : m_Buffers) {
         spdlog::warn("Buffer {} may have been leaked", handle.id);
         VK::destroyBuffer(m_Allocator, buffer);
     }
+    m_Buffers.clear();
 
     for (auto &frame : m_FrameData) {
         frame.UBOBuffer.destroy(m_Allocator);
@@ -102,6 +116,12 @@ void SYN::VK::VulkanBackend::shutdown() {
         vkDestroySemaphore(m_Device.logical, frame.imageAvailableSemaphore,
                            nullptr);
         vkDestroyCommandPool(m_Device.logical, frame.graphicsCmdPool, nullptr);
+        for (auto &buffer : frame.buffersToFree) {
+            VK::destroyBuffer(m_Allocator, buffer);
+        }
+        for (auto &image : frame.imagesToFree) {
+            destroyImage(m_Device, m_Allocator, image);
+        }
     }
 
     for (const auto &semaphore : m_RenderFinishedSemaphores) {
@@ -371,4 +391,49 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
         createSwapchain(m_Device, m_Surface, window, m_Swapchain.handle)};
     destroySwapchain(m_Swapchain, m_Device);
     m_Swapchain = newSwapchain;
+
+    for (const auto &[handle, attachment] : m_Attachments) {
+        if (handle == m_SwapchainAttachmentHandle) {
+            continue;
+        }
+        if (attachment.size != AttachmentSize::relative) {
+            continue;
+        }
+
+        for (size_t i{}; i < c_MaxFramesInFlight; i++) {
+            Image &image{attachment.images[i]};
+
+            VkFormat format{image.format};
+            VkImageUsageFlags usage{image.usage};
+            VkImageAspectFlags aspect{image.subresourceRange.aspectMask};
+            destroyImage(m_Device, m_Allocator, image);
+            image = createImage(m_Device, m_Allocator, format,
+                                m_Swapchain.extent, usage, aspect);
+
+            if (!attachment.isSampleable) {
+                continue;
+            }
+
+            uint32_t descriptorElement{attachment.bindlessSamplerIndices[i]};
+
+            VkDescriptorImageInfo imageInfo{
+                .sampler = m_DefaultSampler,
+                .imageView = image.view,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+
+            VkWriteDescriptorSet bindlessWrite{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = m_BindlessDescriptorSet,
+                .dstBinding = 0,
+                .dstArrayElement = descriptorElement,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &imageInfo,
+            };
+
+            vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0,
+                                   nullptr);
+        }
+    }
 }
