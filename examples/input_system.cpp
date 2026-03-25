@@ -20,7 +20,11 @@ enum Action : SYN::ActionID {
     ToggleMenu,
     OpenSettings,
     CloseSettings,
-    PrintStatus
+    PrintStatus,
+    Aim,
+    CursorPos,
+    LookDelta,
+    ScrollZoom
 };
 
 // Creating your own input context no longer requires inheritance.
@@ -41,6 +45,21 @@ struct UIState {
 // You should not be calling the onKeyEvent and processInputQueue manually.
 static void simulateKey(SYN::Input &input, int key, int action) {
     input.onKeyEvent(key, action);
+    input.processInputQueue();
+}
+
+static void simulateMouseButton(SYN::Input &input, int button, int action) {
+    input.onMouseButtonEvent(button, action);
+    input.processInputQueue();
+}
+
+static void simulateMouseMove(SYN::Input &input, double x, double y) {
+    input.onMouseMoveEvent(x, y);
+    input.processInputQueue();
+}
+
+static void simulateMouseScroll(SYN::Input &input, double x, double y) {
+    input.onMouseScrollEvent(x, y);
     input.processInputQueue();
 }
 
@@ -92,10 +111,11 @@ int main() {
         // as actions are simply processed as integers. I recommend a large enum
         // UserAction {} so you don't accidentally duplicate values for
         // different actions.
-        (*gameplayCtx)->bindAction(SYN::InputKey::W, {Action::MoveUp, {}});
-        (*gameplayCtx)->bindAction(SYN::InputKey::S, {Action::MoveDown, {}});
-        (*gameplayCtx)->bindAction(SYN::InputKey::A, {Action::MoveLeft, {}});
-        (*gameplayCtx)->bindAction(SYN::InputKey::D, {Action::MoveRight, {}});
+        (*gameplayCtx)->bindActions(SYN::InputKey::W, {{Action::MoveUp, {}}});
+        (*gameplayCtx)->bindActions(SYN::InputKey::S, {{Action::MoveDown, {}}});
+        (*gameplayCtx)->bindActions(SYN::InputKey::A, {{Action::MoveLeft, {}}});
+        (*gameplayCtx)
+            ->bindActions(SYN::InputKey::D, {{Action::MoveRight, {}}});
 
         // Alternatively, you can bind multiple actions to a key. Just pass in a
         // vector of ActionBindings. Order does matter in the action vector, as
@@ -104,7 +124,23 @@ int main() {
             ->bindActions(SYN::InputKey::Space,
                           {{Action::Jump, {}}, {Action::Interact, {}}});
 
-        (*gameplayCtx)->bindAction(SYN::InputKey::F, {Action::PrintStatus, {}});
+        (*gameplayCtx)
+            ->bindActions(SYN::InputKey::F, {{Action::PrintStatus, {}}});
+
+        // Mouse button example (right click to aim).
+        (*gameplayCtx)
+            ->bindActions(SYN::MouseButton::Right, {{Action::Aim, {}}});
+
+        // Mouse move, delta, and scroll triggers.
+        (*gameplayCtx)
+            ->bindActions(SYN::RawInputType::MouseMove,
+                          {{Action::CursorPos, {}}});
+        (*gameplayCtx)
+            ->bindActions(SYN::RawInputType::MouseDelta,
+                          {{Action::LookDelta, {}}});
+        (*gameplayCtx)
+            ->bindActions(SYN::RawInputType::MouseScroll,
+                          {{Action::ScrollZoom, {}}});
 
         // Let's make use of a vector axis for directional inputs. Useful
         // for movement related code!
@@ -156,21 +192,48 @@ int main() {
                                  gameplayState.m_PlayerName, gameplayState.m_X,
                                  gameplayState.m_Y, gameplayState.m_Stamina);
                 });
+
+        (*gameplayCtx)
+            ->addActionCallback(Action::Aim, [&](SYN::InputState state) {
+                if (state == SYN::InputState::Up) {
+                    return;
+                }
+                spdlog::info("{} aims (right click).",
+                             gameplayState.m_PlayerName);
+            });
+
+        (*gameplayCtx)
+            ->addActionCallback(Action::CursorPos, [&](double x, double y) {
+                spdlog::info("{} cursor pos -> ({}, {})",
+                             gameplayState.m_PlayerName, x, y);
+            });
+
+        (*gameplayCtx)
+            ->addActionCallback(Action::LookDelta, [&](double dx, double dy) {
+                spdlog::info("{} mouse delta -> ({}, {})",
+                             gameplayState.m_PlayerName, dx, dy);
+            });
+
+        (*gameplayCtx)
+            ->addActionCallback(Action::ScrollZoom, [&](double dx, double dy) {
+                spdlog::info("Scroll input -> ({}, {})", dx, dy);
+            });
     }
 
     if (auto uiCtx = input.getInputContext(uiHandle.value())) {
         (*uiCtx)->setConsumesInput(false);
-        (*uiCtx)->bindAction(SYN::InputKey::Escape, {Action::ToggleMenu, {}});
+        (*uiCtx)->bindActions(SYN::InputKey::Escape,
+                              {{Action::ToggleMenu, {}}});
 
         // Here is an example of modifier keys being used. They allow you to
         // only execute an action if the modifier keys are held in addition to
         // the main key press. Here: LeftCtrl + LeftShift + O. Keep in mind that
         // LeftShift + LeftCtrl + O will also open settings. The order of
         // modifier keys does not matter.
-        (*uiCtx)->bindAction(SYN::InputKey::O, {Action::OpenSettings,
-                                                {SYN::InputKey::LeftCtrl,
-                                                 SYN::InputKey::LeftShift}});
-        (*uiCtx)->bindAction(SYN::InputKey::P, {Action::CloseSettings, {}});
+        (*uiCtx)->bindActions(SYN::InputKey::O, {{Action::OpenSettings,
+                                                  {SYN::InputKey::LeftCtrl,
+                                                   SYN::InputKey::LeftShift}}});
+        (*uiCtx)->bindActions(SYN::InputKey::P, {{Action::CloseSettings, {}}});
 
         (*uiCtx)->addActionCallback(
             Action::ToggleMenu, [&](SYN::InputState state) {
@@ -207,6 +270,11 @@ int main() {
     simulateKey(input, GLFW_KEY_SPACE, GLFW_RELEASE);
     simulateKey(input, GLFW_KEY_F, GLFW_PRESS);
     simulateKey(input, GLFW_KEY_F, GLFW_RELEASE);
+    simulateMouseButton(input, GLFW_MOUSE_BUTTON_RIGHT, GLFW_PRESS);
+    simulateMouseButton(input, GLFW_MOUSE_BUTTON_RIGHT, GLFW_RELEASE);
+    simulateMouseMove(input, 100.0, 200.0);
+    simulateMouseMove(input, 140.0, 210.0);
+    simulateMouseScroll(input, 0.0, 1.0);
 
     spdlog::info("-- Open menu (UI consumes input) --");
     simulateKey(input, GLFW_KEY_ESCAPE, GLFW_PRESS);
@@ -253,6 +321,52 @@ int main() {
     simulateKey(input, GLFW_KEY_S, GLFW_PRESS);
     simulateKey(input, GLFW_KEY_A, GLFW_RELEASE);
     simulateKey(input, GLFW_KEY_S, GLFW_RELEASE);
+
+    spdlog::info("-- Unbind/remove trigger/action/vector tests --");
+    if (auto gameplayCtx = input.getInputContext(gameplayHandle.value())) {
+        spdlog::info(
+            "Unbinding D (MoveRight). Expect no movement output on D press.");
+        (*gameplayCtx)->unbindTrigger(SYN::InputKey::D);
+        simulateKey(input, GLFW_KEY_D, GLFW_PRESS);
+        simulateKey(input, GLFW_KEY_D, GLFW_RELEASE);
+
+        spdlog::info(
+            "Unbinding right mouse button. Expect no aim output on click.");
+        (*gameplayCtx)->unbindTrigger(SYN::MouseButton::Right);
+        simulateMouseButton(input, GLFW_MOUSE_BUTTON_RIGHT, GLFW_PRESS);
+        simulateMouseButton(input, GLFW_MOUSE_BUTTON_RIGHT, GLFW_RELEASE);
+
+        spdlog::info("Unbinding mouse move. Expect no cursor output (should "
+                     "still see mouse delta though).");
+        (*gameplayCtx)->unbindTrigger(SYN::RawInputType::MouseMove);
+        simulateMouseMove(input, 200.0, 300.0);
+
+        spdlog::info(
+            "Removing PrintStatus callbacks. Expect no status output.");
+        (*gameplayCtx)->removeActionCallbacks(Action::PrintStatus);
+        simulateKey(input, GLFW_KEY_F, GLFW_PRESS);
+        simulateKey(input, GLFW_KEY_F, GLFW_RELEASE);
+
+        spdlog::info("Removing Movement vector axis. Expect no movement output "
+                     "on W. Note: When unbinding a vector axis, corresponding "
+                     "callbacks are called with (0, 0) to reset any states "
+                     "relying on the vector axis.");
+        (*gameplayCtx)->removeVectorAxis("Movement");
+        simulateKey(input, GLFW_KEY_W, GLFW_PRESS);
+        simulateKey(input, GLFW_KEY_W, GLFW_RELEASE);
+
+        spdlog::info("Expect error: bindActions with RawInputType::Key.");
+        (*gameplayCtx)
+            ->bindActions(SYN::RawInputType::Key, {{Action::PrintStatus, {}}});
+
+        SYN::InputContext::VectorAxisCallback noopAxis = [](float, float) {};
+
+        spdlog::info("Expect error: addVectorAxisCallback on missing axis.");
+        (*gameplayCtx)->addVectorAxisCallback("MissingAxis", noopAxis);
+
+        spdlog::info("Expect error: addVectorAxisCallbacks on missing axis.");
+        (*gameplayCtx)->addVectorAxisCallbacks("MissingAxis", {noopAxis});
+    }
 
     spdlog::info("-- Intentional invalid handle usage (use-after-free) --");
     input.disableContext(uiHandle.value());

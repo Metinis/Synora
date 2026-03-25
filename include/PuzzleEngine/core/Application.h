@@ -9,11 +9,11 @@ class Renderer;
 class Scene;
 
 struct EngineContext {
-  std::unique_ptr<Window> window;
-  std::unique_ptr<Input> inputManager;
-  std::unique_ptr<Renderer> renderer;
-  std::unique_ptr<Scene> scene;
-  ProjectConfig projectConfig;
+    std::unique_ptr<Window> window;
+    std::unique_ptr<Input> inputManager;
+    std::unique_ptr<Renderer> renderer;
+    std::unique_ptr<Scene> scene;
+    ProjectConfig projectConfig;
 };
 class Application {
   public:
@@ -31,17 +31,11 @@ class Application {
 
     EngineContext m_EngineContext;
 
-    std::deque<ILayer*> m_Layers;
+    std::deque<ILayer *> m_Layers;
 
     bool m_IsRunning{};
 
     int m_WindowWidth;
     int m_WindowHeight;
-
-  private:
-    struct WindowPointers {
-        Input *m_Input;
-    };
-    WindowPointers m_WindowData;
 };
 } // namespace SYN

@@ -7,7 +7,11 @@
 
 #include <optional>
 
-static std::optional<SYN::InputKey> TranslateGLFWKey(int32_t keyCode) {
+struct WindowPointers {
+    SYN::Input *input;
+} WindowData;
+
+static std::optional<SYN::InputKey> translateGLFWKey(int32_t keyCode) {
     switch (keyCode) {
     case GLFW_KEY_UP:
         return SYN::InputKey::Up;
@@ -138,12 +142,22 @@ static std::optional<SYN::InputKey> TranslateGLFWKey(int32_t keyCode) {
     }
 }
 
+static std::optional<SYN::MouseButton>
+translateGLFWMouseButton(int32_t mouseButtonCode) {
+    switch (mouseButtonCode) {
+    case GLFW_MOUSE_BUTTON_LEFT:
+        return SYN::MouseButton::Left;
+    case GLFW_MOUSE_BUTTON_RIGHT:
+        return SYN::MouseButton::Right;
+    case GLFW_MOUSE_BUTTON_MIDDLE:
+        return SYN::MouseButton::Middle;
+    default:
+        return std::nullopt;
+    }
+}
+
 void keyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mods) {
-    struct WindowPointers {
-        SYN::Input *input;
-    };
-
     WindowPointers *user_data =
         static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
 
@@ -155,8 +169,63 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
     user_data->input->onKeyEvent(key, action);
 }
 
+void mouseButtonCallback(GLFWwindow *window, int32_t button, int32_t action,
+                         int32_t mods) {
+    WindowPointers *user_data =
+        static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
+
+    if (user_data == nullptr || user_data->input == nullptr) {
+        spdlog::error("Input not passed to window context...");
+        return;
+    }
+
+    user_data->input->onMouseButtonEvent(button, action);
+}
+
+void cursorPositionCallback(GLFWwindow *window, double xPos, double yPos) {
+    WindowPointers *user_data =
+        static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
+
+    if (user_data == nullptr || user_data->input == nullptr) {
+        spdlog::error("Input not passed to window context...");
+        return;
+    }
+
+    user_data->input->onMouseMoveEvent(xPos, yPos);
+}
+
+void scrollCallback(GLFWwindow *window, double xOffset, double yOffset) {
+    WindowPointers *user_data =
+        static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
+
+    if (user_data == nullptr || user_data->input == nullptr) {
+        spdlog::error("Input not passed to window context...");
+        return;
+    }
+
+    user_data->input->onMouseScrollEvent(xOffset, yOffset);
+}
+
+void SYN::Input::onMouseScrollEvent(double xOffset, double yOffset) {
+    m_RawInputQueue.emplace(std::nullopt, RawInputType::MouseScroll,
+                            MouseScroll{xOffset, yOffset});
+}
+
+void SYN::Input::onMouseMoveEvent(double xPos, double yPos) {
+    m_RawInputQueue.emplace(std::nullopt, RawInputType::MouseMove,
+                            MousePos{xPos, yPos});
+    double deltaX = xPos - m_LastMousePosX;
+    double deltaY = yPos - m_LastMousePosY;
+
+    m_LastMousePosX = xPos;
+    m_LastMousePosY = yPos;
+
+    m_RawInputQueue.emplace(std::nullopt, RawInputType::MouseDelta,
+                            MouseDelta{deltaX, deltaY});
+}
+
 void SYN::Input::onKeyEvent(int32_t keyCode, int32_t action) {
-    std::optional<SYN::InputKey> currentKey = TranslateGLFWKey(keyCode);
+    std::optional<SYN::InputKey> currentKey = translateGLFWKey(keyCode);
     if (!currentKey.has_value())
         return;
 
@@ -164,19 +233,52 @@ void SYN::Input::onKeyEvent(int32_t keyCode, int32_t action) {
 
     if (action == GLFW_PRESS && !m_RawKeyStates[inputKeyIndex]) {
         m_RawKeyStates[inputKeyIndex] = true;
-        m_RawInputQueue.emplace(InputState::Down, currentKey.value());
+        m_RawInputQueue.emplace(InputState::Down, RawInputType::Key,
+                                currentKey.value());
     } else if (action == GLFW_RELEASE && m_RawKeyStates[inputKeyIndex]) {
         m_RawKeyStates[inputKeyIndex] = false;
-        m_RawInputQueue.emplace(InputState::Up, currentKey.value());
+        m_RawInputQueue.emplace(InputState::Up, RawInputType::Key,
+                                currentKey.value());
     }
 }
 
-void SYN::Input::init(EngineContext* ctx) {
+void SYN::Input::onMouseButtonEvent(int32_t buttonCode, int32_t action) {
+    std::optional<SYN::MouseButton> currentMouseButton =
+        translateGLFWMouseButton(buttonCode);
+
+    if (!currentMouseButton.has_value())
+        return;
+
+    uint32_t mouseButtonIndex = (uint32_t)currentMouseButton.value();
+
+    if (action == GLFW_PRESS && !m_RawMouseButtonStates[mouseButtonIndex]) {
+        m_RawMouseButtonStates[mouseButtonIndex] = true;
+        m_RawInputQueue.emplace(InputState::Down, RawInputType::MouseButton,
+                                currentMouseButton.value());
+    } else if (action == GLFW_RELEASE &&
+               m_RawMouseButtonStates[mouseButtonIndex]) {
+        m_RawMouseButtonStates[mouseButtonIndex] = false;
+        m_RawInputQueue.emplace(InputState::Up, RawInputType::MouseButton,
+                                currentMouseButton.value());
+    }
+}
+
+void SYN::Input::init(EngineContext *ctx) {
+
+    // Given this is a global, it might not make sense to use
+    // glfwSetWindowUserPointer. It will be kept this way for now,
+    // in case I backpedal the decision of making this global.
+    WindowData.input = ctx->inputManager.get();
+    glfwSetWindowUserPointer(ctx->window->getHandle(), &WindowData);
+
     glfwSetKeyCallback(ctx->window->getHandle(), keyCallback);
+    glfwSetMouseButtonCallback(ctx->window->getHandle(), mouseButtonCallback);
+    glfwSetCursorPosCallback(ctx->window->getHandle(), cursorPositionCallback);
+    glfwSetScrollCallback(ctx->window->getHandle(), scrollCallback);
 }
 
 uint8_t getHandleGeneration(SYN::InputContextHandle handle) {
-    return (handle.m_Data & 0x00FE) >> 1;
+    return (handle.data & 0x00FE) >> 1;
 }
 
 bool sameGeneration(SYN::InputContextHandle handleA,
@@ -187,19 +289,17 @@ bool sameGeneration(SYN::InputContextHandle handleA,
 void incrementGeneration(SYN::InputContextHandle &handle) {
     uint8_t currentGeneration = getHandleGeneration(handle);
     ++currentGeneration;
-    handle.m_Data =
-        ((currentGeneration << 1) | (handle.m_Data & ~(uint16_t)0x00FE));
+    handle.data =
+        ((currentGeneration << 1) | (handle.data & ~(uint16_t)0x00FE));
 
-    if (((handle.m_Data & 0x00FE) >> 1) == SYN::MAX_INPUT_CONTEXT_GENERATIONS) {
+    if (((handle.data & 0x00FE) >> 1) == SYN::MAX_INPUT_CONTEXT_GENERATIONS) {
         spdlog::warn("Handle generation exceeds limit. Will overflow.");
     }
 }
 
-uint8_t getIndex(SYN::InputContextHandle handle) { return handle.m_Data >> 8; }
+uint8_t getIndex(SYN::InputContextHandle handle) { return handle.data >> 8; }
 
-bool isHandleActive(SYN::InputContextHandle handle) {
-    return handle.m_Data & 1;
-}
+bool isHandleActive(SYN::InputContextHandle handle) { return handle.data & 1; }
 
 std::optional<SYN::InputContextHandle>
 SYN::Input::addInputContext(uint8_t priority) {
@@ -216,7 +316,7 @@ SYN::Input::addInputContext(uint8_t priority,
             return std::nullopt;
         }
         InputContextHandle newHandle;
-        newHandle.m_Data = m_InputContextHandles.size() << 8;
+        newHandle.data = m_InputContextHandles.size() << 8;
 
         m_InputContexts.push_back(std::move(context));
         m_InputContexts.back()->setPriority(priority);
@@ -224,7 +324,7 @@ SYN::Input::addInputContext(uint8_t priority,
         m_InputContextToHandle.push_back(m_InputContextHandles.size());
         m_InputContextHandles.push_back(newHandle);
 
-        newHandle.m_Data |= 1;
+        newHandle.data |= 1;
         enableContext(newHandle);
 
         return newHandle;
@@ -248,7 +348,7 @@ SYN::Input::addInputContext(uint8_t priority,
     m_InputContexts[currentObjectIndex]->setPriority(priority);
 
     InputContextHandle newHandle;
-    newHandle.m_Data =
+    newHandle.data =
         (freeIndex << 8) | (currentHandleGeneration << 1) | (uint16_t)1;
 
     enableContext(newHandle);
@@ -262,7 +362,7 @@ void SYN::Input::removeContext(InputContextHandle userHandle) {
     }
 
     uint8_t userIndex = getIndex(userHandle);
-    if (m_InputContextHandles[userIndex].m_Data & 1) {
+    if (m_InputContextHandles[userIndex].data & 1) {
         disableContext(userHandle);
     }
 
@@ -293,7 +393,7 @@ bool SYN::Input::validateHandle(InputContextHandle userHandle,
         return false;
     uint8_t userIndex = getIndex(userHandle);
     InputContextHandle currentContextHandle = m_InputContextHandles[userIndex];
-    if ((currentContextHandle.m_Data & 1) != expectedState) {
+    if ((currentContextHandle.data & 1) != expectedState) {
         spdlog::error("Handle does not match expected state ({}). Invalid.",
                       expectedState ? "true" : "false");
         return false;
@@ -308,7 +408,7 @@ void SYN::Input::rebuildDispatchList() {
     }
     std::sort(m_DispatchIndices.begin(), m_DispatchIndices.end(),
               [](ContextDispatch a, ContextDispatch b) {
-                  return a.m_Priority < b.m_Priority;
+                  return a.priority < b.priority;
               });
 }
 
@@ -326,11 +426,11 @@ void SYN::Input::swapHandlesAndContexts(uint8_t handleIndexA,
     std::iter_swap(m_InputContextToHandle.begin() + indexA,
                    m_InputContextToHandle.begin() + indexB);
 
-    m_InputContextHandles[handleIndexA].m_Data &= 0x00FF;
-    m_InputContextHandles[handleIndexA].m_Data |= (indexB << 8);
+    m_InputContextHandles[handleIndexA].data &= 0x00FF;
+    m_InputContextHandles[handleIndexA].data |= (indexB << 8);
 
-    m_InputContextHandles[handleIndexB].m_Data &= 0x00FF;
-    m_InputContextHandles[handleIndexB].m_Data |= (indexA << 8);
+    m_InputContextHandles[handleIndexB].data &= 0x00FF;
+    m_InputContextHandles[handleIndexB].data |= (indexA << 8);
 }
 
 void SYN::Input::enableContext(InputContextHandle userHandle) {
@@ -347,7 +447,7 @@ void SYN::Input::enableContext(InputContextHandle userHandle) {
     }
 
     InputContextHandle &handleToEnable = m_InputContextHandles[userIndex];
-    handleToEnable.m_Data |= (uint16_t)1;
+    handleToEnable.data |= (uint16_t)1;
     m_ActiveContextsCount += 1;
 
     rebuildDispatchList();
@@ -362,7 +462,7 @@ void SYN::Input::disableContext(InputContextHandle userHandle) {
 
     InputContextHandle &currentContextHandle = m_InputContextHandles[userIndex];
     uint8_t currentIndex = getIndex(currentContextHandle);
-    currentContextHandle.m_Data &= ~(uint16_t)1;
+    currentContextHandle.data &= ~(uint16_t)1;
 
     --m_ActiveContextsCount;
     if (m_ActiveContextsCount == 0) {

@@ -1,8 +1,11 @@
 #pragma once
 
+#include <variant>
+
 namespace SYN {
 using ActionID = uint32_t;
 using Keycode = uint32_t;
+using MouseButtonCode = uint32_t;
 
 // Least significant bit: is active?
 // Next 7 bits: generation
@@ -11,7 +14,7 @@ using Keycode = uint32_t;
 // we also should't be constantly removing input contexts to warrant
 // over 128 generations.
 struct InputContextHandle {
-    uint16_t m_Data;
+    uint16_t data;
 };
 
 constexpr uint8_t MAX_INPUT_CONTEXTS = 255;
@@ -84,14 +87,44 @@ enum class InputKey : Keycode {
     F12
 };
 
+struct MousePos {
+    double x;
+    double y;
+};
+
+struct MouseDelta {
+    double dx;
+    double dy;
+};
+
+struct MouseScroll {
+    double scrollX;
+    double scrollY;
+};
+
+enum class MouseButton : MouseButtonCode { Left, Right, Middle };
+
+enum class RawInputType : uint32_t {
+    Key,
+    MouseButton,
+    MouseMove,
+    MouseDelta,
+    MouseScroll
+};
+
+using InputData =
+    std::variant<InputKey, MouseButton, MousePos, MouseDelta, MouseScroll>;
+
 // Map OS events into RawInput.
 // Add more state as needed.
 struct RawInput {
-    InputState m_State;
-    InputKey m_Code;
+    std::optional<InputState> state;
+    RawInputType inputType;
+    InputData input;
 };
 
 // Needs to be updated everytime a new input key is added.
 constexpr uint32_t NUM_INPUT_KEYS = (uint32_t)InputKey::F12 + 1;
+constexpr uint32_t NUM_MOUSE_BUTTONS = (uint32_t)MouseButton::Middle + 1;
 
 } // namespace SYN

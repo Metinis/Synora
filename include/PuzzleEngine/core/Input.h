@@ -14,9 +14,12 @@ class Input {
     Input() = default;
     ~Input() = default;
 
-    void init(EngineContext* ctx);
+    void init(EngineContext *ctx);
 
     void onKeyEvent(int32_t keyCode, int32_t action);
+    void onMouseButtonEvent(int32_t buttonCode, int32_t action);
+    void onMouseMoveEvent(double xPos, double yPos);
+    void onMouseScrollEvent(double xOffset, double yOffset);
 
     bool isKeyDown(InputKey keyCode);
 
@@ -61,12 +64,18 @@ class Input {
 
   private:
     struct ContextDispatch {
-        uint8_t m_ContextIndex;
-        uint8_t m_Priority;
+        uint8_t contextIndex;
+        uint8_t priority;
     };
 
   private:
+    double m_LastMousePosX = 0.0;
+    double m_LastMousePosY = 0.0;
+
+  private:
     std::array<bool, NUM_INPUT_KEYS> m_RawKeyStates;
+    std::array<bool, NUM_MOUSE_BUTTONS> m_RawMouseButtonStates;
+
     std::queue<RawInput> m_RawInputQueue;
 
     std::vector<InputContextHandle> m_InputContextHandles;

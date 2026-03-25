@@ -2,109 +2,290 @@
 
 #include <spdlog/spdlog.h>
 
-#include <ranges>
+static bool isInputButtonOrKey(SYN::RawInputType type) {
+    return type != SYN::RawInputType::MouseMove &&
+           type != SYN::RawInputType::MouseDelta &&
+           type != SYN::RawInputType::MouseScroll;
+}
+
+static SYN::InputContext::Trigger getTriggerFromKey(SYN::InputKey key) {
+    return SYN::InputContext::Trigger{SYN::RawInputType::Key, key,
+                                      std::nullopt};
+}
+
+static SYN::InputContext::Trigger
+getTriggerFromMouseButton(SYN::MouseButton button) {
+    return SYN::InputContext::Trigger{SYN::RawInputType::MouseButton,
+                                      std::nullopt, button};
+}
+
+// Do not pass in button/key type.
+static SYN::InputContext::Trigger getTriggerFromType(SYN::RawInputType type) {
+    return SYN::InputContext::Trigger{type, std::nullopt, std::nullopt};
+}
+
+void SYN::InputContext::bindActions(
+    RawInputType type, const std::vector<ActionBinding> &bindings) {
+    if (isInputButtonOrKey(type)) {
+        spdlog::error(
+            "Expected either scroll, mouse move, or mouse delta type. If "
+            "wanting buttons, or keys, pass those directly instead!");
+        return;
+    }
+    Trigger trigger = getTriggerFromType(type);
+    m_EnabledActions[trigger] = bindings;
+}
+
+void SYN::InputContext::bindActions(
+    MouseButton mouseButton, const std::vector<ActionBinding> &bindings) {
+    Trigger trigger = getTriggerFromMouseButton(mouseButton);
+    m_EnabledActions[trigger] = bindings;
+}
 
 void SYN::InputContext::bindActions(
     InputKey key, const std::vector<ActionBinding> &bindings) {
-    m_EnabledActions[key] = bindings;
+    Trigger trigger = getTriggerFromKey(key);
+    m_EnabledActions[trigger] = bindings;
 }
 
-void SYN::InputContext::bindAction(InputKey key, ActionBinding binding) {
-    m_EnabledActions[key] = {binding};
+void SYN::InputContext::unbindTrigger(InputKey key) {
+    Trigger trigger = getTriggerFromKey(key);
+    if (m_EnabledActions.find(trigger) != m_EnabledActions.cend())
+        m_EnabledActions.at(trigger).clear();
 }
 
-void SYN::InputContext::unbindKey(InputKey key) {
-    if (m_EnabledActions.find(key) != m_EnabledActions.cend())
-        m_EnabledActions.at(key).clear();
+void SYN::InputContext::unbindTrigger(MouseButton mouseButton) {
+    Trigger trigger = getTriggerFromMouseButton(mouseButton);
+    if (m_EnabledActions.find(trigger) != m_EnabledActions.cend())
+        m_EnabledActions.at(trigger).clear();
 }
 
-bool SYN::InputContext::isKeyBound(InputKey key) {
-    if (m_EnabledActions.find(key) == m_EnabledActions.cend())
+void SYN::InputContext::unbindTrigger(RawInputType type) {
+    if (isInputButtonOrKey(type))
+        return;
+    Trigger trigger = getTriggerFromType(type);
+    if (m_EnabledActions.find(trigger) != m_EnabledActions.cend())
+        m_EnabledActions.at(trigger).clear();
+}
+
+bool SYN::InputContext::isTriggerBound(InputKey key) {
+    Trigger trigger = getTriggerFromKey(key);
+    if (m_EnabledActions.find(trigger) == m_EnabledActions.cend())
         return false;
-    return m_EnabledActions.at(key).size() > 0;
+    return m_EnabledActions.at(trigger).size() > 0;
+}
+bool SYN::InputContext::isTriggerBound(MouseButton mouseButton) {
+    Trigger trigger = getTriggerFromMouseButton(mouseButton);
+    if (m_EnabledActions.find(trigger) == m_EnabledActions.cend())
+        return false;
+    return m_EnabledActions.at(trigger).size() > 0;
+}
+
+bool SYN::InputContext::isTriggerBound(RawInputType type) {
+    if (isInputButtonOrKey(type))
+        return false;
+    Trigger trigger = getTriggerFromType(type);
+    if (m_EnabledActions.find(trigger) == m_EnabledActions.cend())
+        return false;
+
+    return m_EnabledActions.at(trigger).size() > 0;
 }
 
 // Returns copy of action bindings bound to specified key
 std::optional<std::vector<SYN::InputContext::ActionBinding>>
 SYN::InputContext::getBindings(InputKey key) {
-    if (m_EnabledActions.find(key) == m_EnabledActions.cend())
+    Trigger trigger = getTriggerFromKey(key);
+    if (m_EnabledActions.find(trigger) == m_EnabledActions.cend())
         return std::nullopt;
-    return m_EnabledActions.at(key);
+    return m_EnabledActions.at(trigger);
 }
 
-void SYN::InputContext::updateVectorAxes(ActionID action, InputState state) {
+std::optional<std::vector<SYN::InputContext::ActionBinding>>
+SYN::InputContext::getBindings(MouseButton button) {
+    Trigger trigger = getTriggerFromMouseButton(button);
+    if (m_EnabledActions.find(trigger) == m_EnabledActions.cend())
+        return std::nullopt;
+    return m_EnabledActions.at(trigger);
+}
+std::optional<std::vector<SYN::InputContext::ActionBinding>>
+SYN::InputContext::getBindings(RawInputType type) {
+    if (isInputButtonOrKey(type))
+        return std::nullopt;
+
+    Trigger trigger = getTriggerFromType(type);
+    if (m_EnabledActions.find(trigger) == m_EnabledActions.cend())
+        return std::nullopt;
+    return m_EnabledActions.at(trigger);
+}
+
+std::variant<float, std::tuple<float, float>>
+getAxisDelta(SYN::RawInput input) {
+    switch (input.inputType) {
+    case SYN::RawInputType::Key:
+        return input.state == SYN::InputState::Down ? 1.0f : -1.0f;
+    case SYN::RawInputType::MouseButton:
+        return input.state == SYN::InputState::Down ? 1.0f : -1.0f;
+    case SYN::RawInputType::MouseDelta: {
+        SYN::MouseDelta mouseDelta = std::get<SYN::MouseDelta>(input.input);
+        return std::make_tuple((float)mouseDelta.dx, (float)mouseDelta.dy);
+    }
+    default: {
+        spdlog::warn("Mapped invalid trigger to axis delta. Only supports: "
+                     "Key, mouse button, or mouse delta.");
+        return 0.0f;
+    }
+    }
+}
+
+void SYN::InputContext::updateAxisWithDiscreteDelta(
+    const std::string &vectorAxisName, ActionID action,
+    InputContext::VectorAxis &vectorAxis, float delta) {
+    if (vectorAxis.up && vectorAxis.up.value() == action) {
+        vectorAxis.y += delta;
+    }
+    if (vectorAxis.down && vectorAxis.down.value() == action) {
+        vectorAxis.y -= delta;
+    }
+    if (vectorAxis.right && vectorAxis.right.value() == action) {
+        vectorAxis.x += delta;
+    }
+    if (vectorAxis.left && vectorAxis.left.value() == action) {
+        vectorAxis.x -= delta;
+    }
+
+    float axisLength2 =
+        vectorAxis.x * vectorAxis.x + vectorAxis.y * vectorAxis.y;
+
+    const std::vector<VectorAxisCallback> &vectorAxisCallbacks =
+        m_VectorAxisCallbacks.at(vectorAxisName);
+
+    if (axisLength2 == 0.0f || axisLength2 == 1.0f) {
+        for (const VectorAxisCallback &vectorAxisCallback :
+             vectorAxisCallbacks) {
+            vectorAxisCallback(vectorAxis.x, vectorAxis.y);
+        }
+        return;
+    }
+
+    float axisLength = std::sqrtf(axisLength2);
+
+    float normalizedX = vectorAxis.x / axisLength;
+    float normalizedY = vectorAxis.y / axisLength;
+
+    for (const VectorAxisCallback &vectorAxisCallback : vectorAxisCallbacks) {
+        vectorAxisCallback(normalizedX, normalizedY);
+    }
+}
+
+void SYN::InputContext::updateAxisWithMouseDelta(
+    const std::string &vectorAxisName, SYN::ActionID action,
+    SYN::InputContext::VectorAxis &vectorAxis, float dx, float dy) {
+
+    vectorAxis.x += dx;
+    vectorAxis.y += dy;
+
+    const std::vector<VectorAxisCallback> &vectorAxisCallbacks =
+        m_VectorAxisCallbacks.at(vectorAxisName);
+
+    for (const VectorAxisCallback &vectorAxisCallback : vectorAxisCallbacks) {
+        vectorAxisCallback(vectorAxis.x, vectorAxis.y);
+    }
+}
+
+void SYN::InputContext::updateVectorAxes(ActionID action, RawInput input) {
     if (auto actionIterator = m_ActionToVectorAxis.find(action);
         actionIterator != m_ActionToVectorAxis.cend()) {
         for (const std::string &vectorAxisName : actionIterator->second) {
             VectorAxis &vectorAxis = m_VectorAxes.at(vectorAxisName);
-            float delta = state == InputState::Down ? 1.0f : -1.0f;
-            if (vectorAxis.m_Up && vectorAxis.m_Up.value() == action) {
-                vectorAxis.m_Y += delta;
-            }
-            if (vectorAxis.m_Down && vectorAxis.m_Down.value() == action) {
-                vectorAxis.m_Y -= delta;
-            }
-            if (vectorAxis.m_Right && vectorAxis.m_Right.value() == action) {
-                vectorAxis.m_X += delta;
-            }
-            if (vectorAxis.m_Left && vectorAxis.m_Left.value() == action) {
-                vectorAxis.m_X -= delta;
-            }
 
-            float axisLength2 = vectorAxis.m_X * vectorAxis.m_X +
-                                vectorAxis.m_Y * vectorAxis.m_Y;
+            std::variant<float, std::tuple<float, float>> delta =
+                getAxisDelta(input);
 
-            const std::vector<VectorAxisCallback> &vectorAxisCallbacks =
-                m_VectorAxisCallbacks.at(vectorAxisName);
-
-            if (axisLength2 == 0.0f || axisLength2 == 1.0f) {
-                for (const VectorAxisCallback &vectorAxisCallback :
-                     vectorAxisCallbacks) {
-                    vectorAxisCallback(vectorAxis.m_X, vectorAxis.m_Y);
-                }
-                continue;
-            }
-
-            float axisLength = std::sqrt(axisLength2);
-
-            float normalizedX = vectorAxis.m_X / axisLength;
-            float normalizedY = vectorAxis.m_Y / axisLength;
-
-            for (const VectorAxisCallback &vectorAxisCallback :
-                 vectorAxisCallbacks) {
-                vectorAxisCallback(normalizedX, normalizedY);
-            }
+            std::visit(
+                [&](auto &&arg) {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same<T, float>()) {
+                        updateAxisWithDiscreteDelta(vectorAxisName, action,
+                                                    vectorAxis, arg);
+                    } else if constexpr (std::is_same<
+                                             T, std::tuple<float, float>>()) {
+                        auto &[dx, dy] = arg;
+                        updateAxisWithMouseDelta(vectorAxisName, action,
+                                                 vectorAxis, dx, dy);
+                    }
+                },
+                delta);
         }
     }
 }
 
 void SYN::InputContext::onInputReceived(
     RawInput input, const std::array<bool, NUM_INPUT_KEYS> &keyStates) {
-    SYN::InputKey keyCode = input.m_Code;
-    if (!isKeyBound(keyCode))
+    std::optional<Trigger> triggerOpt;
+    std::visit(
+        [&](auto &&arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same<T, InputKey>()) {
+                if (!isTriggerBound(arg))
+                    return;
+                triggerOpt = getTriggerFromKey(arg);
+            } else if constexpr (std::is_same<T, MouseButton>()) {
+                if (!isTriggerBound(arg))
+                    return;
+                triggerOpt = getTriggerFromMouseButton(arg);
+            } else {
+                if (!isTriggerBound(input.inputType))
+                    return;
+                triggerOpt = getTriggerFromType(input.inputType);
+            }
+        },
+        input.input);
+    if (!triggerOpt.has_value())
         return;
-    for (const ActionBinding &binding : m_EnabledActions.at(keyCode)) {
-        if (std::all_of(binding.m_RequiredModifiers.cbegin(),
-                        binding.m_RequiredModifiers.cend(),
+    Trigger trigger = triggerOpt.value();
+
+    for (const ActionBinding &binding : m_EnabledActions.at(trigger)) {
+        if (std::all_of(binding.requiredModifiers.cbegin(),
+                        binding.requiredModifiers.cend(),
                         [&](InputKey modifier) {
                             return keyStates[(Keycode)modifier];
                         })) {
-            updateVectorAxes(binding.m_Action, input.m_State);
-            onActionReceive(std::make_tuple(binding, input.m_State));
+            updateVectorAxes(binding.action, input);
+            onActionReceive(binding, input);
         }
     }
 }
 
-void SYN::InputContext::onActionReceive(
-    std::tuple<ActionBinding, InputState> actionBinding) {
-    auto &[actionBind, inputState] = actionBinding;
-    ActionID currentAction = actionBind.m_Action;
+void SYN::InputContext::onActionReceive(ActionBinding binding, RawInput input) {
+    ActionID currentAction = binding.action;
     if (m_ActionCallbacks.find(currentAction) == m_ActionCallbacks.cend())
         return;
     const std::vector<ActionCallback> &actionCallbacks =
         m_ActionCallbacks.at(currentAction);
     for (const ActionCallback &actionCallback : actionCallbacks) {
-        actionCallback(inputState);
+        switch (input.inputType) {
+            case SYN::RawInputType::Key:
+                std::get<StateCallback>(actionCallback)(input.state.value());
+                break;
+            case SYN::RawInputType::MouseButton:
+                std::get<StateCallback>(actionCallback)(input.state.value());
+                break;
+            case SYN::RawInputType::MouseMove: {
+                MousePos mousePos = std::get<MousePos>(input.input); 
+                std::get<Vec2Callback>(actionCallback)(mousePos.x, mousePos.y);
+                break;
+            }
+            case SYN::RawInputType::MouseDelta: {
+                MouseDelta mouseDelta = std::get<MouseDelta>(input.input); 
+                std::get<Vec2Callback>(actionCallback)(mouseDelta.dx, mouseDelta.dy);
+                break;
+            }
+            case SYN::RawInputType::MouseScroll: {
+                MouseScroll mouseScroll = std::get<MouseScroll>(input.input); 
+                std::get<Vec2Callback>(actionCallback)(mouseScroll.scrollX, mouseScroll.scrollY);
+                break;
+            }
+        }
     }
 }
 
@@ -122,7 +303,7 @@ void SYN::InputContext::removeActionCallbacks(ActionID action) {
     if (m_ActionCallbacks.find(action) == m_ActionCallbacks.cend()) {
         return;
     }
-    m_ActionCallbacks.clear();
+    m_ActionCallbacks.at(action).clear();
 }
 
 uint8_t SYN::InputContext::getPriority() const { return m_Priority; }
@@ -157,16 +338,16 @@ void SYN::InputContext::addVectorAxis(
         // 0: Up, 1: Down, 2: Right, 3: Left
         switch (i) {
         case 0:
-            newVectorAxis.m_Up = action;
+            newVectorAxis.up = action;
             break;
         case 1:
-            newVectorAxis.m_Down = action;
+            newVectorAxis.down = action;
             break;
         case 2:
-            newVectorAxis.m_Right = action;
+            newVectorAxis.right = action;
             break;
         case 3:
-            newVectorAxis.m_Left = action;
+            newVectorAxis.left = action;
             break;
         }
 
@@ -181,24 +362,24 @@ void SYN::InputContext::removeVectorAxisFromAction(const std::string &name) {
     if (m_VectorAxes.find(name) == m_VectorAxes.cend())
         return;
     VectorAxis vectorAxis = m_VectorAxes.at(name);
-    if (vectorAxis.m_Up) {
+    if (vectorAxis.up) {
         std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.m_Up.value());
+            m_ActionToVectorAxis.at(vectorAxis.up.value());
         axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
     }
-    if (vectorAxis.m_Down) {
+    if (vectorAxis.down) {
         std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.m_Down.value());
+            m_ActionToVectorAxis.at(vectorAxis.down.value());
         axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
     }
-    if (vectorAxis.m_Left) {
+    if (vectorAxis.left) {
         std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.m_Left.value());
+            m_ActionToVectorAxis.at(vectorAxis.left.value());
         axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
     }
-    if (vectorAxis.m_Right) {
+    if (vectorAxis.right) {
         std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.m_Right.value());
+            m_ActionToVectorAxis.at(vectorAxis.right.value());
         axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
     }
 }
