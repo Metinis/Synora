@@ -167,7 +167,7 @@ void SYN::InputContext::updateAxisWithDiscreteDelta(
         return;
     }
 
-    float axisLength = std::sqrtf(axisLength2);
+    float axisLength = std::sqrt(axisLength2);
 
     float normalizedX = vectorAxis.x / axisLength;
     float normalizedY = vectorAxis.y / axisLength;
@@ -264,27 +264,29 @@ void SYN::InputContext::onActionReceive(ActionBinding binding, RawInput input) {
         m_ActionCallbacks.at(currentAction);
     for (const ActionCallback &actionCallback : actionCallbacks) {
         switch (input.inputType) {
-            case SYN::RawInputType::Key:
-                std::get<StateCallback>(actionCallback)(input.state.value());
-                break;
-            case SYN::RawInputType::MouseButton:
-                std::get<StateCallback>(actionCallback)(input.state.value());
-                break;
-            case SYN::RawInputType::MouseMove: {
-                MousePos mousePos = std::get<MousePos>(input.input); 
-                std::get<Vec2Callback>(actionCallback)(mousePos.x, mousePos.y);
-                break;
-            }
-            case SYN::RawInputType::MouseDelta: {
-                MouseDelta mouseDelta = std::get<MouseDelta>(input.input); 
-                std::get<Vec2Callback>(actionCallback)(mouseDelta.dx, mouseDelta.dy);
-                break;
-            }
-            case SYN::RawInputType::MouseScroll: {
-                MouseScroll mouseScroll = std::get<MouseScroll>(input.input); 
-                std::get<Vec2Callback>(actionCallback)(mouseScroll.scrollX, mouseScroll.scrollY);
-                break;
-            }
+        case SYN::RawInputType::Key:
+            std::get<StateCallback>(actionCallback)(input.state.value());
+            break;
+        case SYN::RawInputType::MouseButton:
+            std::get<StateCallback>(actionCallback)(input.state.value());
+            break;
+        case SYN::RawInputType::MouseMove: {
+            MousePos mousePos = std::get<MousePos>(input.input);
+            std::get<Vec2Callback>(actionCallback)(mousePos.x, mousePos.y);
+            break;
+        }
+        case SYN::RawInputType::MouseDelta: {
+            MouseDelta mouseDelta = std::get<MouseDelta>(input.input);
+            std::get<Vec2Callback>(actionCallback)(mouseDelta.dx,
+                                                   mouseDelta.dy);
+            break;
+        }
+        case SYN::RawInputType::MouseScroll: {
+            MouseScroll mouseScroll = std::get<MouseScroll>(input.input);
+            std::get<Vec2Callback>(actionCallback)(mouseScroll.scrollX,
+                                                   mouseScroll.scrollY);
+            break;
+        }
         }
     }
 }

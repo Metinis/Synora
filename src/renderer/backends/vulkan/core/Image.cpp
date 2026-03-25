@@ -1,7 +1,8 @@
 #include "Image.h"
+#include "Buffer.h"
+#include "Commands.h"
 #include "Device.h"
-#include "renderer/backends/vulkan/Buffer.h"
-#include "renderer/backends/vulkan/Commands.h"
+#include "Swapchain.h"
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
@@ -10,8 +11,7 @@ using namespace SYN;
 
 Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                            VkFormat format, VkExtent2D extent,
-                           VkImageUsageFlags usage,
-                           VkImageAspectFlagBits aspect) {
+                           VkImageUsageFlags usage, VkImageAspectFlags aspect) {
     VkImageCreateInfo imageCI{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
@@ -60,6 +60,8 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                  .view = view,
                  .extent = extent,
                  .subresourceRange = viewCI.subresourceRange,
+                 .format = format,
+                 .usage = usage,
                  .allocation = allocation};
 }
 
@@ -101,4 +103,37 @@ void SYN::VK::transitionImage(VkCommandPool cmdPool, const Device &device,
     endTransientCmd(cmdBuffer);
     submitCmdBuffer(cmdPool, cmdBuffer, device,
                     device.queues.at(QueueFamily::compute).handle);
+}
+
+void SYN::VK::transitionImageCmd(VkCommandBuffer cmdBuffer, Image &image,
+                                 VkImageLayout targetLayout,
+                                 VkPipelineStageFlags2 dstStageMask,
+                                 VkAccessFlags2 dstAccessMask,
+                                 uint32_t srcQueueFamilyIndex,
+                                 uint32_t dstQueueFamilyIndex) {
+
+    VkImageMemoryBarrier2 barrier{.sType =
+                                      VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                                  .srcStageMask = image.lastStageMask,
+                                  .srcAccessMask = image.lastAccessMask,
+                                  .dstStageMask = dstStageMask,
+                                  .dstAccessMask = dstAccessMask,
+                                  .oldLayout = image.currentLayout,
+                                  .newLayout = targetLayout,
+                                  .srcQueueFamilyIndex = srcQueueFamilyIndex,
+                                  .dstQueueFamilyIndex = dstQueueFamilyIndex,
+                                  .image = image.handle,
+                                  .subresourceRange = image.subresourceRange};
+
+    image.currentLayout = targetLayout;
+    image.lastAccessMask = dstAccessMask;
+    image.lastStageMask = dstStageMask;
+
+    VkDependencyInfo dependency{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+
+    vkCmdPipelineBarrier2(cmdBuffer, &dependency);
 }

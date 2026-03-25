@@ -1,14 +1,18 @@
 #pragma once
-#include "renderer/backends/vulkan/Renderpass.h"
+#include <glm/glm.hpp>
 
 struct alignas(16) Vertex {
     glm::vec3 pos;
+    float u;
+    alignas(16) float v;
 };
 
 struct MeshData {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
 };
+
+struct TextureData {};
 
 struct MaterialData {
     int temp;

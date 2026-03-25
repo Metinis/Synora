@@ -138,7 +138,6 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, void *data,
     poll(device);
     while (size > getContiguousStagingSize()) {
         PendingUpload pendingUpload{m_PendingUploads.front()};
-        assert(pendingUpload.uploadFinishedFence != VK_NULL_HANDLE);
 
         vkWaitForFences(device.logical, 1, &pendingUpload.uploadFinishedFence,
                         VK_TRUE, UINT64_MAX);

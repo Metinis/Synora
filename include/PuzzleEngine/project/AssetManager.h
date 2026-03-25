@@ -1,9 +1,9 @@
 #pragma once
 #include "Assets.h"
+#include "PuzzleEngine/core/InputTypes.h"
+#include "PuzzleEngine/scene/Components.h"
 #include "UUID.h"
-#include "renderer/IBackend.h"
 #include "renderer/Renderer.h"
-#include "renderer/backends/vulkan/Core.h"
 #include "spdlog/spdlog.h"
 
 namespace SYN {
