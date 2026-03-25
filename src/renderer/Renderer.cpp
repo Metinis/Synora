@@ -1,14 +1,27 @@
 #include "Renderer.h"
 #include "PuzzleEngine/core/Window.h"
+#include "RenderGraph.h"
+#include "RenderPasses/FirstPass.h"
 #include "backends/vulkan/Backend.h"
-#include "renderer/IBackend.h"
+#include "glm/ext.hpp"
 #include "renderer/RenderTypes.h"
 
 namespace {
+
+struct RenderPassNode {
+    SYN::RenderPassDesc desc;
+    std::function<void(SYN::IBackend)> func;
+};
+
 struct PushConstants {
     uint64_t vertexBuffer;
     uint32_t textureIndex;
 };
+
+struct Uniforms {
+    glm::mat4 modelMat;
+};
+
 } // namespace
 
 using namespace SYN;
@@ -83,7 +96,6 @@ void Renderer::addMesh(UUID meshID, const MeshData &meshData) {
         TextureDesc{.width = static_cast<uint32_t>(imageWidth),
                     .height = static_cast<uint32_t>(imageHeight),
                     .type = TextureType::srgb})};
-    Viewport swapchainViewport{m_Backend->getSwapchainViewport()};
 
     m_Backend->uploadToTexture(texture, imageWidth, imageHeight,
                                channelsInImage, imageBytes);
@@ -97,37 +109,23 @@ void Renderer::addMesh(UUID meshID, const MeshData &meshData) {
 }
 
 void Renderer::drawMesh(UUID meshID) {
-    m_Backend->beginFrame(*m_Window);
     AttachmentHandle swapchainAttachment{
         m_Backend->getSwapchainAttachmentCmd()};
-    std::array<WriteAttachment, 1> colorAttachments{
-        WriteAttachment{
-            .handle = swapchainAttachment,
-            .clearColor = glm::vec4(0.f, 0.f, 0.f, 0.f),
-        },
-    };
-    WriteAttachment depthAttachment{.handle = m_DepthAttachment,
-                                    .clearDepth = 0.f};
 
-    Viewport swapchainViewport{m_Backend->getSwapchainViewport()};
+    m_RenderGraph.addPass<FirstPass>(m_Buffers[meshID], m_Textures[meshID],
+                                     swapchainAttachment, m_DepthAttachment);
+    m_RenderGraph.compile(*m_Backend);
 
-    RenderPassDesc firstRenderPassDesc{.colorAttachments = colorAttachments,
-                                       .depthAttachment = depthAttachment,
-                                       .viewport = swapchainViewport};
-    PushConstants pushConstants{
-        .vertexBuffer = m_Backend->getBufferAddressCmd(m_Buffers[meshID]),
-        .textureIndex = m_Backend->getShaderSamplerIndexCmd(m_Textures[meshID]),
-    };
+    m_Backend->beginFrame(*m_Window);
 
-    m_Backend->setPushConstantsCmd(pushConstants);
-    m_Backend->beginRenderPassCmd(firstRenderPassDesc);
-    m_Backend->drawCmd(m_Buffers[meshID], 6);
-    m_Backend->endRenderPassCmd();
+    m_RenderGraph.execute(*m_Backend);
 
     m_Backend->endFrame(*m_Window);
 }
 
 void SYN::Renderer::shutdown() {
+    m_RenderGraph.shutdown(*m_Backend);
+
     for (auto &[assetID, texture] : m_Textures) {
         m_Backend->destroyTexture(texture);
     }

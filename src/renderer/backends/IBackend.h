@@ -2,7 +2,7 @@
 #include "PuzzleEngine/core/Application.h"
 #include "PuzzleEngine/project/Assets.h"
 #include "PuzzleEngine/project/UUID.h"
-#include "RenderTypes.h"
+#include "renderer/RenderTypes.h"
 
 struct MeshData;
 
@@ -29,11 +29,26 @@ class IBackend {
     virtual AttachmentHandle createAttachment(const AttachmentDesc &desc) = 0;
     virtual void destroyAttachment(AttachmentHandle &handle) = 0;
 
+    virtual PipelineHandle createPipeline(const GraphicsPipelineDesc &desc) = 0;
+
+    virtual void destroyPipeline(PipelineHandle &pipeline) = 0;
+
     virtual void beginFrame(Window &window) = 0;
     // submits and presents frame
     virtual void endFrame(Window &window) = 0;
 
-    virtual void beginRenderPassCmd(const RenderPassDesc &desc) = 0;
+    virtual void beginRenderPassCmd(const RenderPassDesc &desc,
+                                    PipelineHandle pipeline) = 0;
+    virtual void beginRenderPassCmd(const RenderPassDesc &desc,
+                                    PipelineHandle pipeline,
+                                    const void *uniformData,
+                                    size_t uniformSize) = 0;
+    template <typename T>
+    void beginRenderPassCmd(const RenderPassDesc &desc, PipelineHandle pipeline,
+                            const T &uniform) {
+        beginRenderPassCmd(desc, pipeline, &uniform, sizeof(uniform));
+    }
+
     virtual void endRenderPassCmd() = 0;
 
     virtual void setPushConstantsCmd(const void *data, size_t size) = 0;
@@ -41,20 +56,9 @@ class IBackend {
         setPushConstantsCmd(&pushConstants, sizeof(pushConstants));
     }
 
-    // virtual void uploadUniformsCmd(RenderPassHandle renderPass,
-    //                                const void *uniformData,
-    //                                size_t uniformSize) = 0;
-
-    // template <typename T>
-    // void uploadUniformsCmd(RenderPassHandle renderPass, const T &uniformData)
-    // {
-    //     uploadUniformsCmd(renderPass, &uniformData, sizeof(uniformData));
-    // }
-
-    virtual void drawCmd(BufferHandle vertexBuffer, size_t nVertices) = 0;
+    virtual void drawCmd(size_t nVertices) = 0;
 
     virtual AttachmentHandle getSwapchainAttachmentCmd() = 0;
-    virtual Viewport getSwapchainViewport() = 0;
 
     // returns the index of the texture in the bindless sampler2D array that
     // is valid to access in the renderPass

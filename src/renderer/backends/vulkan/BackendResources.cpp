@@ -266,3 +266,67 @@ void SYN::VK::VulkanBackend::destroyAttachment(AttachmentHandle &handle) {
     m_Attachments.remove(handle);
     handle.id = UINT32_MAX;
 }
+
+PipelineHandle
+SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
+    GraphicsPipelineBuilder pipelineBuilder{};
+    pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    if (desc.hasDepthAttachment) {
+        pipelineBuilder.enableDepthAttachment();
+    }
+    for (size_t i{}; i < desc.nColorAttachments; i++) {
+        pipelineBuilder.addColorAttachment(m_Swapchain.format);
+    }
+
+    switch (desc.cullMode) {
+    case CullMode::frontFace:
+        pipelineBuilder.setFaceCulling(VK_CULL_MODE_BACK_BIT,
+                                       VK_FRONT_FACE_COUNTER_CLOCKWISE);
+        break;
+    case CullMode::backFace:
+        pipelineBuilder.setFaceCulling(VK_CULL_MODE_BACK_BIT,
+                                       VK_FRONT_FACE_COUNTER_CLOCKWISE);
+        break;
+    default:
+        break;
+    }
+
+    switch (desc.polygonMode) {
+    case PolygonMode::fill:
+        pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_FILL);
+        break;
+    case PolygonMode::line:
+        pipelineBuilder.setPolygonMode(VK_POLYGON_MODE_LINE);
+    default:
+        break;
+    }
+
+    std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths{};
+
+    if (desc.vertexShaderPath.has_value()) {
+        shaderPaths[VK_SHADER_STAGE_VERTEX_BIT] = desc.vertexShaderPath.value();
+    }
+    if (desc.fragmentShaderPath.has_value()) {
+        shaderPaths[VK_SHADER_STAGE_FRAGMENT_BIT] =
+            desc.fragmentShaderPath.value();
+    }
+
+    VkPipeline pipeline{
+        pipelineBuilder.build(m_Device, m_GraphicsPipelineLayout, shaderPaths)};
+
+    return m_Pipelines.insert(pipeline);
+}
+
+void SYN::VK::VulkanBackend::destroyPipeline(PipelineHandle &handle) {
+    VkPipeline pipeline{m_Pipelines[handle]};
+
+    // the frame where all references to this texture will have completed
+    size_t lastFrameInFlightIndex{
+        (m_CurrentFrameIndex + (c_MaxFramesInFlight - 1)) %
+        c_MaxFramesInFlight};
+
+    m_FrameData[lastFrameInFlightIndex].pipelinesToFree.emplace_back(pipeline);
+
+    m_Pipelines.remove(handle);
+    handle.id = UINT32_MAX;
+}

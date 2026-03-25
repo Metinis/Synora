@@ -1,5 +1,12 @@
 #pragma once
 #include <glm/glm.hpp>
+#include <string_view>
+
+namespace {
+template <typename T> void hashCombine(size_t &seed, const T &val) {
+    seed ^= std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+} // namespace
 
 namespace SYN {
 
@@ -13,6 +20,7 @@ template <typename T> struct GPUResourceHandle {
 };
 
 enum class TextureType { invalid, srgb, depth, rgba };
+enum class PipelineStage { invalid, compute, fragment };
 
 struct TextureDesc {
     uint32_t width;
@@ -36,10 +44,27 @@ struct BufferDesc {
     size_t size;
 };
 
+enum class CullMode { disabled, frontFace, backFace };
+enum class PolygonMode { fill, line };
+
+struct GraphicsPipelineDesc {
+    CullMode cullMode{CullMode::backFace};
+    PolygonMode polygonMode{PolygonMode::fill};
+
+    uint32_t nColorAttachments{};
+    bool hasDepthAttachment{}; // if this is true, depth testing is enabled
+
+    std::optional<std::string_view> vertexShaderPath{};
+    std::optional<std::string_view> fragmentShaderPath{};
+
+    bool operator==(const GraphicsPipelineDesc &other) const = default;
+};
+
 // we use the descriptions to keep the handle types different
 using TextureHandle = GPUResourceHandle<TextureDesc>;
 using AttachmentHandle = GPUResourceHandle<AttachmentDesc>;
 using BufferHandle = GPUResourceHandle<BufferDesc>;
+using PipelineHandle = GPUResourceHandle<GraphicsPipelineDesc>;
 
 struct Viewport {
     uint32_t width;
@@ -60,10 +85,9 @@ struct WriteAttachment {
 };
 
 struct RenderPassDesc {
-    std::span<AttachmentHandle> readAttachments;
-    std::span<WriteAttachment> colorAttachments;
-    std::optional<WriteAttachment> depthAttachment;
-    Viewport viewport;
+    std::span<const AttachmentHandle> readAttachments;
+    std::span<const WriteAttachment> colorAttachments;
+    std::optional<const WriteAttachment> depthAttachment;
 };
 
 } // namespace SYN
@@ -71,5 +95,14 @@ struct RenderPassDesc {
 template <typename T> struct std::hash<SYN::GPUResourceHandle<T>> {
     size_t operator()(const SYN::GPUResourceHandle<T> &handle) const {
         return std::hash<uint32_t>{}(static_cast<uint32_t>(handle.id));
+    }
+};
+template <> struct std::hash<SYN::GraphicsPipelineDesc> {
+    size_t operator()(const SYN::GraphicsPipelineDesc &desc) const {
+        uint64_t seed{};
+        hashCombine(seed, desc.fragmentShaderPath);
+        hashCombine(seed, desc.vertexShaderPath);
+
+        return seed;
     }
 };

@@ -5,8 +5,8 @@
 #include "core/SlotMap.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
-#include "renderer/IBackend.h"
 #include "renderer/RenderTypes.h"
+#include "renderer/backends/IBackend.h"
 
 #include <stb_image.h>
 #include <vulkan/vulkan.h>
@@ -37,18 +37,24 @@ class VulkanBackend : public IBackend {
     AttachmentHandle createAttachment(const AttachmentDesc &desc) override;
     void destroyAttachment(AttachmentHandle &handle) override;
 
+    PipelineHandle createPipeline(const GraphicsPipelineDesc &desc) override;
+    void destroyPipeline(PipelineHandle &pipeline) override;
+
     void beginFrame(Window &window) override;
     void endFrame(Window &window) override;
 
-    void beginRenderPassCmd(const RenderPassDesc &desc) override;
+    void beginRenderPassCmd(const RenderPassDesc &desc,
+                            PipelineHandle pipeline) override;
+    void beginRenderPassCmd(const RenderPassDesc &desc, PipelineHandle pipeline,
+                            const void *uniformData,
+                            size_t uniformSize) override;
     void endRenderPassCmd() override;
 
     void setPushConstantsCmd(const void *data, size_t size) override;
 
-    void drawCmd(BufferHandle vertexBuffer, size_t nVertices) override;
+    void drawCmd(size_t nVertices) override;
 
     AttachmentHandle getSwapchainAttachmentCmd() override;
-    Viewport getSwapchainViewport() override;
 
     uint32_t getShaderSamplerIndexCmd(TextureHandle texture) override;
     uint32_t getShaderSamplerIndexCmd(AttachmentHandle attachment) override;
@@ -61,6 +67,7 @@ class VulkanBackend : public IBackend {
     static constexpr uint32_t c_MaxFramesInFlight{2};
     static constexpr uint32_t c_TextureBinding{0};
     static constexpr uint32_t c_MaxBindlessTextures{1024};
+    static constexpr uint32_t c_MinGuarenteedPushConstantSize{128};
 
     struct FrameData {
         VkCommandPool graphicsCmdPool{};
@@ -74,6 +81,7 @@ class VulkanBackend : public IBackend {
         std::vector<Image> imagesToFree;
         std::vector<Buffer> buffersToFree;
         std::vector<uint32_t> bindlessTexturesToFree;
+        std::vector<VkPipeline> pipelinesToFree;
 
         uint32_t swapchainImageIndex{};
     };
@@ -87,10 +95,6 @@ class VulkanBackend : public IBackend {
         std::array<uint32_t, c_MaxFramesInFlight> bindlessSamplerIndices;
         AttachmentSize size;
         bool isSampleable;
-    };
-    struct PushConstants {
-        VkDeviceAddress vertexBuffer;
-        uint32_t textureIndex;
     };
 
     void initContext(Window *window);
@@ -116,12 +120,12 @@ class VulkanBackend : public IBackend {
     // global
     VkCommandPool m_TransientCmdPool{};
 
-    VkPipelineLayout m_PipelineLayout{};
-
     VkDescriptorPool m_DescriptorPool{};
 
     VkDescriptorSetLayout m_BindlessDescriptorSetLayout{};
     VkDescriptorSetLayout m_UBODescriptorSetLayout{};
+
+    VkPipelineLayout m_GraphicsPipelineLayout;
 
     VkDescriptorSet m_BindlessDescriptorSet{};
     VkDescriptorSet m_UBODescriptorSet{};
@@ -129,7 +133,6 @@ class VulkanBackend : public IBackend {
     std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
 
     VkSampler m_DefaultSampler{};
-    VkPipeline m_GraphicsPipeline{};
 
     StagingBuffer m_StagingBuffer{};
 
@@ -143,6 +146,7 @@ class VulkanBackend : public IBackend {
     SlotMap<BufferHandle, Buffer> m_Buffers{};
     SlotMap<TextureHandle, Texture> m_Textures{};
     SlotMap<AttachmentHandle, Attachment> m_Attachments{};
+    SlotMap<PipelineHandle, VkPipeline> m_Pipelines{};
 };
 
 } // namespace SYN::VK

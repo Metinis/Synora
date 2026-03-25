@@ -8,6 +8,7 @@
 #include "core/Swapchain.h"
 
 #include <GLFW/glfw3.h>
+#include <cstdint>
 #include <cstring>
 #include <glm/glm.hpp>
 #include <spdlog/spdlog.h>
@@ -64,6 +65,9 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
     for (auto &index : frame.bindlessTexturesToFree) {
         m_BindlessTextureIndexFreelist.emplace_back(index);
     }
+    for (auto &pipeline : frame.pipelinesToFree) {
+        vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
+    }
 
     Image swapchainImage{
         .handle = m_Swapchain.images[frame.swapchainImageIndex],
@@ -89,25 +93,20 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     vkResetCommandPool(m_Device.logical, frame.graphicsCmdPool, 0);
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
-    vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
-                            VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout,
-                            0, 1, &m_BindlessDescriptorSet, 0, nullptr);
+
+    vkCmdBindDescriptorSets(
+        frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_GraphicsPipelineLayout, 0, 1, &m_BindlessDescriptorSet, 0, nullptr);
 }
 
 void SYN::VK::VulkanBackend::endFrame(Window &window) {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
-    VkImageMemoryBarrier2 presentBarrier{makeImageMemoryBarrier(
+    transitionImageCmd(
+        frame.graphicsCmdBuffer,
         m_Attachments[m_SwapchainAttachmentHandle].images[m_CurrentFrameIndex],
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_NONE)};
-
-    VkDependencyInfo presentDependency{
-        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &presentBarrier,
-    };
-    vkCmdPipelineBarrier2(frame.graphicsCmdBuffer, &presentDependency);
+        VK_ACCESS_2_NONE);
 
     vkEndCommandBuffer(frame.graphicsCmdBuffer);
 
@@ -151,50 +150,78 @@ void SYN::VK::VulkanBackend::endFrame(Window &window) {
                       static_cast<int>(res));
     }
 
+    frame.UBOBuffer.reset();
     m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
 }
 
-void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
+                                                PipelineHandle pipelineHandle) {
+    VkPipeline pipeline{m_Pipelines[pipelineHandle]};
 
-    std::vector<VkImageMemoryBarrier2> attachmentBarriers{};
+    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     std::vector<VkRenderingAttachmentInfo> colorAttachmentInfos;
     colorAttachmentInfos.reserve(desc.colorAttachments.size());
     VkRenderingAttachmentInfo depthAttachmentInfo{};
 
+    VkExtent2D viewportExtent{.width = UINT32_MAX, .height = UINT32_MAX};
     for (const auto &attachment : desc.colorAttachments) {
         Image &image{
             m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
+
+        if (viewportExtent.width == UINT32_MAX &&
+            viewportExtent.height == UINT32_MAX) {
+            viewportExtent = image.extent;
+        }
+        if (viewportExtent.width != image.extent.width ||
+            viewportExtent.height != image.extent.height) {
+            spdlog::warn(
+                "Not all output attachments in renderpass are the same size");
+            viewportExtent.height =
+                std::max(viewportExtent.height, image.extent.height);
+            viewportExtent.width =
+                std::max(viewportExtent.width, image.extent.width);
+        }
 
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         colorAttachmentInfos.emplace_back(
             makeAttachmentInfo(image, attachment, targetLayout));
 
         if (image.currentLayout != targetLayout) {
-            attachmentBarriers.emplace_back(makeImageMemoryBarrier(
-                image, targetLayout,
-                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT));
-            image.currentLayout = targetLayout;
+            transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
         }
     }
     if (desc.depthAttachment.has_value()) {
         WriteAttachment attachment{desc.depthAttachment.value()};
         Image &image{
             m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
+
+        if (viewportExtent.width == UINT32_MAX &&
+            viewportExtent.height == UINT32_MAX) {
+            viewportExtent = image.extent;
+        }
+        if (viewportExtent.width != image.extent.width ||
+            viewportExtent.height != image.extent.height) {
+            spdlog::warn(
+                "Not all output attachments in renderpass are the same size");
+            viewportExtent.height =
+                std::max(viewportExtent.height, image.extent.height);
+            viewportExtent.width =
+                std::max(viewportExtent.width, image.extent.width);
+        }
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL};
         depthAttachmentInfo =
             makeAttachmentInfo(image, attachment, targetLayout);
 
         if (image.currentLayout != targetLayout) {
-            attachmentBarriers.emplace_back(makeImageMemoryBarrier(
-                image, targetLayout,
+            transitionImageCmd(
+                frame.graphicsCmdBuffer, image, targetLayout,
                 VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT));
-            image.currentLayout = targetLayout;
+                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
         }
     }
 
@@ -209,31 +236,16 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         if (image.currentLayout != targetLayout) {
-            attachmentBarriers.emplace_back(makeImageMemoryBarrier(
-                image, targetLayout,
-                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                    VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                VK_ACCESS_2_SHADER_SAMPLED_READ_BIT));
-            image.currentLayout = targetLayout;
+            transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                               VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         }
     }
 
-    VkDependencyInfo colorAttachmentDependency{
-        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount =
-            static_cast<uint32_t>(attachmentBarriers.size()),
-        .pImageMemoryBarriers = attachmentBarriers.data(),
-    };
-
-    vkCmdPipelineBarrier2(frame.graphicsCmdBuffer, &colorAttachmentDependency);
-
     VkRenderingInfo renderingInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = VkRect2D{.extent =
-                                   VkExtent2D{
-                                       .width = desc.viewport.width,
-                                       .height = desc.viewport.height,
-                                   }},
+        .renderArea = VkRect2D{.extent = viewportExtent},
         .layerCount = 1,
         .colorAttachmentCount =
             static_cast<uint32_t>(colorAttachmentInfos.size()),
@@ -245,22 +257,50 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc) {
 
     vkCmdBeginRendering(frame.graphicsCmdBuffer, &renderingInfo);
 
-    VkViewport viewport{.y = static_cast<float>(desc.viewport.height),
-                        .width = static_cast<float>(desc.viewport.width),
-                        .height = -static_cast<float>(desc.viewport.height),
+    VkViewport viewport{.y = static_cast<float>(viewportExtent.height),
+                        .width = static_cast<float>(viewportExtent.width),
+                        .height = -static_cast<float>(viewportExtent.height),
                         .minDepth = 0.f,
                         .maxDepth = 1.f};
 
     VkRect2D scissor{.extent = VkExtent2D{
-                         .width = desc.viewport.width,
-                         .height = desc.viewport.height,
+                         .width = viewportExtent.width,
+                         .height = viewportExtent.height,
                      }};
+
+    vkCmdBindPipeline(frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      pipeline);
 
     vkCmdSetViewport(frame.graphicsCmdBuffer, 0, 1, &viewport);
     vkCmdSetScissor(frame.graphicsCmdBuffer, 0, 1, &scissor);
-    // TODO: add a way to create pipelines and use those instead
-    vkCmdBindPipeline(frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_GraphicsPipeline);
+}
+
+void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
+                                                PipelineHandle pipelineHandle,
+                                                const void *uniformData,
+                                                size_t uniformSize) {
+    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+
+    beginRenderPassCmd(desc, pipelineHandle);
+
+    VkDescriptorBufferInfo bufferInfo{
+        frame.UBOBuffer.write(uniformData, uniformSize)};
+
+    VkWriteDescriptorSet writeDescriptorSet{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = m_UBODescriptorSet,
+        .dstBinding = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        .pBufferInfo = &bufferInfo,
+    };
+    vkUpdateDescriptorSets(m_Device.logical, 1, &writeDescriptorSet, 0,
+                           nullptr);
+
+    uint32_t dynamicOffset{static_cast<uint32_t>(bufferInfo.offset)};
+    vkCmdBindDescriptorSets(
+        frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_GraphicsPipelineLayout, 1, 1, &m_UBODescriptorSet, 1, &dynamicOffset);
 }
 void SYN::VK::VulkanBackend::endRenderPassCmd() {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
@@ -270,22 +310,18 @@ void SYN::VK::VulkanBackend::endRenderPassCmd() {
 void SYN::VK::VulkanBackend::setPushConstantsCmd(const void *data,
                                                  size_t size) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
-    if (size > 128) {
-        spdlog::warn("Push constant size is greater than minimum required size "
-                     "by vulkan");
-        if (size > m_Device.properties.limits.maxPushConstantsSize) {
-            spdlog::error(
-                "Push constant size is greater than max size allowed by "
-                "current device; clamping");
-            size = m_Device.properties.limits.maxPushConstantsSize;
-        }
+    if (size > c_MinGuarenteedPushConstantSize) {
+        spdlog::warn(
+            "Push constant size is {} when the max size is {}, clamping", size,
+            c_MinGuarenteedPushConstantSize);
+        size = c_MinGuarenteedPushConstantSize;
     }
-    vkCmdPushConstants(frame.graphicsCmdBuffer, m_PipelineLayout,
+
+    vkCmdPushConstants(frame.graphicsCmdBuffer, m_GraphicsPipelineLayout,
                        VK_SHADER_STAGE_ALL, 0, size, data);
 }
 
-void SYN::VK::VulkanBackend::drawCmd(BufferHandle vertexBufferHandle,
-                                     size_t nVertices) {
+void SYN::VK::VulkanBackend::drawCmd(size_t nVertices) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     vkCmdDraw(frame.graphicsCmdBuffer, nVertices, 1, 0, 0);
@@ -293,11 +329,6 @@ void SYN::VK::VulkanBackend::drawCmd(BufferHandle vertexBufferHandle,
 
 AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
     return m_SwapchainAttachmentHandle;
-}
-
-Viewport SYN::VK::VulkanBackend::getSwapchainViewport() {
-    return Viewport{.width = m_Swapchain.extent.width,
-                    .height = m_Swapchain.extent.height};
 }
 
 uint32_t

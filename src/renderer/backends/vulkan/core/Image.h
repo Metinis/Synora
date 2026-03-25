@@ -36,10 +36,10 @@ void transitionImage(VkCommandPool cmdPool, const Device &device,
                      VkPipelineStageFlags2 dstStageMask,
                      VkAccessFlags2 dstAccessMask);
 
-VkImageMemoryBarrier2 makeImageMemoryBarrier(Image &image,
-                                             VkImageLayout targetLayout,
-                                             VkPipelineStageFlags2 dstStageMask,
-                                             VkAccessFlags2 dstAccessMask,
-                                             uint32_t srcQueueFamilyIndex = 0,
-                                             uint32_t dstQueueFamilyIndex = 0);
+void transitionImageCmd(VkCommandBuffer cmdBuffer, Image &image,
+                        VkImageLayout targetLayout,
+                        VkPipelineStageFlags2 dstStageMask,
+                        VkAccessFlags2 dstAccessMask,
+                        uint32_t srcQueueFamilyIndex = 0,
+                        uint32_t dstQueueFamilyIndex = 0);
 } // namespace SYN::VK

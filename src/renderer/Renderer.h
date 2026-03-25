@@ -1,6 +1,8 @@
 #pragma once
-#include "IBackend.h"
 #include "PuzzleEngine/core/Application.h"
+#include "RenderGraph.h"
+#include "backends/IBackend.h"
+#include "renderer/RenderTypes.h"
 #include <unordered_map>
 
 namespace SYN {
@@ -18,11 +20,11 @@ class Renderer {
     // that are needed for drawing
     void drawMesh(UUID meshID);
     void shutdown();
-    [[nodiscard]] IBackend *getBackend() const { return m_Backend.get(); }
 
   private:
     std::unique_ptr<IBackend> m_Backend;
     Window *m_Window;
+    RenderGraph m_RenderGraph;
 
     AttachmentHandle m_DepthAttachment;
     std::unordered_map<UUID, TextureHandle> m_Textures;

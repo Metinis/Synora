@@ -35,23 +35,6 @@ void SYN::VK::VulkanBackend::init(Window *window) {
     initDescriptorSetLayout();
     initPipelineLayout();
     initDescriptorSets();
-    {
-        std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths{
-            {VK_SHADER_STAGE_VERTEX_BIT, "generated/shaders/first.vert.spv"},
-            {VK_SHADER_STAGE_FRAGMENT_BIT, "generated/shaders/first.frag.spv"},
-        };
-
-        GraphicsPipelineBuilder firstPipelineBuilder{};
-        m_GraphicsPipeline =
-            firstPipelineBuilder
-                .setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
-                .setFaceCulling(VK_CULL_MODE_BACK_BIT,
-                                VK_FRONT_FACE_COUNTER_CLOCKWISE)
-                .setPolygonMode(VK_POLYGON_MODE_FILL)
-                .addColorAttachment(m_Swapchain.format)
-                .enableDepthAttachment()
-                .build(m_Device, m_PipelineLayout, shaderPaths);
-    }
 
     initFrameData(m_Swapchain);
 
@@ -110,6 +93,11 @@ void SYN::VK::VulkanBackend::shutdown() {
     }
     m_Buffers.clear();
 
+    for (auto [handle, pipeline] : m_Pipelines) {
+        spdlog::warn("Pipeline {} may have been leaked", handle.id);
+        vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
+    }
+
     for (auto &frame : m_FrameData) {
         frame.UBOBuffer.destroy(m_Allocator);
         vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
@@ -121,6 +109,9 @@ void SYN::VK::VulkanBackend::shutdown() {
         }
         for (auto &image : frame.imagesToFree) {
             destroyImage(m_Device, m_Allocator, image);
+        }
+        for (auto &pipeline : frame.pipelinesToFree) {
+            vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
         }
     }
 
@@ -134,8 +125,8 @@ void SYN::VK::VulkanBackend::shutdown() {
                                  nullptr);
     vkDestroyDescriptorPool(m_Device.logical, m_DescriptorPool, nullptr);
 
-    vkDestroyPipelineLayout(m_Device.logical, m_PipelineLayout, nullptr);
-    vkDestroyPipeline(m_Device.logical, m_GraphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
+                            nullptr);
 
     vkDestroyCommandPool(m_Device.logical, m_TransientCmdPool, nullptr);
     destroySwapchain(m_Swapchain, m_Device);
@@ -190,14 +181,23 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
         std::min(c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages)};
 
-    VkDescriptorBindingFlags bindingFlags{
+    VkDescriptorBindingFlags textureBindingFlags{
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+    VkDescriptorBindingFlags uboBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
 
-    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+    VkDescriptorSetLayoutBindingFlagsCreateInfo textureBindingFlagsCI{
         .sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
         .bindingCount = 1,
-        .pBindingFlags = &bindingFlags};
+        .pBindingFlags = &textureBindingFlags,
+    };
+    VkDescriptorSetLayoutBindingFlagsCreateInfo uboBindingFlagsCI{
+        .sType =
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindingFlags = &uboBindingFlags,
+    };
 
     VkDescriptorSetLayoutBinding bindlessTextureBinding{
         .binding = c_TextureBinding,
@@ -213,12 +213,14 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
 
     VkDescriptorSetLayoutCreateInfo bindlessLayoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &bindingFlagsCI,
+        .pNext = &textureBindingFlagsCI,
         .bindingCount = 1,
         .pBindings = &bindlessTextureBinding,
     };
     VkDescriptorSetLayoutCreateInfo uboLayoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = &uboBindingFlagsCI,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
         .pBindings = &uboBinding,
     };
@@ -251,7 +253,7 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
 void SYN::VK::VulkanBackend::initPipelineLayout() {
     VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_ALL,
-        .size = sizeof(PushConstants),
+        .size = c_MinGuarenteedPushConstantSize,
     };
     std::array<VkDescriptorSetLayout, 2> layouts{m_BindlessDescriptorSetLayout,
                                                  m_UBODescriptorSetLayout};
@@ -264,10 +266,11 @@ void SYN::VK::VulkanBackend::initPipelineLayout() {
     };
 
     VkResult res{vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
-                                        &m_PipelineLayout)};
+                                        &m_GraphicsPipelineLayout)};
     if (res != VK_SUCCESS) {
-        spdlog::error("Could not create pipeline layout. VkResult = {}",
-                      static_cast<int>(res));
+        spdlog::error(
+            "Could not create graphics pipeline layout. VkResult = {}",
+            static_cast<int>(res));
         assert(false);
     }
 }

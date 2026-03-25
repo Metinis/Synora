@@ -16,7 +16,7 @@ VkDescriptorBufferInfo SYN::VK::DynamicUBO::write(const void *data,
         assert(false);
         return {};
     }
-    memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + offset, &data, size);
+    memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + offset, data, size);
 
     VkDescriptorBufferInfo info{
         .buffer = m_Buffer.handle, .offset = offset, .range = size};

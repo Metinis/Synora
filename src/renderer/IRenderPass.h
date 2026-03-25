@@ -1,0 +1,46 @@
+#pragma once
+#include "RenderTypes.h"
+#include "renderer/backends/IBackend.h"
+
+namespace SYN {
+
+struct RenderPassNode {
+    std::vector<AttachmentHandle> inputAttachments;
+    std::vector<AttachmentHandle> outputAttachments;
+};
+
+class IRenderPass {
+  public:
+    IRenderPass() = default;
+    virtual ~IRenderPass() = default;
+    virtual void execute(IBackend &backend, PipelineHandle pipeline) = 0;
+    virtual RenderPassDesc getPassDesc() const = 0;
+    virtual GraphicsPipelineDesc getPipelineDesc() const = 0;
+
+    RenderPassNode getNode() const {
+        RenderPassNode node{};
+
+        RenderPassDesc desc{this->getPassDesc()};
+        if (desc.depthAttachment.has_value()) {
+            if (desc.depthAttachment->loadOp == LoadOp::load) {
+                node.inputAttachments.emplace_back(
+                    desc.depthAttachment->handle);
+            }
+            node.outputAttachments.emplace_back(desc.depthAttachment->handle);
+        }
+
+        for (const auto &attachment : desc.colorAttachments) {
+            if (attachment.loadOp == LoadOp::load) {
+                node.inputAttachments.emplace_back(attachment.handle);
+            }
+            node.outputAttachments.emplace_back(attachment.handle);
+        }
+
+        for (const auto &handle : desc.readAttachments) {
+            node.inputAttachments.emplace_back(handle);
+        }
+
+        return node;
+    }
+};
+} // namespace SYN

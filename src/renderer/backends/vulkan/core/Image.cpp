@@ -105,10 +105,12 @@ void SYN::VK::transitionImage(VkCommandPool cmdPool, const Device &device,
                     device.queues.at(QueueFamily::compute).handle);
 }
 
-VkImageMemoryBarrier2 SYN::VK::makeImageMemoryBarrier(
-    Image &image, VkImageLayout targetLayout,
-    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask,
-    uint32_t srcQueueFamilyIndex, uint32_t dstQueueFamilyIndex) {
+void SYN::VK::transitionImageCmd(VkCommandBuffer cmdBuffer, Image &image,
+                                 VkImageLayout targetLayout,
+                                 VkPipelineStageFlags2 dstStageMask,
+                                 VkAccessFlags2 dstAccessMask,
+                                 uint32_t srcQueueFamilyIndex,
+                                 uint32_t dstQueueFamilyIndex) {
 
     VkImageMemoryBarrier2 barrier{.sType =
                                       VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -127,5 +129,11 @@ VkImageMemoryBarrier2 SYN::VK::makeImageMemoryBarrier(
     image.lastAccessMask = dstAccessMask;
     image.lastStageMask = dstStageMask;
 
-    return barrier;
+    VkDependencyInfo dependency{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+
+    vkCmdPipelineBarrier2(cmdBuffer, &dependency);
 }

@@ -3,7 +3,6 @@
 #include "PuzzleEngine/core/InputTypes.h"
 #include "PuzzleEngine/scene/Components.h"
 #include "UUID.h"
-#include "renderer/IBackend.h"
 #include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"
 
