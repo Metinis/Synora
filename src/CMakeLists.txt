@@ -39,6 +39,7 @@ target_link_libraries(
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
   glm::glm
+  assimp
 )
 
 add_executable(PuzzleEngine
@@ -67,6 +68,7 @@ target_link_libraries(
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
   glm::glm
+  assimp
 )
 
 # This is to make the projection matrices in glm work with vulkan

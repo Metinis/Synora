@@ -8,7 +8,7 @@
 namespace SYN {
 class RenderGraph {
   public:
-    template <typename T, typename... Args> void addPass(Args... args) {
+    template <typename T, typename... Args> void addPass(Args &&...args) {
         m_Passes.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
     }
 

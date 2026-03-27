@@ -3,6 +3,7 @@
 #include "RenderGraph.h"
 #include "backends/IBackend.h"
 #include "renderer/RenderTypes.h"
+#include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 
 namespace SYN {

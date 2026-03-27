@@ -57,7 +57,6 @@ void Application::run() {
         }
 
         m_EngineContext.inputManager->processInputQueue();
-
         m_EngineContext.renderer->render(*m_EngineContext.window.get());
     }
 }

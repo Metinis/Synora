@@ -5,13 +5,24 @@
 #include "UUID.h"
 #include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"
+#include "stb_image.h"
+
+#include <assimp/Importer.hpp>
+
+struct aiNode;
+struct aiMesh;
+struct aiScene;
 
 namespace SYN {
+
 class AssetManager {
   public:
     AssetManager() = default;
 
     void init(EngineContext *ctx);
+
+    UUID loadModel(const std::string &path);
+    UUID loadTexture(const std::string &path);
 
     // automatically gen ID
     template <typename T>
@@ -55,7 +66,31 @@ class AssetManager {
     ~AssetManager() = default;
 
   private:
+    // NOTE: textures are malloced and must be freed. currently they leak.
+
+    // no file format or compression, just bytes and sizes
+    UUID loadRawTexture(stbi_uc *data, uint32_t width, uint32_t height,
+                        const std::string &name);
+    UUID loadTexture(stbi_uc *data, uint32_t size,
+                     const std::string &modelPath);
+
+    MeshData processMesh(const aiMesh *mesh, const aiScene *scene,
+                         const std::string &modelPath,
+                         const aiMatrix4x4 &transform);
+
+    void processNode(aiNode *node, const aiScene *scene,
+                     std::vector<SYN::MeshData> &meshes,
+                     const std::string &modelPath,
+                     const aiMatrix4x4 &parentTransform);
+
+    // currently only processes albedo texture
+    SYN::UUID processMaterials(const aiMesh *mesh, const aiScene *scene,
+                               const std::string &path);
+
     std::unordered_map<UUID, AssetType> m_AssetMap{};
+    std::unordered_map<std::string, UUID> m_LoadedUUIDMap{};
     Renderer *m_Renderer{};
+    Assimp::Importer m_Importer;
+    UUID m_MissingTextureUUID{};
 };
 } // namespace SYN

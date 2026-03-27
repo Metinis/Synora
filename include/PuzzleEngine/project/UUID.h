@@ -1,7 +1,7 @@
 #pragma once
 
 namespace SYN {
-    using UUID = uint64_t;
+using UUID = uint64_t;
 
-    UUID generateUUID();
-}
+UUID generateUUID();
+} // namespace SYN

@@ -21,3 +21,4 @@ add_subdirectory(JoltPhysics/Build)
 
 add_subdirectory(glm)
 add_subdirectory(VulkanMemoryAllocator)
+add_subdirectory(assimp)
