@@ -8,6 +8,13 @@ namespace SYN::VK {
 struct Device;
 struct Swapchain;
 
+struct ImageSyncState {
+    VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
+    VkPipelineStageFlags2 lastStageMask{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    VkAccessFlags2 lastAccessMask{VK_ACCESS_2_MEMORY_READ_BIT |
+                                  VK_ACCESS_2_MEMORY_WRITE_BIT};
+};
+
 struct Image {
     VkImage handle;
     VkImageView view;
@@ -17,10 +24,7 @@ struct Image {
     VkImageUsageFlags usage;
 
     VmaAllocation allocation;
-    VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
-    VkPipelineStageFlags2 lastStageMask{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
-    VkAccessFlags2 lastAccessMask{VK_ACCESS_2_MEMORY_READ_BIT |
-                                  VK_ACCESS_2_MEMORY_WRITE_BIT};
+    ImageSyncState syncState;
 };
 
 Image createImage(const Device &device, VmaAllocator allocator, VkFormat format,

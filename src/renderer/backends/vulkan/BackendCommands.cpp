@@ -79,7 +79,6 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
                 .levelCount = 1,
                 .layerCount = 1,
             },
-        .currentLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
     if (!m_Attachments.contains(m_SwapchainAttachmentHandle)) {
         spdlog::warn("Swapchain was not properly added to list of attachments");
@@ -87,6 +86,10 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
     }
     m_Attachments[m_SwapchainAttachmentHandle].images[m_CurrentFrameIndex] =
         swapchainImage;
+
+    for (const auto &[handle, attachment] : m_Attachments) {
+        m_Attachments[handle].images[m_CurrentFrameIndex].syncState = {};
+    }
 
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -187,8 +190,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         colorAttachmentInfos.emplace_back(
             makeAttachmentInfo(image, attachment, targetLayout));
 
-        image.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        if (image.currentLayout != targetLayout) {
+        if (image.syncState.currentLayout != targetLayout) {
             transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
@@ -216,8 +218,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         depthAttachmentInfo =
             makeAttachmentInfo(image, attachment, targetLayout);
 
-        image.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        if (image.currentLayout != targetLayout) {
+        if (image.syncState.currentLayout != targetLayout) {
             transitionImageCmd(
                 frame.graphicsCmdBuffer, image, targetLayout,
                 VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
@@ -237,7 +238,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         Image &image{attachment.images[m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-        if (image.currentLayout != targetLayout) {
+        if (image.syncState.currentLayout != targetLayout) {
             transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
                                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
                                    VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,

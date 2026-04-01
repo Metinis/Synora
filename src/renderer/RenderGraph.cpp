@@ -1,8 +1,16 @@
 #include "RenderGraph.h"
 #include "renderer/RenderTypes.h"
 #include "spdlog/spdlog.h"
+#include <algorithm>
+#include <queue>
+#include <unordered_map>
 
 using namespace SYN;
+
+namespace {
+std::vector<size_t>
+makeTopoSorted(const std::vector<std::unique_ptr<IRenderPass>> &renderPasses);
+}
 
 void RenderGraph::compile(IBackend &backend) {
     m_PipelineHandles.resize(m_Passes.size());
@@ -28,12 +36,11 @@ void RenderGraph::execute(IBackend &backend) {
         return;
     }
 
-    for (const auto &pass : m_Passes) {
-        RenderPassNode node{pass->getNode()};
-    }
-    for (size_t i{}; i < m_Passes.size(); i++) {
-        IRenderPass *pass{m_Passes[i].get()};
-        PipelineHandle pipeline{m_PipelineHandles[i]};
+    std::vector<size_t> sortedPassIndices{makeTopoSorted(m_Passes)};
+
+    for (const auto &passIndex : sortedPassIndices) {
+        IRenderPass *pass{m_Passes[passIndex].get()};
+        PipelineHandle pipeline{m_PipelineHandles[passIndex]};
         pass->execute(backend, pipeline);
     }
     m_Passes.clear();
@@ -46,3 +53,61 @@ void RenderGraph::shutdown(IBackend &backend) {
         backend.destroyPipeline(pipeline);
     }
 }
+
+namespace {
+
+std::vector<size_t>
+makeTopoSorted(const std::vector<std::unique_ptr<IRenderPass>> &renderPasses) {
+    size_t passCount{renderPasses.size()};
+    std::vector<size_t> passInDegree(passCount, 0);
+    std::queue<size_t> passQueue{};
+    std::vector<std::vector<size_t>> passAdjList(passCount);
+
+    std::unordered_map<AttachmentHandle, size_t> attachmentToLastOutputPass{};
+    for (size_t i{}; i < passCount; i++) {
+        const RenderPassNode &node{renderPasses[i]->getNode()};
+
+        for (auto attachment : node.inputAttachments) {
+            if (!attachmentToLastOutputPass.contains(attachment)) {
+                spdlog::warn("Render pass contains input attachment that was "
+                             "not yet produced by a renderpass in submission "
+                             "order to the render graph");
+                continue;
+            }
+            size_t predecessor{attachmentToLastOutputPass[attachment]};
+            passAdjList[predecessor].emplace_back(i);
+            passInDegree[i]++;
+        }
+
+        for (auto attachment : node.outputAttachments) {
+            attachmentToLastOutputPass[attachment] = i;
+        }
+    }
+
+    for (size_t i{}; i < passInDegree.size(); i++) {
+        if (passInDegree[i] == 0) {
+            passQueue.push(i);
+        }
+    }
+
+    std::vector<size_t> sortedPasses{};
+    sortedPasses.reserve(passCount);
+    while (!passQueue.empty() && sortedPasses.size() < passCount) {
+        size_t frontPass{passQueue.front()};
+        passQueue.pop();
+        sortedPasses.emplace_back(frontPass);
+
+        for (auto descendantPass : passAdjList[frontPass]) {
+            passInDegree[descendantPass]--;
+            if (passInDegree[descendantPass] == 0) {
+                passQueue.push(descendantPass);
+            }
+        }
+    }
+
+    if (sortedPasses.size() < passCount) {
+        spdlog::warn("Render graph contains cycles");
+    }
+    return sortedPasses;
+}
+} // namespace

@@ -118,20 +118,27 @@ void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
                                              const void *data) {
     Texture &texture{m_Textures[handle]};
 
-    // TODO: have the transition happen automatically for all image types
     transitionImage(
         m_TransientCmdPool, m_Device, texture.image, VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+        texture.image.syncState.lastStageMask,
+        texture.image.syncState.lastAccessMask,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     m_StagingBuffer.uploadToImage(m_Device, data, width, height, texture.image);
+    // TODO: maybe try to make this better
     transitionImage(
         m_TransientCmdPool, m_Device, texture.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+
+    texture.image.syncState.lastStageMask =
+        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    texture.image.syncState.lastAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    texture.image.syncState.currentLayout =
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 }
 
 void SYN::VK::VulkanBackend::destroyTexture(TextureHandle &handle) {

@@ -2,8 +2,6 @@
 #include "PuzzleEngine/core/Window.h"
 #include "RenderGraph.h"
 #include "backends/vulkan/Backend.h"
-#include "glm/ext.hpp"
-#include "glm/ext/matrix_transform.hpp"
 #include "render_passes/FirstPass.h"
 #include "renderer/RenderTypes.h"
 
@@ -24,12 +22,11 @@ void SYN::Renderer::render(Window &window) {
 
     m_RenderGraph.addPass<FirstPass>(m_DrawCalls, swapchainAttachment,
                                      m_DepthAttachment);
+
     m_RenderGraph.compile(*m_Backend);
 
     m_Backend->beginFrame(*m_Window);
-
     m_RenderGraph.execute(*m_Backend);
-
     m_Backend->endFrame(*m_Window);
 
     m_DrawCalls.clear();

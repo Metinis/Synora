@@ -19,6 +19,7 @@ class RenderGraph {
 
   private:
     std::vector<std::unique_ptr<IRenderPass>> m_Passes;
+
     std::vector<PipelineHandle> m_PipelineHandles;
     std::unordered_map<GraphicsPipelineDesc, PipelineHandle> m_PipelineCache;
     bool m_Compiled{};
