@@ -32,8 +32,8 @@ class AssetManager {
         m_AssetMap[id] = asset;
         // generate mesh data if we added one
         spdlog::debug("Asset added: {}", id);
-        if constexpr (std::is_same_v<T, MeshData>) {
-            m_Renderer->addMesh(id, asset);
+        if constexpr (std::is_same_v<T, ModelData>) {
+            m_Renderer->addModel(id, asset);
         }
         return id;
     }
@@ -43,10 +43,10 @@ class AssetManager {
         requires isAsset<T>
     void createAsset(T asset, UUID id) {
         m_AssetMap[id] = asset;
-        // generate mesh data if we added one
+        // generate model data if we added one
         spdlog::debug("Asset created: %d", id);
-        if (std::holds_alternative<MeshData>(asset)) {
-            m_Renderer->addMesh(id, std::get<MeshData>(asset));
+        if (std::holds_alternative<ModelData>(asset)) {
+            m_Renderer->addModel(id, std::get<ModelData>(asset));
         }
     }
 
@@ -54,9 +54,10 @@ class AssetManager {
         requires isAsset<T>
     T *get(UUID id) {
         // check if the id is what the user requested
-        if (m_AssetMap.contains(id) &&
+        auto it{m_AssetMap.find(id)};
+        if (it != m_AssetMap.end() &&
             std::holds_alternative<T>(m_AssetMap[id])) {
-            return m_AssetMap[id];
+            return &std::get<T>(it->second);
         }
         spdlog::error("Asset not found, ID!: %d Type: %s", id,
                       typeid(T).name());

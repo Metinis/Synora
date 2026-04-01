@@ -7,35 +7,35 @@
 #include "scene/SceneState.h"
 
 namespace SYN {
-    class Renderer;
-    class AssetManager;
+class Renderer;
+class AssetManager;
 
-    //probably split scene into scene manager and scene contain like this
-    class Scene : public ILayer {
-    public:
-        Scene();
-        ~Scene() override = default;
+// probably split scene into scene manager and scene contain like this
+class Scene : public ILayer {
+  public:
+    Scene();
+    ~Scene() override = default;
 
-        void onUpdate(float dt) override;
-        void onAttach() override;
-        void onDettach() override;
-        void onRender() override;
+    void onUpdate(float dt) override;
+    void onAttach() override;
+    void onDettach() override;
+    void onRender() override;
 
-        void init(EngineContext* ctx);
-        Entity createEntity();
+    void init(EngineContext *ctx);
+    Entity createEntity();
 
-        template<typename T>
-        std::vector<Entity> getEntities() {
-            std::vector<Entity> ret;
-            for (auto& e : m_SceneState.registry.view<T>()) {
-                ret.push_back(Entity(&m_SceneState, e));
-            }
-            return ret;
+    template <typename T> std::vector<Entity> getEntities() {
+        std::vector<Entity> ret;
+        for (auto &e : m_SceneState.registry.view<T>()) {
+            ret.push_back(Entity(&m_SceneState, e));
         }
-    private:
-        Renderer* m_Renderer;
-        SceneState m_SceneState;
-        friend class Entity;
-    };
+        return ret;
+    }
 
-}
+  private:
+    Renderer *m_Renderer;
+    SceneState m_SceneState;
+    friend class Entity;
+};
+
+} // namespace SYN

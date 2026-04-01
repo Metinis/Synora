@@ -16,8 +16,14 @@ layout(buffer_reference, std430) buffer readonly VertexBuffer {
     Vertex vertices[];
 };
 
+layout(buffer_reference, std430) buffer readonly IndexBuffer {
+    uint indices[];
+};
+
 layout(push_constant, std430) uniform PushConstants {
+    mat4 modelMatrix;
     VertexBuffer vertexBuffer;
+    IndexBuffer indexBuffer;
     uint textureIndex;
 };
 

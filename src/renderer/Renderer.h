@@ -16,11 +16,29 @@ class Renderer {
 
     void init(EngineContext *ctx);
     void render(Window &window);
-    void addMesh(UUID meshID, const MeshData &meshData);
-    // could make a renderable object struct with meshID, materialID etc, all
+    void addModel(UUID modelID, const ModelData &modelData);
+
+    // could make a renderable object struct with modelID, materialID etc, all
     // that are needed for drawing
-    void drawMesh(UUID meshID);
+    void drawModel(UUID modelID, const glm::vec3 &pos);
     void shutdown();
+
+    struct UploadedMesh {
+        BufferHandle vertexBuffer;
+        BufferHandle indexBuffer;
+        glm::mat4 localTransform;
+        size_t numIndices;
+
+        TextureHandle albedo;
+    };
+
+    struct UploadedModel {
+        std::vector<UploadedMesh> meshes;
+    };
+    struct MeshDrawCall {
+        UploadedMesh *mesh;
+        glm::vec3 pos;
+    };
 
   private:
     std::unique_ptr<IBackend> m_Backend;
@@ -28,8 +46,9 @@ class Renderer {
     RenderGraph m_RenderGraph;
 
     AttachmentHandle m_DepthAttachment;
-    std::unordered_map<UUID, TextureHandle> m_Textures;
-    std::unordered_map<UUID, BufferHandle> m_Buffers;
+
+    std::unordered_map<UUID, UploadedModel> m_UploadedModels;
+    std::vector<MeshDrawCall> m_DrawCalls;
 };
 
 } // namespace SYN

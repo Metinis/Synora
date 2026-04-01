@@ -17,11 +17,11 @@ class StagingBuffer {
                           size_t size);
     void destroy(const Device &device, VmaAllocator allocator);
 
-    void uploadToBuffer(const Device &device, void *data, size_t size,
+    void uploadToBuffer(const Device &device, const void *data, size_t size,
                         const Buffer &dstBuffer);
 
-    void uploadToImage(const Device &device, void *data, int width, int height,
-                       uint32_t bytesPerPixel, const Image &dstImage);
+    void uploadToImage(const Device &device, const void *data, int width,
+                       int height, const Image &dstImage);
 
     void stallOnPendingUploads(const Device &device);
 
@@ -42,7 +42,7 @@ class StagingBuffer {
                            const PendingUpload &pendingUpload);
 
     // returns offset to staged data in m_Buffer mapped memory
-    size_t stageData(const Device &device, void *data, size_t size);
+    size_t stageData(const Device &device, const void *data, size_t size);
     size_t getAvailableStagingSize();
     size_t getContiguousStagingSize();
 

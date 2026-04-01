@@ -18,6 +18,7 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
     if (m_LoadedUUIDMap.contains(path)) {
         return m_LoadedUUIDMap[path];
     }
+    spdlog::debug("Loading {}", path);
 
     int imageWidth{};
     int imageHeight{};
@@ -33,8 +34,8 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
     }
 
     TextureData textureData{
-        .width = static_cast<size_t>(imageWidth),
-        .height = static_cast<size_t>(imageHeight),
+        .width = static_cast<uint32_t>(imageWidth),
+        .height = static_cast<uint32_t>(imageHeight),
         .data = imageBytes,
     };
 
@@ -49,8 +50,10 @@ SYN::UUID SYN::AssetManager::loadRawTexture(stbi_uc *data, uint32_t width,
                                             uint32_t height,
                                             const std::string &name) {
     if (m_LoadedUUIDMap.contains(name)) {
+        spdlog::debug("{} was already loaded, cache hit", name);
         return m_LoadedUUIDMap[name];
     }
+    spdlog::debug("Loading {}", name);
 
     TextureData textureData{
         .width = width,
@@ -69,6 +72,7 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     if (m_LoadedUUIDMap.contains(name)) {
         return m_LoadedUUIDMap[name];
     }
+    spdlog::debug("Loading {}", name);
 
     int imageWidth{};
     int imageHeight{};
@@ -85,8 +89,8 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     }
 
     TextureData textureData{
-        .width = static_cast<size_t>(imageWidth),
-        .height = static_cast<size_t>(imageHeight),
+        .width = static_cast<uint32_t>(imageWidth),
+        .height = static_cast<uint32_t>(imageHeight),
         .data = imageBytes,
     };
 
@@ -101,6 +105,7 @@ SYN::UUID SYN::AssetManager::loadModel(const std::string &path) {
     if (m_LoadedUUIDMap.contains(path)) {
         return m_LoadedUUIDMap[path];
     }
+    spdlog::debug("Loading {}", path);
 
     const aiScene *scene{m_Importer.ReadFile(
         path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
@@ -122,6 +127,8 @@ SYN::UUID SYN::AssetManager::loadModel(const std::string &path) {
     m_AssetMap[uuid] = modelData;
     m_LoadedUUIDMap[path] = uuid;
 
+    m_Renderer->addModel(uuid, modelData);
+
     return uuid;
 }
 
@@ -129,6 +136,7 @@ SYN::UUID SYN::AssetManager::processMaterials(const aiMesh *mesh,
                                               const aiScene *scene,
                                               const std::string &modelPath) {
     if (!scene->HasMaterials()) {
+        spdlog::warn("{} had no materials", modelPath);
         return m_MissingTextureUUID;
     }
 
@@ -198,6 +206,8 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
     };
 
     UUID albedoUUID{processMaterials(mesh, scene, modelPath)};
+    processedMesh.albedo = get<TextureData>(albedoUUID);
+
     for (size_t i{}; i < mesh->mNumVertices; i++) {
         SYN::Vertex relativeVertex{
             .pos = glm::vec3(mesh->mVertices[i].x, mesh->mVertices[i].y,
@@ -225,7 +235,6 @@ void SYN::AssetManager::processNode(aiNode *node, const aiScene *scene,
                                     std::vector<SYN::MeshData> &meshes,
                                     const std::string &modelPath,
                                     const aiMatrix4x4 &parentTransform) {
-
     aiMatrix4x4 transform = parentTransform * node->mTransformation;
 
     for (size_t i{}; i < node->mNumMeshes; i++) {

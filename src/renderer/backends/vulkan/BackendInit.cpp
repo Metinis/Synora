@@ -38,7 +38,8 @@ void SYN::VK::VulkanBackend::init(Window *window) {
 
     initFrameData(m_Swapchain);
 
-    m_StagingBuffer = StagingBuffer().create(m_Device, m_Allocator, c_MB * 64);
+    m_StagingBuffer =
+        StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 8);
 
     VkSamplerCreateInfo samplerCI{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,

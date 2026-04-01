@@ -13,8 +13,8 @@ struct alignas(16) Vertex {
 };
 
 struct TextureData {
-    size_t width;
-    size_t height;
+    uint32_t width;
+    uint32_t height;
     stbi_uc *data; // this is malloced, make sure to free, though im not doing
                    // that yet cus this is test code
 };
@@ -25,7 +25,7 @@ struct MeshData {
     glm::mat4 localTransform; // brings vertices from relative to parent to
                               // relative to world space
 
-    SYN::UUID albedo;
+    TextureData *albedo;
 };
 
 struct ModelData {

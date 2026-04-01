@@ -187,6 +187,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         colorAttachmentInfos.emplace_back(
             makeAttachmentInfo(image, attachment, targetLayout));
 
+        image.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         if (image.currentLayout != targetLayout) {
             transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -215,6 +216,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         depthAttachmentInfo =
             makeAttachmentInfo(image, attachment, targetLayout);
 
+        image.currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         if (image.currentLayout != targetLayout) {
             transitionImageCmd(
                 frame.graphicsCmdBuffer, image, targetLayout,
@@ -325,6 +327,12 @@ void SYN::VK::VulkanBackend::drawCmd(size_t nVertices) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     vkCmdDraw(frame.graphicsCmdBuffer, nVertices, 1, 0, 0);
+}
+
+void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices) {
+    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+
+    vkCmdDrawIndexed(frame.graphicsCmdBuffer, nIndices, 1, 0, 0, 0);
 }
 
 AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {

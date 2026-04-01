@@ -19,9 +19,10 @@ void Scene::onDettach() { spdlog::debug("Scene: Dettached"); }
 
 void Scene::onRender() {
     // spdlog::debug("Scene: Render");
-    for (auto &e : getEntities<MeshComp>()) {
-        auto &meshComp = e.getComponent<MeshComp>();
-        m_Renderer->drawMesh(meshComp.id);
+    for (auto &e : getEntities<ModelComp>()) {
+        auto &modelComp = e.getComponent<ModelComp>();
+
+        m_Renderer->drawModel(modelComp.id, {0.f, -0.5f, 2.f});
     }
 }
 
@@ -29,9 +30,11 @@ void Scene::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
     // testing
     auto e = createEntity();
-    MeshComp mesh{};
-    auto id = ctx->projectConfig.assetManager->addAsset<MeshData>(MeshData{});
-    e.addComponent<MeshComp>(MeshComp{.id = id});
+    UUID uuid{ctx->projectConfig.assetManager->loadModel(
+        "resources/assets/Test/test.obj")};
+    spdlog::info("uuid = {}", uuid);
+
+    e.addComponent<ModelComp>(ModelComp{.id = uuid});
 }
 
 Entity Scene::createEntity() {
