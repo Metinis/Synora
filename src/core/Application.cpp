@@ -52,7 +52,6 @@ void Application::run() {
         float dt{static_cast<float>(currentTime - lastTime)};
         lastTime = currentTime;
         for (auto &l : m_Layers) {
-            spdlog::info("dt = {}", dt);
             l->onUpdate(dt);
         }
         m_EngineContext.renderer->render(*m_EngineContext.window.get());

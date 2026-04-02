@@ -50,18 +50,18 @@ void Scene::onUpdate(float dt) {
     glm::vec3 upDir(0.f, 1.f, 0.f);
     glm::vec3 sideDir{glm::cross(lookDir, upDir)};
 
-    glm::vec3 dPos{(lookDir * m_Dz) + (sideDir * m_Dx) + (upDir * m_Dy)};
+    glm::vec3 dPos{(lookDir * m_Dz) + (sideDir * m_Dx) + (upDir * -m_Dy)};
     dPos *= dt * speed;
 
     m_Camera.transform.position += dPos;
 
-    float sensitivity{100.f};
-    glm::quat yaw{glm::angleAxis(
-        glm::radians(static_cast<float>(-m_DxRot * sensitivity * dt)),
-        glm::vec3(0.f, 1.f, 0.f))};
-    glm::quat pitch{glm::angleAxis(
-        glm::radians(static_cast<float>(m_DyRot * sensitivity * dt)),
-        glm::vec3(1.f, 0.f, 0.f))};
+    float sensitivity{0.1f};
+    glm::quat yaw{
+        glm::angleAxis(glm::radians(static_cast<float>(-m_DxRot * sensitivity)),
+                       glm::vec3(0.f, 1.f, 0.f))};
+    glm::quat pitch{
+        glm::angleAxis(glm::radians(static_cast<float>(m_DyRot * sensitivity)),
+                       glm::vec3(1.f, 0.f, 0.f))};
 
     m_Camera.transform.rotation =
         glm::normalize(yaw * m_Camera.transform.rotation * pitch);
@@ -117,6 +117,8 @@ void Scene::init(EngineContext *ctx) {
     gameplayCtx->bindActions(SYN::InputKey::S, {{Action::MoveBackward, {}}});
     gameplayCtx->bindActions(SYN::InputKey::A, {{Action::MoveLeft, {}}});
     gameplayCtx->bindActions(SYN::InputKey::D, {{Action::MoveRight, {}}});
+    gameplayCtx->bindActions(SYN::InputKey::Space, {{Action::MoveUp, {}}});
+    gameplayCtx->bindActions(SYN::InputKey::LeftCtrl, {{Action::MoveDown, {}}});
     gameplayCtx->bindActions(SYN::InputKey::LeftShift, {{Action::Run, {}}});
     gameplayCtx->bindActions(SYN::RawInputType::MouseDelta,
                              {{Action::LookDelta, {}}});
@@ -125,9 +127,14 @@ void Scene::init(EngineContext *ctx) {
     gameplayCtx->addVectorAxis("GroundMovement",
                                {Action::MoveForward, Action::MoveBackward,
                                 Action::MoveRight, Action::MoveLeft});
+
     gameplayCtx->addVectorAxis("FlyMovement",
-                               {Action::MoveUp, Action::MoveDown,
-                                Action::MoveForward, Action::MoveBackward});
+                               {Action::MoveUp, Action::MoveDown});
+
+    gameplayCtx->addVectorAxisCallback("FlyMovement", [&](float x, float y) {
+        m_Dy = y;
+        spdlog::info("mdy = {}", m_Dy);
+    });
 
     gameplayCtx->addVectorAxisCallback("GroundMovement", [&](float x, float z) {
         m_Dx = x;
