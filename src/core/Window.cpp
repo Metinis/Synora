@@ -4,9 +4,7 @@
 
 #include <spdlog/spdlog.h>
 
-SYN::Window::Window() {
-
-}
+SYN::Window::Window() {}
 
 void SYN::Window::init(const Config &config) {
     if (!glfwInit())
@@ -30,10 +28,15 @@ void SYN::Window::calculateDeltaTime() {
     m_DeltaTime = currentTime - m_LastTime;
     m_LastTime = currentTime;
 }
-float SYN::Window::getDeltaTime() const {
-    return m_DeltaTime;
-}
+float SYN::Window::getDeltaTime() const { return m_DeltaTime; }
 
 SYN::Window::~Window() { glfwDestroyWindow(m_Window); }
 
 struct GLFWwindow *SYN::Window::getHandle() { return m_Window; }
+
+void SYN::Window::disableCursor() {
+    glfwSetInputMode(m_Window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+}
+void SYN::Window::enableCursor() {
+    glfwSetInputMode(m_Window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+}

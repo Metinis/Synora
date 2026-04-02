@@ -2,6 +2,7 @@
 #include "PuzzleEngine/core/Window.h"
 #include "RenderGraph.h"
 #include "backends/vulkan/Backend.h"
+#include "glm/ext/quaternion_common.hpp"
 #include "render_passes/FirstPass.h"
 #include "renderer/RenderTypes.h"
 
@@ -20,7 +21,8 @@ void SYN::Renderer::render(Window &window) {
     AttachmentHandle swapchainAttachment{
         m_Backend->getSwapchainAttachmentCmd()};
 
-    m_RenderGraph.addPass<FirstPass>(m_DrawCalls, swapchainAttachment,
+    m_RenderGraph.addPass<FirstPass>(m_DrawCalls, m_CurrentCameraProjection,
+                                     m_CurrentCameraView, swapchainAttachment,
                                      m_DepthAttachment);
 
     m_RenderGraph.compile(*m_Backend);
@@ -68,7 +70,19 @@ void Renderer::addModel(UUID modelID, const ModelData &modelData) {
     spdlog::info("added model");
 }
 
-void Renderer::drawModel(UUID modelID, const glm::vec3 &pos) {
+void Renderer::setCamera(const Camera &camera) {
+    m_CurrentCameraProjection =
+        glm::perspective(glm::radians(camera.fovDegrees), camera.aspectRatio,
+                         camera.nearPlane, camera.farPlane);
+
+    glm::mat4 rotation(glm::conjugate(camera.transform.rotation));
+    glm::mat4 translation{
+        glm::translate(glm::mat4(1.f), -camera.transform.position)};
+
+    m_CurrentCameraView = rotation * translation;
+}
+
+void Renderer::drawModel(UUID modelID, const Transform &transform) {
     auto it{m_UploadedModels.find(modelID)};
     if (it == m_UploadedModels.end()) {
         spdlog::warn(
@@ -76,11 +90,17 @@ void Renderer::drawModel(UUID modelID, const glm::vec3 &pos) {
             modelID);
         return;
     }
+    glm::mat4 translation{glm::translate(glm::mat4(1.0f), transform.position)};
+    glm::mat4 rotation{glm::mat4(transform.rotation)};
+    glm::mat4 scale{glm::scale(glm::mat4(1.0f), transform.scale)};
+
+    glm::mat4 modelMat{translation * rotation * scale};
+
     UploadedModel &model{it->second};
     for (auto &mesh : model.meshes) {
         m_DrawCalls.emplace_back(MeshDrawCall{
             .mesh = &mesh,
-            .pos = pos,
+            .modelMatrix = modelMat * mesh.localTransform,
         });
     }
 }

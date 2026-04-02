@@ -27,12 +27,12 @@ layout(push_constant, std430) uniform PushConstants {
 };
 
 layout(set = 1, binding = 0) uniform Uniform {
-    mat4 projectionMatrix;
+    mat4 projectionViewMat;
 };
 
 void main() {
     Vertex vertex = vertexBuffer.vertices[indexBuffer.indices[gl_VertexIndex]];
 
     outUV = vec2(vertex.u, vertex.v);
-	gl_Position = projectionMatrix * modelMatrix * vec4(vertex.pos.xyz, 1.f);
+	gl_Position = projectionViewMat * modelMatrix * vec4(vertex.pos.xyz, 1.f);
 }

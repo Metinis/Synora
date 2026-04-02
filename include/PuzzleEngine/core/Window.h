@@ -22,6 +22,9 @@ class Window {
     void calculateDeltaTime();
     float getDeltaTime() const;
 
+    void disableCursor();
+    void enableCursor();
+
   private:
     struct GLFWwindow *m_Window{};
     float m_LastTime;

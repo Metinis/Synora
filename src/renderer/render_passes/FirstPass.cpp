@@ -19,14 +19,17 @@ struct alignas(16) PushConstants {
 };
 
 struct Uniforms {
-    glm::mat4 projectionMat;
+    glm::mat4 projectionViewMat;
 };
 } // namespace
 
 SYN::FirstPass::FirstPass(std::span<Renderer::MeshDrawCall> drawCalls,
+                          const glm::mat4 &cameraProjection,
+                          const glm::mat4 &cameraView,
                           AttachmentHandle colorAttachment,
                           AttachmentHandle depthAttachment)
-    : m_DrawCalls(drawCalls) {
+    : m_DrawCalls(drawCalls), m_CameraProjection(cameraProjection),
+      m_CameraView(cameraView) {
     m_ColorAttachment = WriteAttachment{.handle = colorAttachment,
                                         .clearColor = {0.f, 0.f, 0.f, 1.f}};
     m_DepthAttachment = WriteAttachment{
@@ -36,11 +39,8 @@ SYN::FirstPass::FirstPass(std::span<Renderer::MeshDrawCall> drawCalls,
 }
 
 void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
-    static float thing{0.f};
-    thing += 0.0001;
-    glm::mat4 projectionMat{
-        glm::perspective(glm::radians(90.f), 16.f / 9.f, 0.001f, 1000.f)};
-    Uniforms uniform{.projectionMat = projectionMat};
+
+    Uniforms uniform{.projectionViewMat = m_CameraProjection * m_CameraView};
 
     backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
@@ -48,17 +48,9 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
         if (drawCall.mesh->numIndices == 0) {
             continue;
         }
-        glm::quat rotation{
-            glm::angleAxis(glm::radians(45.f), glm::vec3(0.f, 1.f, 0.f)) *
-            glm::angleAxis(glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f))};
-
-        glm::mat4 translation{drawCall.mesh->localTransform *
-                              glm::translate(glm::mat4(1.0f), drawCall.pos)};
-
-        glm::mat4 modelMat{translation * glm::mat4(rotation)};
 
         PushConstants pushConstants{
-            .modelMat = modelMat,
+            .modelMat = drawCall.modelMatrix,
             .vertexBuffer =
                 backend.getBufferAddressCmd(drawCall.mesh->vertexBuffer),
             .indexBuffer =

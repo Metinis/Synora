@@ -4,6 +4,7 @@
 #include "PuzzleEngine/core/Application.h"
 #include "PuzzleEngine/core/Layer.h"
 #include "PuzzleEngine/scene/Entity.h"
+#include "renderer/Renderer.h"
 #include "scene/SceneState.h"
 
 namespace SYN {
@@ -34,7 +35,23 @@ class Scene : public ILayer {
 
   private:
     Renderer *m_Renderer;
+    Window *m_Window;
     SceneState m_SceneState;
+    Camera m_Camera;
+
+    float m_Dx;
+    float m_Dy;
+    float m_Dz;
+    float m_DxRot;
+    float m_DyRot;
+    bool m_CursorHidden{};
+    bool m_LastCursorHiddenState{}; // used to prevent camera from jumping on
+                                    // hitting esc
+
+    float m_WalkSpeed{1.f};
+    float m_RunMultiplier{2.f};
+    bool m_IsRunning{};
+
     friend class Entity;
 };
 

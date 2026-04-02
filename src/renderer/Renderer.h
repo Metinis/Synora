@@ -9,6 +9,14 @@
 namespace SYN {
 class Window;
 
+struct Camera {
+    Transform transform;
+    float fovDegrees;
+    float aspectRatio;
+    float nearPlane;
+    float farPlane;
+};
+
 class Renderer {
   public:
     Renderer() = default;
@@ -18,9 +26,11 @@ class Renderer {
     void render(Window &window);
     void addModel(UUID modelID, const ModelData &modelData);
 
+    void setCamera(const Camera &camera);
+
     // could make a renderable object struct with modelID, materialID etc, all
     // that are needed for drawing
-    void drawModel(UUID modelID, const glm::vec3 &pos);
+    void drawModel(UUID modelID, const Transform &transform);
     void shutdown();
 
     struct UploadedMesh {
@@ -37,10 +47,14 @@ class Renderer {
     };
     struct MeshDrawCall {
         UploadedMesh *mesh;
-        glm::vec3 pos;
+        glm::mat4 modelMatrix;
     };
 
   private:
+    // TODO: change this, this is for testing / demoing
+    glm::mat4 m_CurrentCameraProjection;
+    glm::mat4 m_CurrentCameraView;
+
     std::unique_ptr<IBackend> m_Backend;
     Window *m_Window;
     RenderGraph m_RenderGraph;
