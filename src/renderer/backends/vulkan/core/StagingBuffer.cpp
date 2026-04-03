@@ -203,7 +203,8 @@ void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
 }
 void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
                                            const void *data, int width,
-                                           int height, const Image &dstImage) {
+                                           int height, const Image &dstImage,
+                                           uint32_t mipLevel) {
     constexpr uint32_t bytesPerPixel{4};
     uint32_t rowSize{bytesPerPixel * dstImage.extent.width};
     uint32_t rowsPerChunk{static_cast<uint32_t>(m_Buffer.size / rowSize)};
@@ -218,6 +219,12 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
     if (width != dstImage.extent.width || height != dstImage.extent.height) {
         spdlog::warn("Could not write to Vulkan image, src image width or "
                      "height does not match dst image width or height");
+        assert(false);
+        return;
+    }
+    if (mipLevel >= dstImage.mipLevels) {
+        spdlog::warn("Trying to upload to image mip level that does not exist, "
+                     "cancelling upload");
         assert(false);
         return;
     }
@@ -247,10 +254,10 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
                 .imageSubresource =
                     {
                         .aspectMask = dstImage.subresourceRange.aspectMask,
-                        .mipLevel = 0,
+                        .mipLevel = mipLevel,
                         .baseArrayLayer =
                             dstImage.subresourceRange.baseArrayLayer,
-                        .layerCount = dstImage.subresourceRange.layerCount,
+                        .layerCount = 1,
                     },
                 .imageOffset =
                     {

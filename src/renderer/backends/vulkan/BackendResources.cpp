@@ -58,6 +58,10 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                             VK_IMAGE_USAGE_SAMPLED_BIT};
+    if (desc.hasMipChain) {
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+
     switch (desc.type) {
     case TextureType::srgb:
         format = VK_FORMAT_R8G8B8A8_SRGB;
@@ -76,9 +80,15 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
         break;
     }
 
+    uint32_t mipLevels{1};
+    if (desc.hasMipChain) {
+        mipLevels = static_cast<uint32_t>(
+            std::floor(std::log2(std::max(desc.height, desc.width))) + 1);
+    }
+
     Image image{createImage(m_Device, m_Allocator, format,
                             {.width = desc.width, .height = desc.height}, usage,
-                            aspect)};
+                            aspect, mipLevels)};
 
     if (m_BindlessTextureIndexFreelist.empty()) {
         spdlog::warn("Could not create texture, bindless array, array is full");
@@ -118,27 +128,17 @@ void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
                                              const void *data) {
     Texture &texture{m_Textures[handle]};
 
-    transitionImage(
-        m_TransientCmdPool, m_Device, texture.image, VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        texture.image.syncState.lastStageMask,
-        texture.image.syncState.lastAccessMask,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    transitionImage(m_TransientCmdPool, m_Device, texture.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     m_StagingBuffer.uploadToImage(m_Device, data, width, height, texture.image);
     // TODO: maybe try to make this better
-    transitionImage(
-        m_TransientCmdPool, m_Device, texture.image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-
-    texture.image.syncState.lastStageMask =
-        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-    texture.image.syncState.lastAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    texture.image.syncState.currentLayout =
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    generateMipChain(m_TransientCmdPool, m_Device, texture.image,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                     VK_ACCESS_2_SHADER_READ_BIT);
 }
 
 void SYN::VK::VulkanBackend::destroyTexture(TextureHandle &handle) {
@@ -201,7 +201,7 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
     for (size_t i{}; i < images.size(); i++) {
         images[i] =
             createImage(m_Device, m_Allocator, format,
-                        {.width = width, .height = height}, usage, aspect);
+                        {.width = width, .height = height}, usage, aspect, 1);
 
         if (!desc.isSampleable) {
             continue;

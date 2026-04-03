@@ -27,6 +27,7 @@ struct TextureDesc {
     uint32_t height;
 
     TextureType type;
+    bool hasMipChain{true};
 };
 
 enum class AttachmentSize : uint32_t { fixed, relative };

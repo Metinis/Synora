@@ -21,7 +21,8 @@ class StagingBuffer {
                         const Buffer &dstBuffer);
 
     void uploadToImage(const Device &device, const void *data, int width,
-                       int height, const Image &dstImage);
+                       int height, const Image &dstImage,
+                       uint32_t mipLevel = 0);
 
     void stallOnPendingUploads(const Device &device);
 
