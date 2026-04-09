@@ -21,3 +21,10 @@ add_subdirectory(JoltPhysics/Build)
 
 add_subdirectory(glm)
 add_subdirectory(VulkanMemoryAllocator)
+
+add_library(glad STATIC glad/src/glad.c)
+target_include_directories(
+  glad 
+  PUBLIC 
+  glad/include
+)
