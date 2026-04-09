@@ -112,22 +112,22 @@ void SYN::VK::transitionImageCmd(VkCommandBuffer cmdBuffer, Image &image,
                                  uint32_t srcQueueFamilyIndex,
                                  uint32_t dstQueueFamilyIndex) {
 
-    VkImageMemoryBarrier2 barrier{.sType =
-                                      VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                                  .srcStageMask = image.lastStageMask,
-                                  .srcAccessMask = image.lastAccessMask,
-                                  .dstStageMask = dstStageMask,
-                                  .dstAccessMask = dstAccessMask,
-                                  .oldLayout = image.currentLayout,
-                                  .newLayout = targetLayout,
-                                  .srcQueueFamilyIndex = srcQueueFamilyIndex,
-                                  .dstQueueFamilyIndex = dstQueueFamilyIndex,
-                                  .image = image.handle,
-                                  .subresourceRange = image.subresourceRange};
+    VkImageMemoryBarrier2 barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = image.syncState.lastStageMask,
+        .srcAccessMask = image.syncState.lastAccessMask,
+        .dstStageMask = dstStageMask,
+        .dstAccessMask = dstAccessMask,
+        .oldLayout = image.syncState.currentLayout,
+        .newLayout = targetLayout,
+        .srcQueueFamilyIndex = srcQueueFamilyIndex,
+        .dstQueueFamilyIndex = dstQueueFamilyIndex,
+        .image = image.handle,
+        .subresourceRange = image.subresourceRange};
 
-    image.currentLayout = targetLayout;
-    image.lastAccessMask = dstAccessMask;
-    image.lastStageMask = dstStageMask;
+    image.syncState.currentLayout = targetLayout;
+    image.syncState.lastAccessMask = dstAccessMask;
+    image.syncState.lastStageMask = dstStageMask;
 
     VkDependencyInfo dependency{
         .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,

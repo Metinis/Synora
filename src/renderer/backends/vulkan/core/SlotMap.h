@@ -106,6 +106,9 @@ template <HandleConcept Handle, typename T> class SlotMap {
     }
 
     T &operator[](Handle handle) {
+        if (handle.id >= m_Data.size()) {
+            std::cout << handle.id << " " << m_Data.size() << std::endl;
+        }
         assert(handle.id < m_Data.size());
         assert(m_Occupied[handle.id] == true);
         return m_Data[handle.id];

@@ -52,17 +52,22 @@ size_t SYN::VK::StagingBuffer::getAvailableStagingSize() {
 }
 
 size_t SYN::VK::StagingBuffer::getContiguousStagingSize() {
-    size_t writeCursor{m_WriteCounter % m_Buffer.size};
-    size_t readCursor{m_ReadCounter % m_Buffer.size};
-    if (writeCursor > readCursor) {
-        return m_Buffer.size - writeCursor;
-    } else if (writeCursor == readCursor) {
-        if (m_WriteCounter == m_ReadCounter) {
-            return m_Buffer.size;
-        }
-        return 0;
-    }
-    return readCursor - writeCursor;
+    // size_t writeCursor{m_WriteCounter % m_Buffer.size};
+    // size_t readCursor{m_ReadCounter % m_Buffer.size};
+
+    assert(m_ReadCounter <= m_WriteCounter);
+    assert(m_Buffer.size >= (m_WriteCounter - m_ReadCounter));
+    return m_Buffer.size - (m_WriteCounter - m_ReadCounter);
+
+    // if (writeCursor > readCursor) {
+    //     return m_Buffer.size - writeCursor;
+    // } else if (writeCursor == readCursor) {
+    //     if (m_WriteCounter == m_ReadCounter) {
+    //         return m_Buffer.size;
+    //     }
+    //     return 0;
+    // }
+    // return readCursor - writeCursor;
 }
 
 void SYN::VK::StagingBuffer::poll(const Device &device) {
@@ -127,7 +132,7 @@ void SYN::VK::StagingBuffer::stallOnPendingUploads(const Device &device) {
     }
 }
 
-size_t SYN::VK::StagingBuffer::stageData(const Device &device, void *data,
+size_t SYN::VK::StagingBuffer::stageData(const Device &device, const void *data,
                                          size_t size) {
     if (size > m_Buffer.size) {
         spdlog::warn("Could not write all bytes to staging buffer, trying to "
@@ -136,6 +141,7 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, void *data,
     }
 
     poll(device);
+    stallOnPendingUploads(device);
     while (size > getContiguousStagingSize()) {
         PendingUpload pendingUpload{m_PendingUploads.front()};
 
@@ -146,7 +152,9 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, void *data,
         m_PendingUploads.pop();
     }
 
-    size_t writeCursor{m_WriteCounter % m_Buffer.size};
+    size_t writeCursor{m_WriteCounter - m_ReadCounter};
+    assert((writeCursor + size) <= m_Buffer.size);
+
     memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + writeCursor, data,
            size);
 
@@ -154,8 +162,8 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, void *data,
     return writeCursor;
 }
 
-void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device, void *data,
-                                            size_t size,
+void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
+                                            const void *data, size_t size,
                                             const Buffer &dstBuffer) {
     if (dstBuffer.size < size) {
         spdlog::warn("Could not write to buffer, write size larger than dst "
@@ -170,7 +178,7 @@ void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device, void *data,
         bytesLeft -= chunkSize;
 
         size_t stagedOffset{stageData(
-            device, static_cast<char *>(data) + dstOffset, chunkSize)};
+            device, static_cast<const char *>(data) + dstOffset, chunkSize)};
 
         VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
         {
@@ -193,10 +201,10 @@ void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device, void *data,
         m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
     }
 }
-void SYN::VK::StagingBuffer::uploadToImage(const Device &device, void *data,
-                                           int width, int height,
-                                           uint32_t bytesPerPixel,
-                                           const Image &dstImage) {
+void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
+                                           const void *data, int width,
+                                           int height, const Image &dstImage) {
+    constexpr uint32_t bytesPerPixel{4};
     uint32_t rowSize{bytesPerPixel * dstImage.extent.width};
     uint32_t rowsPerChunk{static_cast<uint32_t>(m_Buffer.size / rowSize)};
 
@@ -215,6 +223,11 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device, void *data,
     }
 
     uint32_t rowsLeft{static_cast<uint32_t>(height)};
+
+    if ((rowsLeft * rowSize) > m_Buffer.size) {
+        spdlog::warn("Trying to upload image thats larger than staging buffer");
+    }
+
     while (rowsLeft) {
         uint32_t currentRow{height - rowsLeft};
         uint32_t dstOffset{currentRow * rowSize};
@@ -224,7 +237,7 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device, void *data,
         size_t chunkSize{rowsThisChunk * rowSize};
 
         size_t stagedOffset{stageData(
-            device, static_cast<char *>(data) + dstOffset, chunkSize)};
+            device, static_cast<const uint8_t *>(data) + dstOffset, chunkSize)};
 
         VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
         {

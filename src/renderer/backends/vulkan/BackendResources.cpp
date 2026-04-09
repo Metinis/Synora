@@ -34,7 +34,7 @@ BufferHandle SYN::VK::VulkanBackend::createBuffer(const BufferDesc &desc) {
 }
 
 void SYN::VK::VulkanBackend::uploadToBuffer(BufferHandle handle, size_t size,
-                                            void *data) {
+                                            const void *data) {
     const Buffer &buffer{m_Buffers[handle]};
     m_StagingBuffer.uploadToBuffer(m_Device, data, size, buffer);
 }
@@ -115,24 +115,30 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
 
 void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
                                              uint32_t width, uint32_t height,
-                                             uint32_t stride, void *data) {
+                                             const void *data) {
     Texture &texture{m_Textures[handle]};
 
-    // TODO: have the transition happen automatically for all image types
     transitionImage(
         m_TransientCmdPool, m_Device, texture.image, VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+        texture.image.syncState.lastStageMask,
+        texture.image.syncState.lastAccessMask,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
-    m_StagingBuffer.uploadToImage(m_Device, data, width, height, stride,
-                                  texture.image);
+    m_StagingBuffer.uploadToImage(m_Device, data, width, height, texture.image);
+    // TODO: maybe try to make this better
     transitionImage(
         m_TransientCmdPool, m_Device, texture.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+
+    texture.image.syncState.lastStageMask =
+        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    texture.image.syncState.lastAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    texture.image.syncState.currentLayout =
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 }
 
 void SYN::VK::VulkanBackend::destroyTexture(TextureHandle &handle) {
@@ -273,6 +279,8 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     if (desc.hasDepthAttachment) {
         pipelineBuilder.enableDepthAttachment();
+        pipelineBuilder.setDepthTest();
+        spdlog::info("Enabled depth");
     }
     for (size_t i{}; i < desc.nColorAttachments; i++) {
         pipelineBuilder.addColorAttachment(m_Swapchain.format);
@@ -280,12 +288,12 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
 
     switch (desc.cullMode) {
     case CullMode::frontFace:
-        pipelineBuilder.setFaceCulling(VK_CULL_MODE_BACK_BIT,
-                                       VK_FRONT_FACE_COUNTER_CLOCKWISE);
+        pipelineBuilder.setFaceCulling(VK_CULL_MODE_FRONT_BIT,
+                                       VK_FRONT_FACE_CLOCKWISE);
         break;
     case CullMode::backFace:
         pipelineBuilder.setFaceCulling(VK_CULL_MODE_BACK_BIT,
-                                       VK_FRONT_FACE_COUNTER_CLOCKWISE);
+                                       VK_FRONT_FACE_CLOCKWISE);
         break;
     default:
         break;

@@ -26,12 +26,13 @@ class VulkanBackend : public IBackend {
     void init(Window *window) override;
 
     BufferHandle createBuffer(const BufferDesc &desc) override;
-    void uploadToBuffer(BufferHandle handle, size_t size, void *data) override;
+    void uploadToBuffer(BufferHandle handle, size_t size,
+                        const void *data) override;
     void destroyBuffer(BufferHandle &handle) override;
 
     TextureHandle createTexture(const TextureDesc &desc) override;
     void uploadToTexture(TextureHandle handle, uint32_t width, uint32_t height,
-                         uint32_t stride, void *data) override;
+                         const void *data) override;
     void destroyTexture(TextureHandle &handle) override;
 
     AttachmentHandle createAttachment(const AttachmentDesc &desc) override;
@@ -53,6 +54,7 @@ class VulkanBackend : public IBackend {
     void setPushConstantsCmd(const void *data, size_t size) override;
 
     void drawCmd(size_t nVertices) override;
+    void drawIndexedCmd(size_t nIndices) override;
 
     AttachmentHandle getSwapchainAttachmentCmd() override;
 

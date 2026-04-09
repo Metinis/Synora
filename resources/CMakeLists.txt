@@ -35,10 +35,15 @@ add_custom_target(copy_assets ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/resources/textures"
     "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/textures"
+    COMMENT "Copying textures to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/textures"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/resources/shaders"
     "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders"
-    COMMENT "Copying resources to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources")
+    COMMENT "Copying shaders to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/resources/assets/"
+    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/assets"
+    COMMENT "Copying assets to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/assets")
 
 add_dependencies(PuzzleEngine build_shaders)
 add_dependencies(PuzzleEngine copy_assets)

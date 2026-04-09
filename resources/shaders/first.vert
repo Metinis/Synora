@@ -14,19 +14,25 @@ layout(buffer_reference, std430) buffer readonly VertexBuffer {
     Vertex vertices[];
 };
 
+layout(buffer_reference, std430) buffer readonly IndexBuffer {
+    uint indices[];
+};
+
 
 layout(push_constant, std430) uniform PushConstants {
+    mat4 modelMatrix;
     VertexBuffer vertexBuffer;
+    IndexBuffer indexBuffer;
     uint textureIndex;
 };
 
 layout(set = 1, binding = 0) uniform Uniform {
-    mat4 modelMatrix;
+    mat4 projectionViewMat;
 };
 
 void main() {
-    Vertex vertex = vertexBuffer.vertices[gl_VertexIndex];
+    Vertex vertex = vertexBuffer.vertices[indexBuffer.indices[gl_VertexIndex]];
 
     outUV = vec2(vertex.u, vertex.v);
-	gl_Position = modelMatrix * vec4(vertex.pos.xyz, 1.f);
+	gl_Position = projectionViewMat * modelMatrix * vec4(vertex.pos.xyz, 1.f);
 }

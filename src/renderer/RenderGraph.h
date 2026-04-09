@@ -8,7 +8,7 @@
 namespace SYN {
 class RenderGraph {
   public:
-    template <typename T, typename... Args> void addPass(Args... args) {
+    template <typename T, typename... Args> void addPass(Args &&...args) {
         m_Passes.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
     }
 
@@ -19,6 +19,7 @@ class RenderGraph {
 
   private:
     std::vector<std::unique_ptr<IRenderPass>> m_Passes;
+
     std::vector<PipelineHandle> m_PipelineHandles;
     std::unordered_map<GraphicsPipelineDesc, PipelineHandle> m_PipelineCache;
     bool m_Compiled{};

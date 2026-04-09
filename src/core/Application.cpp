@@ -43,22 +43,24 @@ void Application::init() {
 
 void Application::run() {
     // while running and window open
+    double lastTime{glfwGetTime()};
     while (m_IsRunning && m_EngineContext.window->isRunning()) {
         glfwPollEvents();
+        m_EngineContext.inputManager->processInputQueue();
 
+        double currentTime{glfwGetTime()};
+        float dt{static_cast<float>(currentTime - lastTime)};
+        lastTime = currentTime;
         for (auto &l : m_Layers) {
-            l->onUpdate(m_EngineContext.window->getDeltaTime());
+            l->onUpdate(dt);
         }
+        m_EngineContext.renderer->render(*m_EngineContext.window.get());
         for (auto &l : m_Layers) {
             l->onRender();
         }
         for (auto &l : m_Layers) {
             // ui render
         }
-
-        m_EngineContext.inputManager->processInputQueue();
-
-        m_EngineContext.renderer->render(*m_EngineContext.window.get());
     }
 }
 

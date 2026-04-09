@@ -38,7 +38,8 @@ void SYN::VK::VulkanBackend::init(Window *window) {
 
     initFrameData(m_Swapchain);
 
-    m_StagingBuffer = StagingBuffer().create(m_Device, m_Allocator, c_MB * 64);
+    m_StagingBuffer =
+        StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 8);
 
     VkSamplerCreateInfo samplerCI{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -182,7 +183,8 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
                  m_Device.properties.limits.maxDescriptorSetSampledImages)};
 
     VkDescriptorBindingFlags textureBindingFlags{
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
+    };
     VkDescriptorBindingFlags uboBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
 
@@ -214,13 +216,13 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
     VkDescriptorSetLayoutCreateInfo bindlessLayoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &textureBindingFlagsCI,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
         .pBindings = &bindlessTextureBinding,
     };
     VkDescriptorSetLayoutCreateInfo uboLayoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &uboBindingFlagsCI,
-        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
         .pBindings = &uboBinding,
     };
