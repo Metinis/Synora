@@ -28,3 +28,5 @@ target_include_directories(
   PUBLIC 
   glad/include
 )
+
+add_subdirectory(assimp)
