@@ -31,6 +31,7 @@ target_include_directories(
 target_link_libraries(
   Synora 
   PUBLIC
+  glad
   glfw
   spdlog
   miniaudio
@@ -59,6 +60,7 @@ target_include_directories(PuzzleEngine
 target_link_libraries(
   PuzzleEngine 
   PRIVATE
+  glad
   glfw
   spdlog
   miniaudio
