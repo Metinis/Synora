@@ -27,6 +27,8 @@ target_include_directories(
   PRIVATE 
   ${PROJECT_SOURCE_DIR}/src
   ${PROJECT_SOURCE_DIR}/3rdparty/stb
+  ${PROJECT_SOURCE_DIR}/3rdparty/imgui
+  ${PROJECT_SOURCE_DIR}/3rdparty/imgui/backends
 )
 target_link_libraries(
   Synora 
@@ -52,7 +54,7 @@ target_precompile_headers(PuzzleEngine
 target_include_directories(PuzzleEngine
   PUBLIC 
   ${PROJECT_SOURCE_DIR}/include
-  PRIVATE 
+  PRIVATE
   ${PROJECT_SOURCE_DIR}/src
   ${PROJECT_SOURCE_DIR}/3rdparty/stb
 )
@@ -69,6 +71,7 @@ target_link_libraries(
   GPUOpen::VulkanMemoryAllocator
   glm::glm
   assimp
+  imgui
 )
 
 # This is to make the projection matrices in glm work with vulkan

@@ -1,5 +1,6 @@
 #include "PuzzleEngine/scene/Scene.h"
 
+#include "imgui.h"
 #include "PuzzleEngine/core/Input.h"
 #include "PuzzleEngine/core/InputContext.h"
 #include "PuzzleEngine/core/InputTypes.h"
@@ -89,6 +90,12 @@ void Scene::onRender() {
     }
 }
 
+void Scene::onUIRender() {
+    //ImGui::Begin("Scene UI", &m_IsRunning);
+
+    //ImGui::End();
+}
+
 void Scene::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
     m_Window = ctx->window.get();
@@ -170,7 +177,7 @@ void Scene::init(EngineContext *ctx) {
 
     auto e = createEntity();
     UUID uuid{ctx->projectConfig.assetManager->loadModel(
-        "resources/assets/Test/test.obj")};
+        "resources/assets/Cabin/scene.gltf")};
     spdlog::info("uuid = {}", uuid);
 
     e.addComponent<ModelComp>(ModelComp{.id = uuid});

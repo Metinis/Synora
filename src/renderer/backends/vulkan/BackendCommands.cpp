@@ -18,6 +18,8 @@
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
 
+#include "imgui_impl_vulkan.h"
+
 using namespace SYN;
 using namespace SYN::VK;
 
@@ -334,6 +336,33 @@ void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices) {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
     vkCmdDrawIndexed(frame.graphicsCmdBuffer, nIndices, 1, 0, 0, 0);
+}
+
+void VulkanBackend::drawImGUI() {
+    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+
+    VkRenderingAttachmentInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    info.pNext = nullptr;
+
+    info.imageView = m_Swapchain.imageViews[frame.swapchainImageIndex];
+    info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo renderingInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = VkRect2D{.extent = m_Swapchain.extent},
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &info,
+    };
+
+
+    vkCmdBeginRendering(frame.graphicsCmdBuffer, &renderingInfo);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.graphicsCmdBuffer);
+    vkCmdEndRendering(frame.graphicsCmdBuffer);
+
 }
 
 AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {

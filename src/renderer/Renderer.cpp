@@ -5,6 +5,7 @@
 #include "glm/ext/quaternion_common.hpp"
 #include "render_passes/FirstPass.h"
 #include "renderer/RenderTypes.h"
+#include "render_passes/ImGUIPass.h"
 
 using namespace SYN;
 
@@ -24,6 +25,7 @@ void SYN::Renderer::render(Window &window) {
     m_RenderGraph.addPass<FirstPass>(m_DrawCalls, m_CurrentCameraProjection,
                                      m_CurrentCameraView, swapchainAttachment,
                                      m_DepthAttachment);
+    m_RenderGraph.addPass<ImGUIPass>();
 
     m_RenderGraph.compile(*m_Backend);
 

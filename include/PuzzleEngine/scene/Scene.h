@@ -21,6 +21,7 @@ class Scene : public ILayer {
     void onAttach() override;
     void onDettach() override;
     void onRender() override;
+    void onUIRender() override;
 
     void init(EngineContext *ctx);
     Entity createEntity();

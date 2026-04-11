@@ -20,6 +20,11 @@
 
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
+#include <imgui.h>
+#include <imgui_impl_vulkan.h>
+
+#include "imgui_impl_glfw.h"
+#include "imgui_internal.h"
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -37,6 +42,8 @@ void SYN::VK::VulkanBackend::init(Window *window) {
     initDescriptorSets();
 
     initFrameData(m_Swapchain);
+
+    initImGUI(window);
 
     m_StagingBuffer =
         StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 8);
@@ -125,6 +132,9 @@ void SYN::VK::VulkanBackend::shutdown() {
     vkDestroyDescriptorSetLayout(m_Device.logical, m_UBODescriptorSetLayout,
                                  nullptr);
     vkDestroyDescriptorPool(m_Device.logical, m_DescriptorPool, nullptr);
+
+    ImGui_ImplVulkan_Shutdown();
+    vkDestroyDescriptorPool(m_Device.logical, m_ImGUIDescriptorPool, nullptr);
 
     vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
                             nullptr);
@@ -387,6 +397,56 @@ void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
                           &renderFinishedSemaphore);
         m_RenderFinishedSemaphores.emplace_back(renderFinishedSemaphore);
     }
+}
+
+void VulkanBackend::initImGUI(Window *window) {
+    VkDescriptorPoolSize poolSizes[] = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+		{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
+
+	VkDescriptorPoolCreateInfo poolInfo = {};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+	poolInfo.maxSets = 1000;
+	poolInfo.poolSizeCount = (uint32_t)std::size(poolSizes);
+	poolInfo.pPoolSizes = poolSizes;
+
+	VkResult res = (vkCreateDescriptorPool(m_Device.logical, &poolInfo, nullptr, &m_ImGUIDescriptorPool));
+
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create descriptor pool. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
+
+	ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForVulkan(window->getHandle(), true);
+
+
+	ImGui_ImplVulkan_InitInfo initInfo = {};
+	initInfo.Instance = m_Instance;
+	initInfo.PhysicalDevice = m_Device.physical;
+	initInfo.Device = m_Device.logical;
+	initInfo.Queue = m_Device.queues[QueueFamily::graphics].handle;
+	initInfo.DescriptorPool = m_ImGUIDescriptorPool;
+	initInfo.MinImageCount = 3;
+	initInfo.ImageCount = 3;
+	initInfo.UseDynamicRendering = true;
+
+	initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+	initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+	initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_Swapchain.format;
+	initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+	ImGui_ImplVulkan_Init(&initInfo);
 }
 
 void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
