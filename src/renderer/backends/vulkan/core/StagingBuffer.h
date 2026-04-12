@@ -32,6 +32,10 @@ class StagingBuffer {
         VkFence uploadFinishedFence;
         size_t nextReadCounter;
     };
+    struct Region {
+        size_t size;
+        size_t offset;
+    };
 
     void poll(const Device &device);
 
@@ -46,6 +50,7 @@ class StagingBuffer {
     size_t stageData(const Device &device, const void *data, size_t size);
     size_t getAvailableStagingSize();
     size_t getContiguousStagingSize();
+    Region getLargestContiguousStagingRegion();
 
     size_t m_WriteCounter{};
     size_t m_ReadCounter{};

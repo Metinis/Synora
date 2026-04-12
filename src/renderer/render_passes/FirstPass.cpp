@@ -39,6 +39,8 @@ SYN::FirstPass::FirstPass(std::span<Renderer::MeshDrawCall> drawCalls,
 }
 
 void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
+    static float thing{0.f};
+    thing += 0.0001;
 
     Uniforms uniform{.projectionViewMat = m_CameraProjection * m_CameraView};
 

@@ -14,8 +14,7 @@ namespace {} // namespace
 Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                            VkFormat format, VkExtent2D extent,
                            VkImageUsageFlags usage, VkImageAspectFlags aspect,
-                           uint32_t mipLevels) {
-
+                           VkSampleCountFlagBits samples, uint32_t mipLevels) {
     VkImageCreateInfo imageCI{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
@@ -23,7 +22,7 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
         .extent = {.width = extent.width, .height = extent.height, .depth = 1},
         .mipLevels = mipLevels,
         .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .samples = samples,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -66,6 +65,7 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                  .subresourceRange = viewCI.subresourceRange,
                  .format = format,
                  .usage = usage,
+                 .samples = samples,
                  .mipLevels = mipLevels,
                  .allocation = allocation};
 }
@@ -290,4 +290,30 @@ void SYN::VK::transitionImageCmd(
     };
 
     vkCmdPipelineBarrier2(cmdBuffer, &dependency);
+}
+
+VkSampleCountFlagBits SYN::VK::getSamples(const Device &device,
+                                          uint32_t idealSampleCount) {
+    VkSampleCountFlags sampleCountFlags{
+        device.properties.limits.sampledImageColorSampleCounts &
+        device.properties.limits.sampledImageDepthSampleCounts};
+    if (idealSampleCount >= 64 && (sampleCountFlags & VK_SAMPLE_COUNT_64_BIT)) {
+        return VK_SAMPLE_COUNT_64_BIT;
+    }
+    if (idealSampleCount >= 32 && (sampleCountFlags & VK_SAMPLE_COUNT_32_BIT)) {
+        return VK_SAMPLE_COUNT_32_BIT;
+    }
+    if (idealSampleCount >= 16 && (sampleCountFlags & VK_SAMPLE_COUNT_16_BIT)) {
+        return VK_SAMPLE_COUNT_16_BIT;
+    }
+    if (idealSampleCount >= 8 && (sampleCountFlags & VK_SAMPLE_COUNT_8_BIT)) {
+        return VK_SAMPLE_COUNT_8_BIT;
+    }
+    if (idealSampleCount >= 4 && (sampleCountFlags & VK_SAMPLE_COUNT_4_BIT)) {
+        return VK_SAMPLE_COUNT_4_BIT;
+    }
+    if (idealSampleCount >= 2 && (sampleCountFlags & VK_SAMPLE_COUNT_2_BIT)) {
+        return VK_SAMPLE_COUNT_2_BIT;
+    }
+    return VK_SAMPLE_COUNT_1_BIT;
 }

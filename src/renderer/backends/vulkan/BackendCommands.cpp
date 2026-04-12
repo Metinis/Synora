@@ -167,6 +167,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
     colorAttachmentInfos.reserve(desc.colorAttachments.size());
     VkRenderingAttachmentInfo depthAttachmentInfo{};
 
+    // TODO: implement resolve attachments!!
     VkExtent2D viewportExtent{.width = UINT32_MAX, .height = UINT32_MAX};
     for (const auto &attachment : desc.colorAttachments) {
         Image &image{
@@ -359,6 +360,41 @@ uint64_t SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
     return m_Buffers[handle].deviceAddress;
 }
 
+// TODO: maybe change this...
+VkRenderingAttachmentInfo
+VulkanBackend::makeAttachmentInfo(size_t frameIndex,
+                                  const WriteAttachment &attachment,
+                                  VkImageLayout targetLayout) const {
+    const Image &image{m_Attachments.at(attachment.handle).};
+
+    VkClearValue clearValue{};
+    if (image.subresourceRange.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
+        clearValue = {.color = VkClearColorValue{
+                          attachment.clearColor.r,
+                          attachment.clearColor.g,
+                          attachment.clearColor.b,
+                          attachment.clearColor.a,
+                      }};
+    } else {
+        clearValue = {.depthStencil = VkClearDepthStencilValue{
+                          .depth = attachment.clearDepth}};
+    }
+
+    VkAttachmentLoadOp loadOp{toVkLoadOp(attachment.loadOp)};
+    VkAttachmentStoreOp storeOp{toVkStoreOp(attachment.storeOp)};
+
+    VkRenderingAttachmentInfo attachmentInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = image.view,
+        .imageLayout = targetLayout,
+        .loadOp = loadOp,
+        .storeOp = storeOp,
+        .clearValue = clearValue,
+    };
+
+    return attachmentInfo;
+}
+
 namespace {
 VkAttachmentLoadOp toVkLoadOp(LoadOp loadOp) {
     VkAttachmentLoadOp vkLoadOp{};
@@ -392,34 +428,4 @@ VkAttachmentStoreOp toVkStoreOp(StoreOp storeOp) {
     return vkStoreOp;
 }
 
-VkRenderingAttachmentInfo makeAttachmentInfo(const Image &image,
-                                             const WriteAttachment &attachment,
-                                             VkImageLayout targetLayout) {
-    VkClearValue clearValue{};
-    if (image.subresourceRange.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
-        clearValue = {.color = VkClearColorValue{
-                          attachment.clearColor.r,
-                          attachment.clearColor.g,
-                          attachment.clearColor.b,
-                          attachment.clearColor.a,
-                      }};
-    } else {
-        clearValue = {.depthStencil = VkClearDepthStencilValue{
-                          .depth = attachment.clearDepth}};
-    }
-
-    VkAttachmentLoadOp loadOp{toVkLoadOp(attachment.loadOp)};
-    VkAttachmentStoreOp storeOp{toVkStoreOp(attachment.storeOp)};
-
-    VkRenderingAttachmentInfo attachmentInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = image.view,
-        .imageLayout = targetLayout,
-        .loadOp = loadOp,
-        .storeOp = storeOp,
-        .clearValue = clearValue,
-    };
-
-    return attachmentInfo;
-}
 } // namespace

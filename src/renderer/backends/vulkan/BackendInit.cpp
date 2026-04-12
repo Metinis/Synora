@@ -38,8 +38,7 @@ void SYN::VK::VulkanBackend::init(Window *window) {
 
     initFrameData(m_Swapchain);
 
-    m_StagingBuffer =
-        StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 8);
+    m_StagingBuffer = StagingBuffer().create(m_Device, m_Allocator, c_MB * 64);
 
     VkSamplerCreateInfo samplerCI{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -411,8 +410,9 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
             VkImageUsageFlags usage{image.usage};
             VkImageAspectFlags aspect{image.subresourceRange.aspectMask};
             destroyImage(m_Device, m_Allocator, image);
-            image = createImage(m_Device, m_Allocator, format,
-                                m_Swapchain.extent, usage, aspect);
+            image =
+                createImage(m_Device, m_Allocator, format, m_Swapchain.extent,
+                            usage, aspect, image.samples);
 
             if (!attachment.isSampleable) {
                 continue;

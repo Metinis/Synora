@@ -39,6 +39,7 @@ struct AttachmentDesc {
 
     TextureType type;
     bool isSampleable;
+    uint32_t msaaSamples{1}; // 1 is no multisampling
 };
 
 struct BufferDesc {
@@ -77,6 +78,7 @@ enum class LoadOp { load, clear, dontCare };
 
 struct WriteAttachment {
     AttachmentHandle handle;
+    std::optional<AttachmentHandle> resolveHandle{};
     StoreOp storeOp{StoreOp::store};
     LoadOp loadOp{LoadOp::clear};
     union {

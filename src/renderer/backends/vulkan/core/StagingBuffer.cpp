@@ -70,6 +70,42 @@ size_t SYN::VK::StagingBuffer::getContiguousStagingSize() {
     // return readCursor - writeCursor;
 }
 
+StagingBuffer::Region
+SYN::VK::StagingBuffer::getLargestContiguousStagingRegion() {
+    size_t writeCursor{m_WriteCounter % m_Buffer.size};
+    size_t readCursor{m_ReadCounter % m_Buffer.size};
+
+    assert(m_ReadCounter <= m_WriteCounter);
+    assert(m_Buffer.size >= (m_WriteCounter - m_ReadCounter));
+
+    if (m_WriteCounter == m_ReadCounter) {
+        return {.size = m_Buffer.size, .offset = 0};
+    }
+
+    // --|(RC)-----|(WC)----
+    // 1 valid region
+    // if writeCursor == readCursor, the buffer is full, not empty, since if it
+    // was empty the prev return wouldve caught it
+    if (writeCursor >= readCursor) {
+        return {
+            .size = writeCursor - readCursor,
+            .offset = readCursor,
+        };
+    }
+    // --|(WC)-----|(RC)----
+    // 2 valid regions
+    size_t firstRegionSize{writeCursor};
+    size_t firstRegionOffset{0};
+
+    size_t secondRegionSize{m_Buffer.size - readCursor};
+    size_t secondRegionOffset{readCursor};
+
+    if (secondRegionSize > firstRegionSize) {
+        return {.size = secondRegionSize, .offset = secondRegionOffset};
+    }
+    return {.size = firstRegionSize, .offset = firstRegionOffset};
+}
+
 void SYN::VK::StagingBuffer::poll(const Device &device) {
     while (!m_PendingUploads.empty()) {
         PendingUpload pending{m_PendingUploads.front()};
@@ -141,25 +177,17 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, const void *data,
     }
 
     poll(device);
-    stallOnPendingUploads(device);
-    while (size > getContiguousStagingSize()) {
-        PendingUpload pendingUpload{m_PendingUploads.front()};
-
-        vkWaitForFences(device.logical, 1, &pendingUpload.uploadFinishedFence,
-                        VK_TRUE, UINT64_MAX);
-        m_ReadCounter = pendingUpload.nextReadCounter;
-        freePendingUpload(device, pendingUpload);
-        m_PendingUploads.pop();
+    Region region{getLargestContiguousStagingRegion()};
+    while (size > region.size) {
+        poll(device);
+        region = getLargestContiguousStagingRegion();
     }
 
-    size_t writeCursor{m_WriteCounter - m_ReadCounter};
-    assert((writeCursor + size) <= m_Buffer.size);
-
-    memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + writeCursor, data,
+    memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + region.offset, data,
            size);
 
     m_WriteCounter = m_WriteCounter + size;
-    return writeCursor;
+    return region.offset;
 }
 
 void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
@@ -210,7 +238,8 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
     uint32_t rowsPerChunk{static_cast<uint32_t>(m_Buffer.size / rowSize)};
 
     if (rowsPerChunk == 0) {
-        spdlog::warn("Could not write to Vulkan image, one image row did not "
+        spdlog::info("row size = {}", rowSize);
+        spdlog::warn("Could not write to Vulkan image, image row can't "
                      "fit in staging buffer");
         assert(false);
         return;
@@ -232,7 +261,7 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
     uint32_t rowsLeft{static_cast<uint32_t>(height)};
 
     if ((rowsLeft * rowSize) > m_Buffer.size) {
-        spdlog::warn("Trying to upload image thats larger than staging buffer");
+        spdlog::debug("Uploading image thats larger than staging buffer");
     }
 
     while (rowsLeft) {

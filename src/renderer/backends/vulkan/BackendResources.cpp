@@ -88,7 +88,7 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
 
     Image image{createImage(m_Device, m_Allocator, format,
                             {.width = desc.width, .height = desc.height}, usage,
-                            aspect, mipLevels)};
+                            aspect, VK_SAMPLE_COUNT_1_BIT, mipLevels)};
 
     if (m_BindlessTextureIndexFreelist.empty()) {
         spdlog::warn("Could not create texture, bindless array, array is full");
@@ -198,10 +198,11 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
 
     std::array<Image, c_MaxFramesInFlight> images{};
     std::array<uint32_t, c_MaxFramesInFlight> bindlessSamplerIndices{};
+    VkSampleCountFlagBits samples{getSamples(m_Device, desc.msaaSamples)};
     for (size_t i{}; i < images.size(); i++) {
-        images[i] =
-            createImage(m_Device, m_Allocator, format,
-                        {.width = width, .height = height}, usage, aspect, 1);
+        images[i] = createImage(m_Device, m_Allocator, format,
+                                {.width = width, .height = height}, usage,
+                                aspect, samples);
 
         if (!desc.isSampleable) {
             continue;
@@ -280,7 +281,6 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     if (desc.hasDepthAttachment) {
         pipelineBuilder.enableDepthAttachment();
         pipelineBuilder.setDepthTest();
-        spdlog::info("Enabled depth");
     }
     for (size_t i{}; i < desc.nColorAttachments; i++) {
         pipelineBuilder.addColorAttachment(m_Swapchain.format);

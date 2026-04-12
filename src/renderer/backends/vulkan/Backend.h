@@ -107,6 +107,10 @@ class VulkanBackend : public IBackend {
 
     void recreateSwapchain(Window &window);
 
+    VkRenderingAttachmentInfo
+    makeAttachmentInfo(size_t frameIndex, const WriteAttachment &attachment,
+                       VkImageLayout targetLayout) const;
+
     uint32_t m_CurrentFrameIndex{};
 
     // context
