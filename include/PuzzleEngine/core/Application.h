@@ -1,7 +1,7 @@
 #pragma once
 #include "Layer.h"
 #include "PuzzleEngine/project/Project.h"
-#include <glm/gtc/quaternion.hpp>
+
 
 namespace SYN {
 class Window;
@@ -9,11 +9,7 @@ class Input;
 class Renderer;
 class Scene;
 
-struct Transform {
-    glm::vec3 position{0.f, 0.f, 0.f};
-    glm::quat rotation{0.f, 0.f, 0.f, 1.f};
-    glm::vec3 scale{1.f, 1.f, 1.f};
-};
+
 
 struct EngineContext {
     std::unique_ptr<Window> window;

@@ -7,6 +7,7 @@ class ILayer {
     virtual void onAttach() = 0;
     virtual void onUpdate(float dt) = 0;
     virtual void onRender() = 0;
+    virtual void onUIRender() = 0;
     virtual void onDettach() = 0;
     bool isLayerActive{true};
 };

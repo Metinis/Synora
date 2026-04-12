@@ -21,9 +21,13 @@ class Scene : public ILayer {
     void onAttach() override;
     void onDettach() override;
     void onRender() override;
+    void onUIRender() override;
+
+    Entity getCameraEntity();
+    Camera getCamera();
 
     void init(EngineContext *ctx);
-    Entity createEntity();
+    Entity createEntity(const std::string &tag = "Unnamed Entity");
 
     template <typename T> std::vector<Entity> getEntities() {
         std::vector<Entity> ret;
@@ -37,7 +41,7 @@ class Scene : public ILayer {
     Renderer *m_Renderer;
     Window *m_Window;
     SceneState m_SceneState;
-    Camera m_Camera;
+    //Camera m_Camera;
 
     float m_Dx;
     float m_Dy;

@@ -55,6 +55,7 @@ class VulkanBackend : public IBackend {
 
     void drawCmd(size_t nVertices) override;
     void drawIndexedCmd(size_t nIndices) override;
+    void drawImGUI() override;
 
     AttachmentHandle getSwapchainAttachmentCmd() override;
 
@@ -104,6 +105,7 @@ class VulkanBackend : public IBackend {
     void initPipelineLayout();
     void initDescriptorSets();
     void initFrameData(const Swapchain &swapchain);
+    void initImGUI(Window *window);
 
     void recreateSwapchain(Window &window);
 
@@ -139,6 +141,9 @@ class VulkanBackend : public IBackend {
     StagingBuffer m_StagingBuffer{};
 
     AttachmentHandle m_SwapchainAttachmentHandle{};
+
+    //imgui
+    VkDescriptorPool m_ImGUIDescriptorPool{};
 
     // per frame
     std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
