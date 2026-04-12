@@ -6,11 +6,13 @@
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 
+#include "PuzzleEngine/scene/Components.h"
+
 namespace SYN {
 class Window;
 
 struct Camera {
-    Transform transform;
+    TransformComp transform;
     float fovDegrees;
     float aspectRatio;
     float nearPlane;
@@ -30,7 +32,7 @@ class Renderer {
 
     // could make a renderable object struct with modelID, materialID etc, all
     // that are needed for drawing
-    void drawModel(UUID modelID, const Transform &transform);
+    void drawModel(UUID modelID, const TransformComp &transform);
     void shutdown();
 
     struct UploadedMesh {

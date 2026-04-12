@@ -62,7 +62,6 @@ void Application::run() {
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        ImGui::ShowDemoWindow();
         for (auto &l : m_Layers) {
             l->onUIRender();
         }

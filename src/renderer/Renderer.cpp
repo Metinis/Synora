@@ -84,7 +84,7 @@ void Renderer::setCamera(const Camera &camera) {
     m_CurrentCameraView = rotation * translation;
 }
 
-void Renderer::drawModel(UUID modelID, const Transform &transform) {
+void Renderer::drawModel(UUID modelID, const TransformComp &transform) {
     auto it{m_UploadedModels.find(modelID)};
     if (it == m_UploadedModels.end()) {
         spdlog::warn(

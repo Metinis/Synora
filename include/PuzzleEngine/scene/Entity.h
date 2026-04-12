@@ -9,6 +9,8 @@ namespace SYN {
     //entity is just a convenient wrapper around entt stuff, makes the api more accessible
     class Entity {
     public:
+        explicit Entity() = default;
+
         explicit Entity(SceneState *sceneState, entt::entity handle);
 
         explicit Entity(entt::registry *registry, entt::entity handle);
