@@ -40,6 +40,7 @@ class Scene : public ILayer {
   private:
     Renderer *m_Renderer;
     Window *m_Window;
+    AssetManager *m_AssetManager;
     SceneState m_SceneState;
 
     friend class Entity;

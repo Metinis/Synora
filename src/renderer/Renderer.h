@@ -27,6 +27,7 @@ class Renderer {
     void init(EngineContext *ctx);
     void render(Window &window);
     void addModel(UUID modelID, const ModelData &modelData);
+    void removeModel(UUID modelID);
 
     void setCamera(const Camera &camera);
 

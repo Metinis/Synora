@@ -29,6 +29,7 @@ target_include_directories(
   ${PROJECT_SOURCE_DIR}/3rdparty/stb
   ${PROJECT_SOURCE_DIR}/3rdparty/imgui
   ${PROJECT_SOURCE_DIR}/3rdparty/imgui/backends
+  ${PROJECT_SOURCE_DIR}/3rdparty/tinyfiledialogs
 )
 target_link_libraries(
   Synora 
@@ -57,6 +58,7 @@ target_include_directories(PuzzleEngine
   PRIVATE
   ${PROJECT_SOURCE_DIR}/src
   ${PROJECT_SOURCE_DIR}/3rdparty/stb
+  ${PROJECT_SOURCE_DIR}/3rdparty/tinyfiledialogs
 )
 
 target_link_libraries(
@@ -72,6 +74,7 @@ target_link_libraries(
   glm::glm
   assimp
   imgui
+  tinyfiledialogs
 )
 
 # This is to make the projection matrices in glm work with vulkan

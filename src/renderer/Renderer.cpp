@@ -72,6 +72,20 @@ void Renderer::addModel(UUID modelID, const ModelData &modelData) {
     spdlog::info("added model");
 }
 
+void Renderer::removeModel(UUID modelID) {
+    if (m_UploadedModels.contains(modelID)) {
+        auto& model = m_UploadedModels[modelID];
+        for (auto &mesh : model.meshes) {
+            m_Backend->destroyTexture(mesh.albedo);
+            m_Backend->destroyBuffer(mesh.vertexBuffer);
+            m_Backend->destroyBuffer(mesh.indexBuffer);
+        }
+        m_UploadedModels.erase(modelID);
+    } else {
+        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models", modelID);
+    }
+}
+
 void Renderer::setCamera(const Camera &camera) {
     m_CurrentCameraProjection =
         glm::perspective(glm::radians(camera.fovDegrees), camera.aspectRatio,

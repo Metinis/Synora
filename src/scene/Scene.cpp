@@ -44,9 +44,10 @@ bool Scene::isValidEntity(Entity entity) {
 void Scene::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
     m_Window = ctx->window.get();
+    m_AssetManager = ctx->projectConfig.assetManager.get();
 
     auto e = createEntity();
-    UUID uuid{ctx->projectConfig.assetManager->loadModel(
+    UUID uuid{m_AssetManager->loadModel(
         "resources/assets/Cabin/scene.gltf")};
     spdlog::info("uuid = {}", uuid);
 
