@@ -40,10 +40,42 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
     };
 
     UUID uuid{generateUUID()};
-    m_AssetMap[uuid] = textureData;
+    m_AssetMap[uuid].data = textureData;
     m_LoadedUUIDMap[path] = uuid;
 
     return uuid;
+}
+
+void SYN::AssetManager::addRef(UUID id) {
+    if (m_AssetMap.contains(id)) {
+        spdlog::debug("Asset Manager: {} Ref increased", id);
+        if (m_AssetMap[id].ref == 0) {
+            //add to renderer if an entity uses it
+            auto asset = m_AssetMap[id].data;
+            if (std::holds_alternative<ModelData>(asset)) {
+                m_Renderer->addModel(id, std::get<ModelData>(asset));
+            }
+        }
+        m_AssetMap[id].ref++;
+    } else {
+        spdlog::warn("Asset Manager: Could not add ref {}, asset missing", id);
+    }
+}
+
+void SYN::AssetManager::removeRef(UUID id) {
+    if (m_AssetMap.contains(id)) {
+        spdlog::debug("Asset Manager: {} Ref decreased", id);
+        m_AssetMap[id].ref--;
+        if (m_AssetMap[id].ref == 0) {
+            //remove from renderer
+            auto asset = m_AssetMap[id].data;
+            if (std::holds_alternative<ModelData>(asset)) {
+                m_Renderer->removeModel(id);
+            }
+        }
+    } else {
+        spdlog::warn("Asset Manager: Could not remove ref {}, asset missing", id);
+    }
 }
 
 SYN::UUID SYN::AssetManager::loadRawTexture(stbi_uc *data, uint32_t width,
@@ -62,7 +94,7 @@ SYN::UUID SYN::AssetManager::loadRawTexture(stbi_uc *data, uint32_t width,
     };
 
     UUID uuid{generateUUID()};
-    m_AssetMap[uuid] = textureData;
+    m_AssetMap[uuid].data = textureData;
     m_LoadedUUIDMap[name] = uuid;
 
     return uuid;
@@ -95,7 +127,7 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     };
 
     UUID uuid{generateUUID()};
-    m_AssetMap[uuid] = textureData;
+    m_AssetMap[uuid].data = textureData;
     m_LoadedUUIDMap[name] = uuid;
 
     return uuid;
@@ -124,10 +156,8 @@ SYN::UUID SYN::AssetManager::loadModel(const std::string &path) {
     SYN::ModelData modelData{.meshes = std::move(meshes)};
 
     UUID uuid{generateUUID()};
-    m_AssetMap[uuid] = modelData;
+    m_AssetMap[uuid].data = modelData;
     m_LoadedUUIDMap[path] = uuid;
-
-    m_Renderer->addModel(uuid, modelData);
 
     return uuid;
 }

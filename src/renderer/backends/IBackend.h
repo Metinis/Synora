@@ -24,7 +24,7 @@ class IBackend {
         return handle;
     }
 
-    virtual void destroyBuffer(BufferHandle &handle) = 0;
+    virtual void destroyBuffer(BufferHandle handle) = 0;
 
     virtual TextureHandle createTexture(const TextureDesc &desc) = 0;
     // stride of image must be 4bytes
@@ -37,7 +37,7 @@ class IBackend {
         return handle;
     }
 
-    virtual void destroyTexture(TextureHandle &handle) = 0;
+    virtual void destroyTexture(TextureHandle handle) = 0;
 
     virtual AttachmentHandle createAttachment(const AttachmentDesc &desc) = 0;
     virtual void destroyAttachment(AttachmentHandle &handle) = 0;

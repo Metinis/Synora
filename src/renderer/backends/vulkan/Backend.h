@@ -28,12 +28,12 @@ class VulkanBackend : public IBackend {
     BufferHandle createBuffer(const BufferDesc &desc) override;
     void uploadToBuffer(BufferHandle handle, size_t size,
                         const void *data) override;
-    void destroyBuffer(BufferHandle &handle) override;
+    void destroyBuffer(BufferHandle handle) override;
 
     TextureHandle createTexture(const TextureDesc &desc) override;
     void uploadToTexture(TextureHandle handle, uint32_t width, uint32_t height,
                          const void *data) override;
-    void destroyTexture(TextureHandle &handle) override;
+    void destroyTexture(TextureHandle handle) override;
 
     AttachmentHandle createAttachment(const AttachmentDesc &desc) override;
     void destroyAttachment(AttachmentHandle &handle) override;

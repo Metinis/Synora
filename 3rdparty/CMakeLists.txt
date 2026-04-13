@@ -32,6 +32,9 @@ add_library(imgui STATIC
         imgui/backends/imgui_impl_glfw.cpp
         imgui/backends/imgui_impl_vulkan.cpp
 )
+add_library(tinyfiledialogs STATIC
+        tinyfiledialogs/tinyfiledialogs.c
+)
 
 target_include_directories(imgui
         PUBLIC
