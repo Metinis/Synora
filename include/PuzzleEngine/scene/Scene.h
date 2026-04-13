@@ -44,6 +44,7 @@ class Scene : public ILayer {
     Window *m_Window;
     AssetManager *m_AssetManager;
     SceneState m_SceneState;
+    std::vector<std::function<void()>> m_OnUpdate;
 
     friend class Entity;
 };

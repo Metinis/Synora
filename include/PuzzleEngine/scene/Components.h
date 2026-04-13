@@ -4,6 +4,9 @@
 #include <glm/gtc/quaternion.hpp>
 
 // id is used to access Data through asset manager
+struct ParentComp {
+    SYN::UUID id;
+};
 struct ModelComp {
     SYN::UUID id;
 };
@@ -14,6 +17,7 @@ struct TagComp {
     std::string tag{"Unnamed Entity"};
 };
 struct TransformComp {
+    glm::mat4 worldMatrix;
     glm::vec3 position{0.f, 0.f, 0.f};
     glm::quat rotation{0.f, 0.f, 0.f, 0.f};
     glm::vec3 scale{1.f, 1.f, 1.f};

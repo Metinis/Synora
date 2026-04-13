@@ -45,23 +45,23 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
     backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
     for (const auto &drawCall : m_DrawCalls) {
-        if (drawCall.mesh->numIndices == 0) {
+        if (drawCall.mesh.numIndices == 0) {
             continue;
         }
 
         PushConstants pushConstants{
             .modelMat = drawCall.modelMatrix,
             .vertexBuffer =
-                backend.getBufferAddressCmd(drawCall.mesh->vertexBuffer),
+                backend.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
             .indexBuffer =
-                backend.getBufferAddressCmd(drawCall.mesh->indexBuffer),
+                backend.getBufferAddressCmd(drawCall.mesh.indexBuffer),
             .textureIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.mesh->albedo),
+                backend.getShaderSamplerIndexCmd(drawCall.mesh.albedo),
         };
 
         backend.setPushConstantsCmd(pushConstants);
 
-        backend.drawCmd(drawCall.mesh->numIndices);
+        backend.drawCmd(drawCall.mesh.numIndices);
     }
     backend.endRenderPassCmd();
 }

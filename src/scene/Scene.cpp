@@ -20,6 +20,17 @@ Scene::Scene() {}
 
 
 void Scene::onUpdate(float dt) {
+    //clear any ref queue
+    if (!m_OnUpdate.empty()) {
+        for (auto& f : m_OnUpdate) {
+            f();
+        }
+        m_OnUpdate.clear();
+    }
+    //calculate world matrices for all entities
+    //for (auto e : getEntities<TransformComp>()) {
+
+    //}
 
 }
 
@@ -40,13 +51,18 @@ void Scene::onRender() {
 void Scene::onModelAdded(entt::registry& reg, entt::entity e) {
     auto& comp = reg.get<ModelComp>(e);
 
-    m_AssetManager->addRef(comp.id);
+    m_OnUpdate.push_back([&]() {
+        m_AssetManager->addRef(comp.id);
+    });
+
 }
 
 void Scene::onModelRemoved(entt::registry& reg, entt::entity e) {
     auto& comp = reg.get<ModelComp>(e);
 
-    m_AssetManager->removeRef(comp.id);
+    m_OnUpdate.push_back([&]() {
+        m_AssetManager->removeRef(comp.id);
+    });
 }
 
 bool Scene::isValidEntity(Entity entity) {
