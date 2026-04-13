@@ -37,6 +37,18 @@ void Scene::onRender() {
     }
 }
 
+void Scene::onModelAdded(entt::registry& reg, entt::entity e) {
+    auto& comp = reg.get<ModelComp>(e);
+
+    m_AssetManager->addRef(comp.id);
+}
+
+void Scene::onModelRemoved(entt::registry& reg, entt::entity e) {
+    auto& comp = reg.get<ModelComp>(e);
+
+    m_AssetManager->removeRef(comp.id);
+}
+
 bool Scene::isValidEntity(Entity entity) {
     return m_SceneState.registry.valid(entity.getHandle());
 }
@@ -45,6 +57,11 @@ void Scene::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
     m_Window = ctx->window.get();
     m_AssetManager = ctx->projectConfig.assetManager.get();
+
+    //initialize callbacks
+    m_SceneState.registry.on_construct<ModelComp>().connect<&Scene::onModelAdded>(this);
+    m_SceneState.registry.on_destroy<ModelComp>().connect<&Scene::onModelRemoved>(this);
+
 
     auto e = createEntity();
     UUID uuid{m_AssetManager->loadModel(

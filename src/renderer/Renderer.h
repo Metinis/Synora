@@ -66,6 +66,7 @@ class Renderer {
 
     std::unordered_map<UUID, UploadedModel> m_UploadedModels;
     std::vector<MeshDrawCall> m_DrawCalls;
+    std::vector<std::function<void()>> m_RemoveQueue;
 };
 
 } // namespace SYN

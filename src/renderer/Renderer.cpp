@@ -34,6 +34,11 @@ void SYN::Renderer::render(Window &window) {
     m_Backend->endFrame(*m_Window);
 
     m_DrawCalls.clear();
+
+    for (auto& f : m_RemoveQueue) {
+        f();
+    }
+    m_RemoveQueue.clear();
 }
 
 void Renderer::addModel(UUID modelID, const ModelData &modelData) {
@@ -76,11 +81,17 @@ void Renderer::removeModel(UUID modelID) {
     if (m_UploadedModels.contains(modelID)) {
         auto& model = m_UploadedModels[modelID];
         for (auto &mesh : model.meshes) {
-            m_Backend->destroyTexture(mesh.albedo);
-            m_Backend->destroyBuffer(mesh.vertexBuffer);
-            m_Backend->destroyBuffer(mesh.indexBuffer);
+            m_RemoveQueue.push_back([this, mesh] {
+                m_Backend->destroyTexture(mesh.albedo);
+                m_Backend->destroyBuffer(mesh.vertexBuffer);
+                m_Backend->destroyBuffer(mesh.indexBuffer);
+            });
+
         }
-        m_UploadedModels.erase(modelID);
+        m_RemoveQueue.push_back([this, modelID] {
+            m_UploadedModels.erase(modelID);
+        });
+        spdlog::debug("Removed model from renderer {}", modelID);
     } else {
         spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models", modelID);
     }

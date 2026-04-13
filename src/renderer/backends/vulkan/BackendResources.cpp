@@ -39,7 +39,7 @@ void SYN::VK::VulkanBackend::uploadToBuffer(BufferHandle handle, size_t size,
     m_StagingBuffer.uploadToBuffer(m_Device, data, size, buffer);
 }
 
-void SYN::VK::VulkanBackend::destroyBuffer(BufferHandle &handle) {
+void SYN::VK::VulkanBackend::destroyBuffer(BufferHandle handle) {
     Buffer buffer{m_Buffers[handle]};
 
     // the frame where all references to this texture will have completed
@@ -141,7 +141,7 @@ void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 }
 
-void SYN::VK::VulkanBackend::destroyTexture(TextureHandle &handle) {
+void SYN::VK::VulkanBackend::destroyTexture(TextureHandle handle) {
     Texture texture{m_Textures[handle]};
 
     // the frame where all references to this texture will have completed

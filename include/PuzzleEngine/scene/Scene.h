@@ -24,6 +24,8 @@ class Scene : public ILayer {
     void onUIRender() override;
 
     bool isValidEntity(Entity entity);
+    void onModelAdded(entt::registry& reg, entt::entity e);
+    void onModelRemoved(entt::registry& reg, entt::entity e);
 
     void init(EngineContext *ctx);
     Entity createEntity(const std::string &tag = "Unnamed Entity");

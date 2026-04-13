@@ -14,7 +14,10 @@ struct aiMesh;
 struct aiScene;
 
 namespace SYN {
-
+    struct AssetCounted {
+        AssetType data{};
+        uint64_t ref{};
+    };
 class AssetManager {
   public:
     AssetManager() = default;
@@ -24,17 +27,17 @@ class AssetManager {
     UUID loadModel(const std::string &path);
     UUID loadTexture(const std::string &path);
 
+    void addRef(UUID id);
+    void removeRef(UUID id);
+
     // automatically gen ID
     template <typename T>
         requires isAsset<T>
     UUID addAsset(T asset) {
         UUID id = generateUUID();
-        m_AssetMap[id] = asset;
+        m_AssetMap[id].data = asset;
         // generate mesh data if we added one
         spdlog::debug("Asset added: {}", id);
-        if constexpr (std::is_same_v<T, ModelData>) {
-            m_Renderer->addModel(id, asset);
-        }
         return id;
     }
 
@@ -42,12 +45,9 @@ class AssetManager {
     template <typename T>
         requires isAsset<T>
     void createAsset(T asset, UUID id) {
-        m_AssetMap[id] = asset;
+        m_AssetMap[id].data = asset;
         // generate model data if we added one
         spdlog::debug("Asset created: %d", id);
-        if (std::holds_alternative<ModelData>(asset)) {
-            m_Renderer->addModel(id, std::get<ModelData>(asset));
-        }
     }
 
     template <typename T>
@@ -56,8 +56,8 @@ class AssetManager {
         // check if the id is what the user requested
         auto it{m_AssetMap.find(id)};
         if (it != m_AssetMap.end() &&
-            std::holds_alternative<T>(m_AssetMap[id])) {
-            return &std::get<T>(it->second);
+            std::holds_alternative<T>(m_AssetMap[id].data)) {
+            return &std::get<T>(it->second.data);
         }
         spdlog::error("Asset not found, ID!: %d Type: %s", id,
                       typeid(T).name());
@@ -88,7 +88,7 @@ class AssetManager {
     SYN::UUID processMaterials(const aiMesh *mesh, const aiScene *scene,
                                const std::string &path);
 
-    std::unordered_map<UUID, AssetType> m_AssetMap{};
+    std::unordered_map<UUID, AssetCounted> m_AssetMap{};
     std::unordered_map<std::string, UUID> m_LoadedUUIDMap{};
     Renderer *m_Renderer{};
     Assimp::Importer m_Importer;
