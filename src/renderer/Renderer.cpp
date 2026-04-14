@@ -4,6 +4,7 @@
 #include "backends/vulkan/Backend.h"
 #include "glm/ext/quaternion_common.hpp"
 #include "render_passes/FirstPass.h"
+#include "render_passes/ImGUIPass.h"
 #include "renderer/RenderTypes.h"
 
 using namespace SYN;
@@ -13,18 +14,26 @@ void SYN::Renderer::init(EngineContext *ctx) {
     m_Backend->init(ctx->window.get());
     m_Window = ctx->window.get();
 
-    m_DepthAttachment =
-        m_Backend->createAttachment(AttachmentDesc{.type = TextureType::depth});
+    m_MSAADepthAttachment = m_Backend->createAttachment(
+        AttachmentDesc{.type = TextureType::depth, .msaaSamples = 4});
+
+    m_MSAAScreenColorAttachment = m_Backend->createAttachment(AttachmentDesc{
+        .type = TextureType::srgb,
+        .msaaSamples = 4,
+    });
 }
 
 void SYN::Renderer::render(Window &window) {
     AttachmentHandle swapchainAttachment{
         m_Backend->getSwapchainAttachmentCmd()};
 
-    m_RenderGraph.addPass<FirstPass>(m_DrawCalls, m_CurrentCameraProjection,
-                                     m_CurrentCameraView, swapchainAttachment,
-                                     m_DepthAttachment);
+    uint32_t msaaSamples{4};
+    m_RenderGraph.addPass<FirstPass>(
+        msaaSamples, m_DrawCalls, m_CurrentCameraProjection,
+        m_CurrentCameraView, m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
+        swapchainAttachment);
 
+    m_RenderGraph.addPass<ImGUIPass>(swapchainAttachment);
     m_RenderGraph.compile(*m_Backend);
 
     m_Backend->beginFrame(*m_Window);
@@ -82,9 +91,8 @@ void Renderer::setCamera(const Camera &camera) {
     m_CurrentCameraView = rotation * translation;
 }
 
-void Renderer::drawModel(UUID modelID, const Transform &transform) {
-    auto it{m_UploadedModels.find(modelID)};
-    if (it == m_UploadedModels.end()) {
+void Renderer::drawModel(UUID modelID, const TransformComp &transform) {
+    if (!m_UploadedModels.contains(modelID)) {
         spdlog::warn(
             "Trying to draw model (uuid = {}) that was not added to renderer",
             modelID);
@@ -96,7 +104,7 @@ void Renderer::drawModel(UUID modelID, const Transform &transform) {
 
     glm::mat4 modelMat{translation * rotation * scale};
 
-    UploadedModel &model{it->second};
+    UploadedModel &model{m_UploadedModels[modelID]};
     for (auto &mesh : model.meshes) {
         m_DrawCalls.emplace_back(MeshDrawCall{
             .mesh = &mesh,
@@ -114,7 +122,8 @@ void SYN::Renderer::shutdown() {
             m_Backend->destroyBuffer(mesh.indexBuffer);
         }
     }
-    m_Backend->destroyAttachment(m_DepthAttachment);
+    m_Backend->destroyAttachment(m_MSAAScreenColorAttachment);
+    m_Backend->destroyAttachment(m_MSAADepthAttachment);
 
     m_Backend->shutdown();
 }

@@ -3,6 +3,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 layout(set = 0, binding = 0) uniform sampler2D textures[];
+layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
 layout(location = 0) in vec2 uv;
 
 layout (location = 0) out vec4 outColor;

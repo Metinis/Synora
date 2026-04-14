@@ -43,6 +43,7 @@ void RenderGraph::execute(IBackend &backend) {
         PipelineHandle pipeline{m_PipelineHandles[passIndex]};
         pass->execute(backend, pipeline);
     }
+
     m_Passes.clear();
     m_PipelineHandles.clear();
     m_Compiled = false;

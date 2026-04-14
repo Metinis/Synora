@@ -3,6 +3,8 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 layout(set = 0, binding = 0) uniform sampler2D textures[];
+layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
+
 layout(location = 0) out vec2 outUV;
 
 struct Vertex {

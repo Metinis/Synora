@@ -25,6 +25,7 @@ struct Image {
     VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
 
     uint32_t mipLevels{1};
+    uint32_t layerCount{1};
 
     VmaAllocation allocation;
     ImageSyncState syncState;

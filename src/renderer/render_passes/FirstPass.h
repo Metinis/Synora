@@ -6,21 +6,24 @@
 namespace SYN {
 class FirstPass : public IRenderPass {
   public:
-    FirstPass(std::span<Renderer::MeshDrawCall> drawCalls,
+    FirstPass(uint32_t msaaSampleCount,
+              std::span<Renderer::MeshDrawCall> drawCalls,
               const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
-              AttachmentHandle colorAttachment,
-              AttachmentHandle depthAttachment);
+              AttachmentHandle msaaColorAttachment,
+              AttachmentHandle msaaDepthAttachment,
+              AttachmentHandle colorAttachment);
 
     void execute(IBackend &backend, PipelineHandle pipeline) override;
     GraphicsPipelineDesc getPipelineDesc() const override;
-    RenderPassDesc getPassDesc() const override;
+    RenderPassDesc getPassDesc() override;
 
   private:
+    uint32_t m_MSAASampleCount;
     std::span<Renderer::MeshDrawCall> m_DrawCalls;
     glm::mat4 m_CameraProjection;
     glm::mat4 m_CameraView;
 
-    WriteAttachment m_ColorAttachment;
-    WriteAttachment m_DepthAttachment;
+    WriteAttachmentInfo m_ColorAttachment;
+    WriteAttachmentInfo m_DepthAttachment;
 };
 } // namespace SYN

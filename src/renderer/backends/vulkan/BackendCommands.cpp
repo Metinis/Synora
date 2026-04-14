@@ -18,18 +18,20 @@
 #include <PuzzleEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
 
+#include "imgui_impl_vulkan.h"
+
 using namespace SYN;
 using namespace SYN::VK;
 
 namespace {
 constexpr uint32_t c_MB{1024 * 1024};
 
+VkRenderingAttachmentInfo makeAttachmentInfo(
+    const Image &image, std::optional<const Image *> resolveImage,
+    const WriteAttachmentInfo &attachment, VkImageLayout targetLayout);
+
 VkAttachmentLoadOp toVkLoadOp(LoadOp loadOp);
 VkAttachmentStoreOp toVkStoreOp(StoreOp loadOp);
-
-VkRenderingAttachmentInfo makeAttachmentInfo(const Image &image,
-                                             const WriteAttachment &attachment,
-                                             VkImageLayout targetLayout);
 
 } // namespace
 
@@ -167,11 +169,17 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
     colorAttachmentInfos.reserve(desc.colorAttachments.size());
     VkRenderingAttachmentInfo depthAttachmentInfo{};
 
-    // TODO: implement resolve attachments!!
     VkExtent2D viewportExtent{.width = UINT32_MAX, .height = UINT32_MAX};
     for (const auto &attachment : desc.colorAttachments) {
         Image &image{
             m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
+
+        std::optional<Image *> resolveImage{};
+
+        if (attachment.resolveHandle.has_value()) {
+            resolveImage = &m_Attachments[attachment.resolveHandle.value()]
+                                .images[m_CurrentFrameIndex];
+        }
 
         if (viewportExtent.width == UINT32_MAX &&
             viewportExtent.height == UINT32_MAX) {
@@ -189,18 +197,33 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
 
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         colorAttachmentInfos.emplace_back(
-            makeAttachmentInfo(image, attachment, targetLayout));
+            makeAttachmentInfo(image, resolveImage, attachment, targetLayout));
 
         if (image.syncState.currentLayout != targetLayout) {
             transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
         }
+        if (resolveImage.has_value()) {
+            if (resolveImage.value()->syncState.currentLayout != targetLayout) {
+                transitionImageCmd(
+                    frame.graphicsCmdBuffer, *resolveImage.value(),
+                    targetLayout,
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            }
+        }
     }
     if (desc.depthAttachment.has_value()) {
-        WriteAttachment attachment{desc.depthAttachment.value()};
+        WriteAttachmentInfo attachment{desc.depthAttachment.value()};
         Image &image{
             m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
+
+        std::optional<Image *> resolveImage{};
+        if (attachment.resolveHandle.has_value()) {
+            resolveImage = &m_Attachments[attachment.resolveHandle.value()]
+                                .images[m_CurrentFrameIndex];
+        }
 
         if (viewportExtent.width == UINT32_MAX &&
             viewportExtent.height == UINT32_MAX) {
@@ -217,7 +240,7 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         }
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL};
         depthAttachmentInfo =
-            makeAttachmentInfo(image, attachment, targetLayout);
+            makeAttachmentInfo(image, resolveImage, attachment, targetLayout);
 
         if (image.syncState.currentLayout != targetLayout) {
             transitionImageCmd(
@@ -226,6 +249,15 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
+        }
+        if (resolveImage.has_value()) {
+            if (resolveImage.value()->syncState.currentLayout != targetLayout) {
+                transitionImageCmd(
+                    frame.graphicsCmdBuffer, *resolveImage.value(),
+                    targetLayout,
+                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            }
         }
     }
 
@@ -337,6 +369,13 @@ void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices) {
     vkCmdDrawIndexed(frame.graphicsCmdBuffer, nIndices, 1, 0, 0, 0);
 }
 
+void VulkanBackend::drawImGUI() {
+    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
+                                    frame.graphicsCmdBuffer);
+}
+
 AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
     return m_SwapchainAttachmentHandle;
 }
@@ -360,12 +399,11 @@ uint64_t SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
     return m_Buffers[handle].deviceAddress;
 }
 
-// TODO: maybe change this...
-VkRenderingAttachmentInfo
-VulkanBackend::makeAttachmentInfo(size_t frameIndex,
-                                  const WriteAttachment &attachment,
-                                  VkImageLayout targetLayout) const {
-    const Image &image{m_Attachments.at(attachment.handle).};
+namespace {
+
+VkRenderingAttachmentInfo makeAttachmentInfo(
+    const Image &image, std::optional<const Image *> resolveImage,
+    const WriteAttachmentInfo &attachment, VkImageLayout targetLayout) {
 
     VkClearValue clearValue{};
     if (image.subresourceRange.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
@@ -392,10 +430,16 @@ VulkanBackend::makeAttachmentInfo(size_t frameIndex,
         .clearValue = clearValue,
     };
 
+    if (resolveImage.has_value()) {
+        assert(attachment.resolveHandle.has_value());
+
+        attachmentInfo.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+        attachmentInfo.resolveImageLayout = targetLayout;
+        attachmentInfo.resolveImageView = resolveImage.value()->view;
+    }
+
     return attachmentInfo;
 }
-
-namespace {
 VkAttachmentLoadOp toVkLoadOp(LoadOp loadOp) {
     VkAttachmentLoadOp vkLoadOp{};
     switch (loadOp) {

@@ -8,6 +8,10 @@
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+
 using namespace SYN;
 
 Application *Application::s_Instance = nullptr;
@@ -54,13 +58,21 @@ void Application::run() {
         for (auto &l : m_Layers) {
             l->onUpdate(dt);
         }
+
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        for (auto &l : m_Layers) {
+            l->onUIRender();
+        }
+        ImGui::Render();
+        ImGui::EndFrame();
+
         m_EngineContext.renderer->render(*m_EngineContext.window.get());
         for (auto &l : m_Layers) {
             l->onRender();
         }
-        for (auto &l : m_Layers) {
-            // ui render
-        }
+
     }
 }
 

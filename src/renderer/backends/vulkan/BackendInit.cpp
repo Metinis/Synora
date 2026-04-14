@@ -19,7 +19,12 @@
 #include <vk_mem_alloc.h>
 
 #include <PuzzleEngine/core/Window.h>
+#include <imgui.h>
+#include <imgui_impl_vulkan.h>
 #include <vulkan/vulkan_core.h>
+
+#include "imgui_impl_glfw.h"
+#include "imgui_internal.h"
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -38,7 +43,10 @@ void SYN::VK::VulkanBackend::init(Window *window) {
 
     initFrameData(m_Swapchain);
 
-    m_StagingBuffer = StagingBuffer().create(m_Device, m_Allocator, c_MB * 64);
+    initImGUI(window);
+
+    m_StagingBuffer =
+        StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 8);
 
     VkSamplerCreateInfo samplerCI{
         .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -125,6 +133,9 @@ void SYN::VK::VulkanBackend::shutdown() {
                                  nullptr);
     vkDestroyDescriptorPool(m_Device.logical, m_DescriptorPool, nullptr);
 
+    ImGui_ImplVulkan_Shutdown();
+    vkDestroyDescriptorPool(m_Device.logical, m_ImGUIDescriptorPool, nullptr);
+
     vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
                             nullptr);
 
@@ -179,19 +190,26 @@ void SYN::VK::VulkanBackend::initContext(Window *window) {
 void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
     uint32_t textureDescriptorCount{
         std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
+    uint32_t cubeMapDescriptorCount{
+        std::min(c_MaxBindlessCubeMaps,
+                 m_Device.properties.limits.maxDescriptorSetSampledImages) /
+        2};
 
-    VkDescriptorBindingFlags textureBindingFlags{
+    VkDescriptorBindingFlags bindlessBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
     VkDescriptorBindingFlags uboBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
 
-    VkDescriptorSetLayoutBindingFlagsCreateInfo textureBindingFlagsCI{
+    std::array<VkDescriptorBindingFlags, 2> bindlessFlags{bindlessBindingFlags,
+                                                          bindlessBindingFlags};
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bindlessBindingFlagsCI{
         .sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-        .bindingCount = 1,
-        .pBindingFlags = &textureBindingFlags,
+        .bindingCount = bindlessFlags.size(),
+        .pBindingFlags = bindlessFlags.data(),
     };
+
     VkDescriptorSetLayoutBindingFlagsCreateInfo uboBindingFlagsCI{
         .sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
@@ -199,11 +217,20 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
         .pBindingFlags = &uboBindingFlags,
     };
 
-    VkDescriptorSetLayoutBinding bindlessTextureBinding{
+    VkDescriptorSetLayoutBinding textureBinding{
         .binding = c_TextureBinding,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = textureDescriptorCount,
         .stageFlags = VK_SHADER_STAGE_ALL};
+
+    VkDescriptorSetLayoutBinding cubeMapBinding{
+        .binding = c_CubeMapBinding,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .descriptorCount = cubeMapDescriptorCount,
+        .stageFlags = VK_SHADER_STAGE_ALL};
+
+    std::array<VkDescriptorSetLayoutBinding, 2> bindlessBindings{
+        textureBinding, cubeMapBinding};
 
     VkDescriptorSetLayoutBinding uboBinding{
         .binding = 0,
@@ -213,14 +240,15 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
 
     VkDescriptorSetLayoutCreateInfo bindlessLayoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &textureBindingFlagsCI,
-        .bindingCount = 1,
-        .pBindings = &bindlessTextureBinding,
+        .pNext = &bindlessBindingFlagsCI,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+        .bindingCount = bindlessBindings.size(),
+        .pBindings = bindlessBindings.data(),
     };
+
     VkDescriptorSetLayoutCreateInfo uboLayoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = &uboBindingFlagsCI,
-        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = 1,
         .pBindings = &uboBinding,
     };
@@ -278,12 +306,19 @@ void SYN::VK::VulkanBackend::initPipelineLayout() {
 void SYN::VK::VulkanBackend::initDescriptorSets() {
     uint32_t textureDescriptorCount{
         std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
+    uint32_t cubeMapDescriptorCount{
+        std::min(c_MaxBindlessCubeMaps,
+                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
 
-    std::array<VkDescriptorPoolSize, 2> poolSizes{
+    std::array<VkDescriptorPoolSize, 3> poolSizes{
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = textureDescriptorCount,
+        },
+        VkDescriptorPoolSize{
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = cubeMapDescriptorCount,
         },
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -385,6 +420,60 @@ void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
                           &renderFinishedSemaphore);
         m_RenderFinishedSemaphores.emplace_back(renderFinishedSemaphore);
     }
+}
+
+void VulkanBackend::initImGUI(Window *window) {
+    VkDescriptorPoolSize poolSizes[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}};
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = 1000;
+    poolInfo.poolSizeCount = (uint32_t)std::size(poolSizes);
+    poolInfo.pPoolSizes = poolSizes;
+
+    VkResult res = (vkCreateDescriptorPool(m_Device.logical, &poolInfo, nullptr,
+                                           &m_ImGUIDescriptorPool));
+
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create descriptor pool. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
+
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForVulkan(window->getHandle(), true);
+
+    ImGui_ImplVulkan_InitInfo initInfo = {};
+    initInfo.Instance = m_Instance;
+    initInfo.PhysicalDevice = m_Device.physical;
+    initInfo.Device = m_Device.logical;
+    initInfo.Queue = m_Device.queues[QueueFamily::graphics].handle;
+    initInfo.DescriptorPool = m_ImGUIDescriptorPool;
+    initInfo.MinImageCount = 3;
+    initInfo.ImageCount = 3;
+    initInfo.UseDynamicRendering = true;
+
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount =
+        1;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo
+        .pColorAttachmentFormats = &m_Swapchain.format;
+    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    ImGui_ImplVulkan_Init(&initInfo);
 }
 
 void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {

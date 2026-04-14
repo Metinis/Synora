@@ -125,7 +125,7 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
 
 void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
                                              uint32_t width, uint32_t height,
-                                             const void *data) {
+                                             const void *data, uint32_t layer) {
     Texture &texture{m_Textures[handle]};
 
     transitionImage(m_TransientCmdPool, m_Device, texture.image,
@@ -160,13 +160,13 @@ void SYN::VK::VulkanBackend::destroyTexture(TextureHandle &handle) {
 
 AttachmentHandle
 SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
-    VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};
+    VkFormat format{};
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{};
     switch (desc.type) {
     case TextureType::srgb:
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        format = VK_FORMAT_R8G8B8A8_SRGB;
+        format = m_Swapchain.format;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         break;
     case TextureType::depth:
@@ -175,8 +175,10 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
         aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
         break;
     case TextureType::rgba:
+        spdlog::warn("Trying to use rgba texture type for attachment, all "
+                     "attachments should be srgb");
+        format = m_Swapchain.format;
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        format = VK_FORMAT_R8G8B8A8_UNORM;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         break;
     default:
@@ -199,6 +201,7 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
     std::array<Image, c_MaxFramesInFlight> images{};
     std::array<uint32_t, c_MaxFramesInFlight> bindlessSamplerIndices{};
     VkSampleCountFlagBits samples{getSamples(m_Device, desc.msaaSamples)};
+
     for (size_t i{}; i < images.size(); i++) {
         images[i] = createImage(m_Device, m_Allocator, format,
                                 {.width = width, .height = height}, usage,
@@ -280,10 +283,10 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
     if (desc.hasDepthAttachment) {
         pipelineBuilder.enableDepthAttachment();
-        pipelineBuilder.setDepthTest();
     }
     for (size_t i{}; i < desc.nColorAttachments; i++) {
-        pipelineBuilder.addColorAttachment(m_Swapchain.format);
+        pipelineBuilder.addColorAttachment(m_Swapchain.format,
+                                           desc.hasAlphaBlending);
     }
 
     switch (desc.cullMode) {
@@ -308,6 +311,9 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     default:
         break;
     }
+
+    VkSampleCountFlagBits sampleCount{getSamples(m_Device, desc.msaaSamples)};
+    pipelineBuilder.setMSAA(sampleCount);
 
     std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths{};
 

@@ -23,25 +23,25 @@ struct Uniforms {
 };
 } // namespace
 
-SYN::FirstPass::FirstPass(std::span<Renderer::MeshDrawCall> drawCalls,
+SYN::FirstPass::FirstPass(uint32_t msaaSampleCount,
+                          std::span<Renderer::MeshDrawCall> drawCalls,
                           const glm::mat4 &cameraProjection,
                           const glm::mat4 &cameraView,
-                          AttachmentHandle colorAttachment,
-                          AttachmentHandle depthAttachment)
-    : m_DrawCalls(drawCalls), m_CameraProjection(cameraProjection),
-      m_CameraView(cameraView) {
-    m_ColorAttachment = WriteAttachment{.handle = colorAttachment,
-                                        .clearColor = {0.f, 0.f, 0.f, 1.f}};
-    m_DepthAttachment = WriteAttachment{
-        .handle = depthAttachment,
+                          AttachmentHandle msaaColorAttachment,
+                          AttachmentHandle msaaDepthAttachment,
+                          AttachmentHandle colorAttachment)
+    : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
+      m_CameraProjection(cameraProjection), m_CameraView(cameraView) {
+    m_ColorAttachment = WriteAttachmentInfo{.handle = msaaColorAttachment,
+                                            .resolveHandle = colorAttachment,
+                                            .clearColor = {0.f, 0.f, 0.f, 1.f}};
+    m_DepthAttachment = WriteAttachmentInfo{
+        .handle = msaaDepthAttachment,
         .clearDepth = 1.f,
     };
 }
 
 void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
-    static float thing{0.f};
-    thing += 0.0001;
-
     Uniforms uniform{.projectionViewMat = m_CameraProjection * m_CameraView};
 
     backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
@@ -68,7 +68,7 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
     backend.endRenderPassCmd();
 }
 
-RenderPassDesc SYN::FirstPass::getPassDesc() const {
+RenderPassDesc SYN::FirstPass::getPassDesc() {
     return RenderPassDesc{
         .colorAttachments = std::span(&m_ColorAttachment, 1),
         .depthAttachment = m_DepthAttachment,
@@ -76,10 +76,11 @@ RenderPassDesc SYN::FirstPass::getPassDesc() const {
 }
 
 GraphicsPipelineDesc SYN::FirstPass::getPipelineDesc() const {
-    constexpr GraphicsPipelineDesc c_PipelineDesc{
+    GraphicsPipelineDesc c_PipelineDesc{
         .cullMode = CullMode::backFace,
         .nColorAttachments = 1,
         .hasDepthAttachment = true,
+        .msaaSamples = m_MSAASampleCount,
         .vertexShaderPath = "generated/shaders/first.vert.spv",
         .fragmentShaderPath = "generated/shaders/first.frag.spv",
     };
