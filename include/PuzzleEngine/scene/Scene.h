@@ -23,11 +23,13 @@ class Scene : public ILayer {
     void onRender() override;
     void onUIRender() override;
 
-    Entity getCameraEntity();
-    Camera getCamera();
+    bool isValidEntity(Entity entity);
+    void onModelAdded(entt::registry& reg, entt::entity e);
+    void onModelRemoved(entt::registry& reg, entt::entity e);
 
     void init(EngineContext *ctx);
     Entity createEntity(const std::string &tag = "Unnamed Entity");
+    void removeEntity(Entity entity);
 
     template <typename T> std::vector<Entity> getEntities() {
         std::vector<Entity> ret;
@@ -40,21 +42,9 @@ class Scene : public ILayer {
   private:
     Renderer *m_Renderer;
     Window *m_Window;
+    AssetManager *m_AssetManager;
     SceneState m_SceneState;
-    //Camera m_Camera;
-
-    float m_Dx;
-    float m_Dy;
-    float m_Dz;
-    float m_DxRot;
-    float m_DyRot;
-    bool m_CursorHidden{};
-    bool m_LastCursorHiddenState{}; // used to prevent camera from jumping on
-                                    // hitting esc
-
-    float m_WalkSpeed{1.f};
-    float m_RunMultiplier{2.f};
-    bool m_IsRunning{};
+    std::vector<std::function<void()>> m_OnUpdate;
 
     friend class Entity;
 };

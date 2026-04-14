@@ -7,7 +7,7 @@
 #include <PuzzleEngine/core/Input.h>
 #include <PuzzleEngine/core/InputContext.h>
 #include <PuzzleEngine/core/Window.h>
-
+#include "scene/CameraSystem.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
@@ -22,6 +22,7 @@ Application::Application() {
     m_EngineContext.inputManager = std::make_unique<Input>();
     m_EngineContext.renderer = std::make_unique<Renderer>();
     m_EngineContext.scene = std::make_unique<Scene>();
+    m_EngineContext.cameraSystem = std::make_unique<CameraSystem>();
 
     ProjectConfig projectConfig{
         .resourceRoot = "", // todo add root
@@ -41,8 +42,10 @@ void Application::init() {
     m_EngineContext.renderer->init(&m_EngineContext);
     m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
     m_EngineContext.scene->init(&m_EngineContext);
+    m_EngineContext.cameraSystem->init(&m_EngineContext);
 
     m_Layers.push_back(m_EngineContext.scene.get());
+    m_Layers.push_back(m_EngineContext.cameraSystem.get());
 }
 
 void Application::run() {

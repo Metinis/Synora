@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.1)
 
-project(PuzzleEngine CXX)
+project(PuzzleEngine C CXX)
 
 # Executable
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

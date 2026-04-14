@@ -3,11 +3,13 @@
 #include "PuzzleEngine/project/Project.h"
 
 
+
 namespace SYN {
 class Window;
 class Input;
 class Renderer;
 class Scene;
+class CameraSystem;
 
 
 
@@ -16,6 +18,7 @@ struct EngineContext {
     std::unique_ptr<Input> inputManager;
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<Scene> scene;
+    std::unique_ptr<CameraSystem> cameraSystem;
     ProjectConfig projectConfig;
 };
 class Application {
