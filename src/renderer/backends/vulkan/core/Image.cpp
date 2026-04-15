@@ -14,14 +14,47 @@ namespace {} // namespace
 Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                            VkFormat format, VkExtent2D extent,
                            VkImageUsageFlags usage, VkImageAspectFlags aspect,
-                           VkSampleCountFlagBits samples, uint32_t mipLevels) {
+                           VkSampleCountFlagBits samples, uint32_t mipLevels,
+                           uint32_t layerCount, bool isCubeMap) {
+    VkImageViewType viewType{VK_IMAGE_VIEW_TYPE_2D};
+    VkImageCreateFlags imageFlags{};
+    if (isCubeMap) {
+        if (layerCount % 6 != 0) {
+            spdlog::error(
+                "Could not create image, trying to create cubemap "
+                "with layer count not a multiple of 6. Layer count = {}",
+                layerCount);
+            assert(false);
+        }
+        if (layerCount > 6) {
+            spdlog::error("Could not create image, trying to create cubemap "
+                          "with layer count greater than 6, cubemap array not "
+                          "supported. Layer count = {}",
+                          layerCount);
+            assert(false);
+        }
+
+        imageFlags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    } else {
+        if (layerCount > 1) {
+            spdlog::error("Could not create image, trying to create image "
+                          "with layer count greater than 1 thats not a "
+                          "cubemap, texture array not "
+                          "supported. Layer count = {}",
+                          layerCount);
+            assert(false);
+        }
+    }
+
     VkImageCreateInfo imageCI{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .flags = imageFlags,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = {.width = extent.width, .height = extent.height, .depth = 1},
         .mipLevels = mipLevels,
-        .arrayLayers = 1,
+        .arrayLayers = layerCount,
         .samples = samples,
         .tiling = VK_IMAGE_TILING_OPTIMAL,
         .usage = usage,
@@ -44,12 +77,12 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
     VkImageViewCreateInfo viewCI{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = handle,
-        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .viewType = viewType,
         .format = format,
         .subresourceRange{
             .aspectMask = aspect,
             .levelCount = mipLevels,
-            .layerCount = 1,
+            .layerCount = layerCount,
         },
     };
     VkImageView view{};
@@ -66,7 +99,9 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                  .format = format,
                  .usage = usage,
                  .samples = samples,
+                 .isCubeMap = isCubeMap,
                  .mipLevels = mipLevels,
+                 .layerCount = layerCount,
                  .allocation = allocation};
 }
 
@@ -101,6 +136,7 @@ void SYN::VK::transitionImageCmd(VkCommandBuffer cmdBuffer, Image &image,
                                  VkAccessFlags2 dstAccessMask,
                                  uint32_t srcQueueFamilyIndex,
                                  uint32_t dstQueueFamilyIndex) {
+
     if (image.syncState.currentLayout == targetLayout) {
         return;
     }
@@ -143,8 +179,8 @@ void SYN::VK::generateMipChain(VkCommandPool cmdPool, const Device &device,
             .aspectMask = image.subresourceRange.aspectMask,
             .baseMipLevel = 0,
             .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
+            .baseArrayLayer = image.subresourceRange.baseArrayLayer,
+            .layerCount = image.subresourceRange.layerCount,
         });
 
     int32_t srcMipWidth{static_cast<int32_t>(image.extent.width)};
@@ -198,8 +234,8 @@ void SYN::VK::generateMipChain(VkCommandPool cmdPool, const Device &device,
                 .aspectMask = image.subresourceRange.aspectMask,
                 .baseMipLevel = i - 1,
                 .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
+                .baseArrayLayer = image.subresourceRange.baseArrayLayer,
+                .layerCount = image.subresourceRange.layerCount,
             });
 
         transitionImageCmd(
@@ -212,8 +248,8 @@ void SYN::VK::generateMipChain(VkCommandPool cmdPool, const Device &device,
                 .aspectMask = image.subresourceRange.aspectMask,
                 .baseMipLevel = i,
                 .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
+                .baseArrayLayer = image.subresourceRange.baseArrayLayer,
+                .layerCount = image.subresourceRange.layerCount,
             });
 
         vkCmdBlitImage(cmdBuffer, image.handle,
@@ -229,8 +265,8 @@ void SYN::VK::generateMipChain(VkCommandPool cmdPool, const Device &device,
                 .aspectMask = image.subresourceRange.aspectMask,
                 .baseMipLevel = i - 1,
                 .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
+                .baseArrayLayer = image.subresourceRange.baseArrayLayer,
+                .layerCount = image.subresourceRange.layerCount,
             });
 
         srcMipWidth = dstMipWidth;

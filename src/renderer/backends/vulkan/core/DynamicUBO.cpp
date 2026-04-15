@@ -8,8 +8,13 @@ size_t SYN::VK::DynamicUBO::padToAlignment(size_t size, size_t minAlignment) {
     return (size + (minAlignment - 1)) & ~(minAlignment - 1);
 }
 
-VkDescriptorBufferInfo SYN::VK::DynamicUBO::write(const void *data,
-                                                  size_t size) {
+uint32_t SYN::VK::DynamicUBO::write(const void *data, size_t size) {
+    if (size > c_MaxSizePerUBO) {
+        spdlog::warn("Trying to write a UBO of size {} which is larger than "
+                     "the max of {}, clamping",
+                     c_MaxSizePerUBO, size);
+        size = c_MaxSizePerUBO;
+    }
     size_t offset{padToAlignment(m_WriteOffset, m_Alignment)};
     if ((offset + size) > m_Buffer.size) {
         spdlog::warn("Could not write to UBOBuffer, buffer is full");
@@ -22,7 +27,7 @@ VkDescriptorBufferInfo SYN::VK::DynamicUBO::write(const void *data,
         .buffer = m_Buffer.handle, .offset = offset, .range = size};
 
     m_WriteOffset = offset + size;
-    return info;
+    return offset;
 }
 
 void SYN::VK::DynamicUBO::create(const Device &device, VmaAllocator allocator,
@@ -36,3 +41,5 @@ void SYN::VK::DynamicUBO::create(const Device &device, VmaAllocator allocator,
 void SYN::VK::DynamicUBO::destroy(VmaAllocator allocator) {
     destroyBuffer(allocator, m_Buffer);
 }
+
+VkBuffer SYN::VK::DynamicUBO::getVkBuffer() const { return m_Buffer.handle; }

@@ -16,14 +16,16 @@ void SYN::ImGUIPass::execute(IBackend &backend, PipelineHandle pipeline) {
 }
 
 SYN::RenderPassDesc SYN::ImGUIPass::getPassDesc() {
-    return {.colorAttachments = std::span(&m_ColorAttachment, 1)};
+    return {
+        .debugName = "ImGUI Pass",
+        .colorAttachments = std::span(&m_ColorAttachment, 1),
+    };
 }
 
 SYN::GraphicsPipelineDesc SYN::ImGUIPass::getPipelineDesc() const {
     constexpr GraphicsPipelineDesc c_PipelineDesc{
         .cullMode = CullMode::backFace,
         .nColorAttachments = 1,
-        .hasDepthAttachment = false,
         .vertexShaderPath = "generated/shaders/first.vert.spv",
         .fragmentShaderPath = "generated/shaders/first.frag.spv",
     };

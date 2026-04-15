@@ -61,7 +61,11 @@ struct GraphicsPipelineDesc {
     bool hasAlphaBlending{false};
 
     uint32_t nColorAttachments{};
-    bool hasDepthAttachment{}; // if this is true, depth testing is enabled
+    // if either of these are true, there must be a depth attachment / these
+    // being true imply a depth attachment
+    bool hasDepthTesting{};
+    bool hasDepthWriting{};
+
     uint32_t msaaSamples{
         1}; // all attachments must have the same number of samples
 
@@ -101,6 +105,8 @@ struct WriteAttachmentInfo {
 };
 
 struct RenderPassDesc {
+    std::string debugName{"Default Pass"};
+
     std::span<AttachmentHandle> readAttachments;
     std::span<WriteAttachmentInfo> colorAttachments;
     std::optional<WriteAttachmentInfo> depthAttachment;

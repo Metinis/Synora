@@ -63,8 +63,9 @@ class Renderer {
     RenderGraph m_RenderGraph;
 
     AttachmentHandle m_MSAADepthAttachment;
-
     AttachmentHandle m_MSAAScreenColorAttachment;
+
+    TextureHandle m_SkyBox;
 
     std::unordered_map<UUID, UploadedModel> m_UploadedModels;
     std::vector<MeshDrawCall> m_DrawCalls;

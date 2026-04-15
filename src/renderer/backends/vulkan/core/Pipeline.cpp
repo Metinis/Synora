@@ -21,14 +21,17 @@ void SYN::VK::GraphicsPipelineBuilder::reset() {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
     };
     m_RasterizationStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+    };
     // default disabled
     m_MultisampleStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
     // default disabled
     m_DepthStencilStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+    };
 }
 
 GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setInputAssembly(
@@ -86,13 +89,17 @@ SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format,
 }
 
 SYN::VK::GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::enableDepthAttachment() {
-    m_DepthFormat = VK_FORMAT_D32_SFLOAT;
+SYN::VK::GraphicsPipelineBuilder::enableDepthWriting() {
     m_DepthStencilStateCI.depthWriteEnable = VK_TRUE;
-    m_DepthStencilStateCI.depthCompareOp = VK_COMPARE_OP_LESS;
-    m_DepthStencilStateCI.depthTestEnable = VK_TRUE;
+    m_HasDepthAttachment = true;
 
     return *this;
+}
+
+SYN::VK::GraphicsPipelineBuilder &
+SYN::VK::GraphicsPipelineBuilder::enableDepthTesting() {
+    m_DepthStencilStateCI.depthTestEnable = VK_TRUE;
+    m_HasDepthAttachment = true;
 
     return *this;
 }
@@ -136,8 +143,11 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .colorAttachmentCount = static_cast<uint32_t>(m_ColorFormats.size()),
         .pColorAttachmentFormats = m_ColorFormats.data(),
-        .depthAttachmentFormat = m_DepthFormat,
     };
+
+    if (m_HasDepthAttachment) {
+        renderingCI.depthAttachmentFormat = m_DepthFormat;
+    }
 
     VkGraphicsPipelineCreateInfo pipelineCI{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,

@@ -24,6 +24,8 @@ struct Image {
     VkImageUsageFlags usage;
     VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
 
+    bool isCubeMap{false};
+
     uint32_t mipLevels{1};
     uint32_t layerCount{1};
 
@@ -35,7 +37,8 @@ struct Image {
 Image createImage(const Device &device, VmaAllocator allocator, VkFormat format,
                   VkExtent2D extent, VkImageUsageFlags usage,
                   VkImageAspectFlags aspect, VkSampleCountFlagBits samples,
-                  uint32_t mipLevels = 1);
+                  uint32_t mipLevels, uint32_t layerCount, bool isCubeMap);
+
 void destroyImage(const Device &device, VmaAllocator allocator, Image &image);
 
 // does nothing if target layout matches current layout

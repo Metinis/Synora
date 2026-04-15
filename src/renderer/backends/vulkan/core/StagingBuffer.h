@@ -20,9 +20,14 @@ class StagingBuffer {
     void uploadToBuffer(const Device &device, const void *data, size_t size,
                         const Buffer &dstBuffer);
 
-    void uploadToImage(const Device &device, const void *data, int width,
-                       int height, const Image &dstImage,
-                       uint32_t mipLevel = 0);
+    // perLayerData size must equal dstImage layer count
+    void uploadToImage(const Device &device, std::span<const void *> data,
+                       int width, int height, const Image &dstImage);
+
+    inline void uploadToImage(const Device &device, const void *data, int width,
+                              int height, const Image &dstImage) {
+        uploadToImage(device, std::span(&data, 1), width, height, dstImage);
+    }
 
     void stallOnPendingUploads(const Device &device);
 
@@ -49,7 +54,6 @@ class StagingBuffer {
     // returns offset to staged data in m_Buffer mapped memory
     size_t stageData(const Device &device, const void *data, size_t size);
     size_t getAvailableStagingSize();
-    size_t getContiguousStagingSize();
     Region getLargestContiguousStagingRegion();
 
     size_t m_WriteCounter{};

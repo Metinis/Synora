@@ -70,6 +70,7 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
 
 RenderPassDesc SYN::FirstPass::getPassDesc() {
     return RenderPassDesc{
+        .debugName = "First Pass",
         .colorAttachments = std::span(&m_ColorAttachment, 1),
         .depthAttachment = m_DepthAttachment,
     };
@@ -79,7 +80,8 @@ GraphicsPipelineDesc SYN::FirstPass::getPipelineDesc() const {
     GraphicsPipelineDesc c_PipelineDesc{
         .cullMode = CullMode::backFace,
         .nColorAttachments = 1,
-        .hasDepthAttachment = true,
+        .hasDepthTesting = true,
+        .hasDepthWriting = true,
         .msaaSamples = m_MSAASampleCount,
         .vertexShaderPath = "generated/shaders/first.vert.spv",
         .fragmentShaderPath = "generated/shaders/first.frag.spv",

@@ -5,9 +5,14 @@
 #include "glm/ext/quaternion_common.hpp"
 #include "render_passes/FirstPass.h"
 #include "render_passes/ImGUIPass.h"
+#include "render_passes/SkyBoxPass.h"
 #include "renderer/RenderTypes.h"
 
 using namespace SYN;
+
+namespace {
+SYN::TextureData loadTexture(const std::string &path);
+}
 
 void SYN::Renderer::init(EngineContext *ctx) {
     m_Backend = std::make_unique<VK::VulkanBackend>();
@@ -21,6 +26,35 @@ void SYN::Renderer::init(EngineContext *ctx) {
         .type = TextureType::srgb,
         .msaaSamples = 4,
     });
+
+    TextureData right{loadTexture("resources/assets/SunsetSkybox/right.png")};
+    TextureData left{loadTexture("resources/assets/SunsetSkybox/left.png")};
+    TextureData up{loadTexture("resources/assets/SunsetSkybox/up.png")};
+    TextureData down{loadTexture("resources/assets/SunsetSkybox/down.png")};
+    TextureData front{loadTexture("resources/assets/SunsetSkybox/front.png")};
+    TextureData back{loadTexture("resources/assets/SunsetSkybox/back.png")};
+
+    TextureDesc skyboxDesc{
+        .width = right.width,
+        .height = right.height,
+        .layerCount = 6,
+        .type = TextureType::srgb,
+        .hasMipChain = false,
+        .isCubeMap = true,
+    };
+
+    m_SkyBox = m_Backend->createTexture(skyboxDesc);
+    std::array<const void *, 6> faces{right.data, left.data,  up.data,
+                                      down.data,  front.data, back.data};
+
+    m_Backend->uploadToTexture(m_SkyBox, faces, right.width, right.height);
+
+    stbi_image_free(right.data);
+    stbi_image_free(left.data);
+    stbi_image_free(up.data);
+    stbi_image_free(down.data);
+    stbi_image_free(front.data);
+    stbi_image_free(back.data);
 }
 
 void SYN::Renderer::render(Window &window) {
@@ -31,6 +65,11 @@ void SYN::Renderer::render(Window &window) {
     m_RenderGraph.addPass<FirstPass>(
         msaaSamples, m_DrawCalls, m_CurrentCameraProjection,
         m_CurrentCameraView, m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
+        swapchainAttachment);
+
+    m_RenderGraph.addPass<SkyBoxPass>(
+        msaaSamples, m_CurrentCameraProjection, m_CurrentCameraView, m_SkyBox,
+        m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
         swapchainAttachment);
 
     m_RenderGraph.addPass<ImGUIPass>(swapchainAttachment);
@@ -81,7 +120,7 @@ void Renderer::addModel(UUID modelID, const ModelData &modelData) {
 
 void Renderer::removeModel(UUID modelID) {
     if (m_UploadedModels.contains(modelID)) {
-        auto& model = m_UploadedModels[modelID];
+        auto &model = m_UploadedModels[modelID];
         for (auto &mesh : model.meshes) {
             m_Backend->destroyTexture(mesh.albedo);
             m_Backend->destroyBuffer(mesh.vertexBuffer);
@@ -90,7 +129,8 @@ void Renderer::removeModel(UUID modelID) {
         m_UploadedModels.erase(modelID);
         spdlog::debug("Removed model from renderer {}", modelID);
     } else {
-        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models", modelID);
+        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models",
+                     modelID);
     }
 }
 
@@ -139,6 +179,32 @@ void SYN::Renderer::shutdown() {
     }
     m_Backend->destroyAttachment(m_MSAAScreenColorAttachment);
     m_Backend->destroyAttachment(m_MSAADepthAttachment);
+    m_Backend->destroyTexture(m_SkyBox);
 
     m_Backend->shutdown();
 }
+
+namespace {
+SYN::TextureData loadTexture(const std::string &path) {
+    spdlog::debug("Loading {}", path);
+
+    int imageWidth{};
+    int imageHeight{};
+    int channelsInImage{};
+    stbi_uc *imageBytes{stbi_load(path.c_str(), &imageWidth, &imageHeight,
+                                  &channelsInImage, 4)};
+
+    assert(imageWidth >= 0);
+    assert(imageHeight >= 0);
+    if (imageBytes == nullptr) {
+        spdlog::warn("Could not load {}", path);
+        return {};
+    }
+
+    return TextureData{
+        .width = static_cast<uint32_t>(imageWidth),
+        .height = static_cast<uint32_t>(imageHeight),
+        .data = imageBytes,
+    };
+}
+} // namespace

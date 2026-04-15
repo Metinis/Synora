@@ -88,15 +88,19 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
 
     Image image{createImage(m_Device, m_Allocator, format,
                             {.width = desc.width, .height = desc.height}, usage,
-                            aspect, VK_SAMPLE_COUNT_1_BIT, mipLevels)};
+                            aspect, VK_SAMPLE_COUNT_1_BIT, mipLevels,
+                            desc.layerCount, desc.isCubeMap)};
 
-    if (m_BindlessTextureIndexFreelist.empty()) {
-        spdlog::warn("Could not create texture, bindless array, array is full");
+    if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
+        spdlog::warn("Could not create attachment, bindless array is full");
         destroyImage(m_Device, m_Allocator, image);
         return {};
     }
-    uint32_t descriptorElement{m_BindlessTextureIndexFreelist.back()};
-    m_BindlessTextureIndexFreelist.pop_back();
+    if (m_BindlessCubeMapFreeList.empty() && desc.isCubeMap) {
+        spdlog::warn("Could not create attachment, bindless array is full");
+        destroyImage(m_Device, m_Allocator, image);
+        return {};
+    }
 
     VkDescriptorImageInfo imageInfo{
         .sampler = m_DefaultSampler,
@@ -104,10 +108,22 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
 
+    uint32_t descriptorElement{};
+    uint32_t descriptorBinding{};
+    if (!desc.isCubeMap) {
+        descriptorElement = m_BindlessTextureIndexFreelist.back();
+        m_BindlessTextureIndexFreelist.pop_back();
+
+    } else {
+        descriptorElement = m_BindlessCubeMapFreeList.back();
+        m_BindlessCubeMapFreeList.pop_back();
+        descriptorBinding = c_CubeMapBinding;
+    }
+
     VkWriteDescriptorSet bindlessWrite{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = m_BindlessDescriptorSet,
-        .dstBinding = 0,
+        .dstBinding = descriptorBinding,
         .dstArrayElement = descriptorElement,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -124,8 +140,8 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
 }
 
 void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
-                                             uint32_t width, uint32_t height,
-                                             const void *data, uint32_t layer) {
+                                             std::span<const void *> data,
+                                             uint32_t width, uint32_t height) {
     Texture &texture{m_Textures[handle]};
 
     transitionImage(m_TransientCmdPool, m_Device, texture.image,
@@ -134,7 +150,6 @@ void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
                     VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     m_StagingBuffer.uploadToImage(m_Device, data, width, height, texture.image);
-    // TODO: maybe try to make this better
     generateMipChain(m_TransientCmdPool, m_Device, texture.image,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
@@ -205,12 +220,14 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
     for (size_t i{}; i < images.size(); i++) {
         images[i] = createImage(m_Device, m_Allocator, format,
                                 {.width = width, .height = height}, usage,
-                                aspect, samples);
+                                aspect, samples, desc.layerCount,
+                                desc.layerCount, desc.isCubeMap);
 
         if (!desc.isSampleable) {
             continue;
         }
-        if (m_BindlessTextureIndexFreelist.empty()) {
+
+        if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
             spdlog::warn("Could not create attachment, bindless array is full");
 
             destroyImage(m_Device, m_Allocator, images[i]);
@@ -222,8 +239,18 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
 
             return {};
         }
-        uint32_t descriptorElement{m_BindlessTextureIndexFreelist.back()};
-        m_BindlessTextureIndexFreelist.pop_back();
+        if (m_BindlessCubeMapFreeList.empty() && desc.isCubeMap) {
+            spdlog::warn("Could not create attachment, bindless array is full");
+
+            destroyImage(m_Device, m_Allocator, images[i]);
+            for (size_t j{}; j < i; j++) {
+                destroyImage(m_Device, m_Allocator, images[j]);
+                m_BindlessCubeMapFreeList.emplace_back(
+                    bindlessSamplerIndices[j]);
+            }
+
+            return {};
+        }
 
         VkDescriptorImageInfo imageInfo{
             .sampler = m_DefaultSampler,
@@ -231,10 +258,22 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
 
+        uint32_t descriptorElement{};
+        uint32_t descriptorBinding{};
+        if (!desc.isCubeMap) {
+            descriptorElement = m_BindlessTextureIndexFreelist.back();
+            m_BindlessTextureIndexFreelist.pop_back();
+
+        } else {
+            descriptorElement = m_BindlessCubeMapFreeList.back();
+            m_BindlessCubeMapFreeList.pop_back();
+            descriptorBinding = c_CubeMapBinding;
+        }
+
         VkWriteDescriptorSet bindlessWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = m_BindlessDescriptorSet,
-            .dstBinding = 0,
+            .dstBinding = descriptorBinding,
             .dstArrayElement = descriptorElement,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -281,9 +320,14 @@ PipelineHandle
 SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     GraphicsPipelineBuilder pipelineBuilder{};
     pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    if (desc.hasDepthAttachment) {
-        pipelineBuilder.enableDepthAttachment();
+
+    if (desc.hasDepthTesting) {
+        pipelineBuilder.enableDepthTesting();
     }
+    if (desc.hasDepthWriting) {
+        pipelineBuilder.enableDepthWriting();
+    }
+
     for (size_t i{}; i < desc.nColorAttachments; i++) {
         pipelineBuilder.addColorAttachment(m_Swapchain.format,
                                            desc.hasAlphaBlending);

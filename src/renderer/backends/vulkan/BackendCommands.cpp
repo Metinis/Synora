@@ -99,6 +99,22 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
     vkResetCommandPool(m_Device.logical, frame.graphicsCmdPool, 0);
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
 
+    VkDescriptorBufferInfo bufferInfo{
+        .buffer = frame.UBOBuffer.getVkBuffer(),
+        .range = DynamicUBO::c_MaxSizePerUBO,
+    };
+
+    VkWriteDescriptorSet writeDescriptorSet{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = m_UBODescriptorSet,
+        .dstBinding = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        .pBufferInfo = &bufferInfo,
+    };
+    vkUpdateDescriptorSets(m_Device.logical, 1, &writeDescriptorSet, 0,
+                           nullptr);
+
     vkCmdBindDescriptorSets(
         frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
         m_GraphicsPipelineLayout, 0, 1, &m_BindlessDescriptorSet, 0, nullptr);
@@ -319,21 +335,8 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
 
     beginRenderPassCmd(desc, pipelineHandle);
 
-    VkDescriptorBufferInfo bufferInfo{
-        frame.UBOBuffer.write(uniformData, uniformSize)};
+    uint32_t dynamicOffset{frame.UBOBuffer.write(uniformData, uniformSize)};
 
-    VkWriteDescriptorSet writeDescriptorSet{
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_UBODescriptorSet,
-        .dstBinding = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        .pBufferInfo = &bufferInfo,
-    };
-    vkUpdateDescriptorSets(m_Device.logical, 1, &writeDescriptorSet, 0,
-                           nullptr);
-
-    uint32_t dynamicOffset{static_cast<uint32_t>(bufferInfo.offset)};
     vkCmdBindDescriptorSets(
         frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
         m_GraphicsPipelineLayout, 1, 1, &m_UBODescriptorSet, 1, &dynamicOffset);

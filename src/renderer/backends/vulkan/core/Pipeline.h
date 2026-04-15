@@ -33,7 +33,8 @@ class GraphicsPipelineBuilder {
     GraphicsPipelineBuilder &addColorAttachment(VkFormat format,
                                                 bool enableAlphaBlend);
 
-    GraphicsPipelineBuilder &enableDepthAttachment();
+    GraphicsPipelineBuilder &enableDepthTesting();
+    GraphicsPipelineBuilder &enableDepthWriting();
 
     GraphicsPipelineBuilder &setMSAA(VkSampleCountFlagBits sampleCount);
 
@@ -42,7 +43,8 @@ class GraphicsPipelineBuilder {
         m_ColorBlendAttachmentStates{};
 
     std::vector<VkFormat> m_ColorFormats{};
-    VkFormat m_DepthFormat{};
+    VkFormat m_DepthFormat{VK_FORMAT_D32_SFLOAT};
+    bool m_HasDepthAttachment{};
 
     VkPipelineInputAssemblyStateCreateInfo m_InputAssemblyStateCI;
     VkPipelineRasterizationStateCreateInfo m_RasterizationStateCI;

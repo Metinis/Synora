@@ -5,6 +5,7 @@
 namespace SYN {
 
 struct RenderPassNode {
+    std::string debugName;
     std::vector<AttachmentHandle> inputAttachments;
     std::vector<AttachmentHandle> outputAttachments;
 };
@@ -21,6 +22,7 @@ class IRenderPass {
         RenderPassNode node{};
 
         RenderPassDesc desc{this->getPassDesc()};
+        node.debugName = desc.debugName;
         if (desc.depthAttachment.has_value()) {
             if (desc.depthAttachment->loadOp == LoadOp::load) {
                 node.inputAttachments.emplace_back(

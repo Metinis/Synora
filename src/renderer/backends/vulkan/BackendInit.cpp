@@ -71,6 +71,16 @@ void SYN::VK::VulkanBackend::init(Window *window) {
                                        // from the swapchain. Hence we use fixed
         .isSampleable = false,         // tis an output
     });
+
+    m_BindlessTextureIndexFreelist.reserve(c_MaxBindlessTextures);
+    for (size_t i{}; i < c_MaxBindlessTextures; i++) {
+        m_BindlessTextureIndexFreelist.emplace_back(i);
+    }
+
+    m_BindlessCubeMapFreeList.reserve(c_MaxBindlessCubeMaps);
+    for (size_t i{}; i < c_MaxBindlessCubeMaps; i++) {
+        m_BindlessCubeMapFreeList.emplace_back(i);
+    }
 }
 
 void SYN::VK::VulkanBackend::shutdown() {
@@ -193,8 +203,7 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
                  m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
     uint32_t cubeMapDescriptorCount{
         std::min(c_MaxBindlessCubeMaps,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages) /
-        2};
+                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
 
     VkDescriptorBindingFlags bindlessBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
@@ -270,11 +279,6 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
         spdlog::error("Could not create descriptor set layout. VkResult = {}",
                       static_cast<int>(res));
         assert(false);
-    }
-
-    m_BindlessTextureIndexFreelist.reserve(c_MaxBindlessTextures);
-    for (size_t i{}; i < c_MaxBindlessTextures; i++) {
-        m_BindlessTextureIndexFreelist.emplace_back(i);
     }
 }
 
@@ -499,15 +503,32 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
             VkImageUsageFlags usage{image.usage};
             VkImageAspectFlags aspect{image.subresourceRange.aspectMask};
             destroyImage(m_Device, m_Allocator, image);
+            if (image.mipLevels != 1) {
+                spdlog::warn(
+                    "Not recreating mip chain on swapchain recreation, "
+                    "attachments should have only 1 mip level");
+            }
             image =
                 createImage(m_Device, m_Allocator, format, m_Swapchain.extent,
-                            usage, aspect, image.samples);
+                            usage, aspect, image.samples, image.mipLevels,
+                            image.layerCount, image.isCubeMap);
 
             if (!attachment.isSampleable) {
                 continue;
             }
 
+            generateMipChain(m_TransientCmdPool, m_Device, image,
+                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                             VK_ACCESS_2_SHADER_READ_BIT);
+
             uint32_t descriptorElement{attachment.bindlessSamplerIndices[i]};
+            uint32_t descriptorBinding{};
+            if (!image.isCubeMap) {
+                descriptorBinding = c_TextureBinding;
+            } else {
+                descriptorBinding = c_CubeMapBinding;
+            }
 
             VkDescriptorImageInfo imageInfo{
                 .sampler = m_DefaultSampler,
@@ -518,7 +539,7 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
             VkWriteDescriptorSet bindlessWrite{
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .dstSet = m_BindlessDescriptorSet,
-                .dstBinding = 0,
+                .dstBinding = descriptorBinding,
                 .dstArrayElement = descriptorElement,
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,

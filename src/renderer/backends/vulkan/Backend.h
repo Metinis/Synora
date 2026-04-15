@@ -31,8 +31,8 @@ class VulkanBackend : public IBackend {
     void destroyBuffer(BufferHandle handle) override;
 
     TextureHandle createTexture(const TextureDesc &desc) override;
-    void uploadToTexture(TextureHandle handle, uint32_t width, uint32_t height,
-                         const void *data, uint32_t layer) override;
+    void uploadToTexture(TextureHandle handle, std::span<const void *> data,
+                         uint32_t width, uint32_t height) override;
 
     void destroyTexture(TextureHandle handle) override;
 
@@ -138,6 +138,7 @@ class VulkanBackend : public IBackend {
     VkDescriptorSet m_UBODescriptorSet{};
 
     std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
+    std::vector<uint32_t> m_BindlessCubeMapFreeList{};
 
     VkSampler m_DefaultSampler{};
 

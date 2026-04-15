@@ -51,25 +51,6 @@ size_t SYN::VK::StagingBuffer::getAvailableStagingSize() {
            (m_WriteCounter - m_ReadCounter); // --|(RC)----|(WC)----
 }
 
-size_t SYN::VK::StagingBuffer::getContiguousStagingSize() {
-    // size_t writeCursor{m_WriteCounter % m_Buffer.size};
-    // size_t readCursor{m_ReadCounter % m_Buffer.size};
-
-    assert(m_ReadCounter <= m_WriteCounter);
-    assert(m_Buffer.size >= (m_WriteCounter - m_ReadCounter));
-    return m_Buffer.size - (m_WriteCounter - m_ReadCounter);
-
-    // if (writeCursor > readCursor) {
-    //     return m_Buffer.size - writeCursor;
-    // } else if (writeCursor == readCursor) {
-    //     if (m_WriteCounter == m_ReadCounter) {
-    //         return m_Buffer.size;
-    //     }
-    //     return 0;
-    // }
-    // return readCursor - writeCursor;
-}
-
 StagingBuffer::Region
 SYN::VK::StagingBuffer::getLargestContiguousStagingRegion() {
     size_t writeCursor{m_WriteCounter % m_Buffer.size};
@@ -82,28 +63,23 @@ SYN::VK::StagingBuffer::getLargestContiguousStagingRegion() {
         return {.size = m_Buffer.size, .offset = 0};
     }
 
-    // --|(RC)-----|(WC)----
+    // --|(WC)-----|(RC)----
     // 1 valid region
     // if writeCursor == readCursor, the buffer is full, not empty, since if it
     // was empty the prev return wouldve caught it
-    if (writeCursor >= readCursor) {
+    if (readCursor >= writeCursor) {
         return {
-            .size = writeCursor - readCursor,
-            .offset = readCursor,
+            .size = readCursor - writeCursor,
+            .offset = writeCursor,
         };
     }
-    // --|(WC)-----|(RC)----
+
+    // --|(RC)-----|(WC)----
     // 2 valid regions
-    size_t firstRegionSize{writeCursor};
-    size_t firstRegionOffset{0};
-
-    size_t secondRegionSize{m_Buffer.size - readCursor};
-    size_t secondRegionOffset{readCursor};
-
-    if (secondRegionSize > firstRegionSize) {
-        return {.size = secondRegionSize, .offset = secondRegionOffset};
+    if (m_Buffer.size - writeCursor > readCursor) {
+        return {.size = m_Buffer.size - writeCursor, .offset = writeCursor};
     }
-    return {.size = firstRegionSize, .offset = firstRegionOffset};
+    return {.size = readCursor, .offset = 0};
 }
 
 void SYN::VK::StagingBuffer::poll(const Device &device) {
@@ -229,10 +205,11 @@ void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
         m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
     }
 }
+
 void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
-                                           const void *data, int width,
-                                           int height, const Image &dstImage,
-                                           uint32_t mipLevel) {
+                                           std::span<const void *> perLayerData,
+                                           int width, int height,
+                                           const Image &dstImage) {
     constexpr uint32_t bytesPerPixel{4};
     uint32_t rowSize{bytesPerPixel * dstImage.extent.width};
     uint32_t rowsPerChunk{static_cast<uint32_t>(m_Buffer.size / rowSize)};
@@ -251,12 +228,6 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
         assert(false);
         return;
     }
-    if (mipLevel >= dstImage.mipLevels) {
-        spdlog::warn("Trying to upload to image mip level that does not exist, "
-                     "cancelling upload");
-        assert(false);
-        return;
-    }
 
     uint32_t rowsLeft{static_cast<uint32_t>(height)};
 
@@ -272,20 +243,21 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
         rowsLeft -= rowsThisChunk;
         size_t chunkSize{rowsThisChunk * rowSize};
 
-        size_t stagedOffset{stageData(
-            device, static_cast<const uint8_t *>(data) + dstOffset, chunkSize)};
-
         VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
-        {
+
+        for (uint32_t i{}; i < dstImage.layerCount; i++) {
+            size_t stagedOffset{stageData(
+                device,
+                static_cast<const uint8_t *>(perLayerData[i]) + dstOffset,
+                chunkSize)};
 
             VkBufferImageCopy copyRegion{
                 .bufferOffset = stagedOffset,
                 .imageSubresource =
                     {
                         .aspectMask = dstImage.subresourceRange.aspectMask,
-                        .mipLevel = mipLevel,
-                        .baseArrayLayer =
-                            dstImage.subresourceRange.baseArrayLayer,
+                        .mipLevel = 0,
+                        .baseArrayLayer = i,
                         .layerCount = 1,
                     },
                 .imageOffset =
