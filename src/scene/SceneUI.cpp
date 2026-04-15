@@ -29,10 +29,12 @@ void Scene::onUIRender() {
                 std::array filters = { "*.obj", "*.fbx", "*.glb", "*.gltf", "*.mtl" };
                 const char* path = tinyfd_openFileDialog("Choose a model", "",
                     filters.size(), filters.data(), "3D Model Files", 1);
-                UUID uuid{m_AssetManager->loadModel(path)};
-                spdlog::info("uuid = {}", uuid);
+                if (path) {
+                    UUID uuid{m_AssetManager->loadModel(path)};
+                    spdlog::info("uuid = {}", uuid);
 
-                e.addComponent<ModelComp>(ModelComp{.id = uuid});
+                    e.addComponent<ModelComp>(ModelComp{.id = uuid});
+                }
             }
         } else {
             if (ImGui::Button("Remove")) {
