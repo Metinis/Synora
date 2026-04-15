@@ -10,6 +10,7 @@ layout(location = 0) out vec2 outUV;
 struct Vertex {
     vec3 pos;
     float u;
+    vec3 normal;
     float v;
 };
 layout(buffer_reference, std430) buffer readonly VertexBuffer {

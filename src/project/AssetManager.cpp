@@ -50,7 +50,7 @@ void SYN::AssetManager::addRef(UUID id) {
     if (m_AssetMap.contains(id)) {
         spdlog::debug("Asset Manager: {} Ref increased", id);
         if (m_AssetMap[id].ref == 0) {
-            //add to renderer if an entity uses it
+            // add to renderer if an entity uses it
             auto asset = m_AssetMap[id].data;
             if (std::holds_alternative<ModelData>(asset)) {
                 m_Renderer->addModel(id, std::get<ModelData>(asset));
@@ -67,14 +67,15 @@ void SYN::AssetManager::removeRef(UUID id) {
         spdlog::debug("Asset Manager: {} Ref decreased", id);
         m_AssetMap[id].ref--;
         if (m_AssetMap[id].ref == 0) {
-            //remove from renderer
+            // remove from renderer
             auto asset = m_AssetMap[id].data;
             if (std::holds_alternative<ModelData>(asset)) {
                 m_Renderer->removeModel(id);
             }
         }
     } else {
-        spdlog::warn("Asset Manager: Could not remove ref {}, asset missing", id);
+        spdlog::warn("Asset Manager: Could not remove ref {}, asset missing",
+                     id);
     }
 }
 
@@ -247,6 +248,11 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
         if (mesh->mTextureCoords[0]) {
             relativeVertex.u = mesh->mTextureCoords[0][i].x;
             relativeVertex.v = mesh->mTextureCoords[0][i].y;
+        }
+        glm::vec3 normal(0.f, 0.f, -1.f);
+        if (mesh->HasNormals()) {
+            normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y,
+                               mesh->mNormals[i].z);
         }
 
         processedMesh.vertices.emplace_back(relativeVertex);

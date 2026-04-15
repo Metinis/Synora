@@ -11,6 +11,7 @@ layout (location = 0) out vec4 outColor;
 struct Vertex {
     vec3 pos;
     float u;
+    vec3 normal;
     float v;
 };
 layout(buffer_reference, std430) buffer readonly VertexBuffer {
@@ -30,4 +31,7 @@ layout(push_constant, std430) uniform PushConstants {
 
 void main() {
     outColor = vec4(texture(textures[textureIndex], uv));
+    if (outColor.a == 0.f) {
+        discard;
+    }
 }

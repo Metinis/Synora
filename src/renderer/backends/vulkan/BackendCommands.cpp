@@ -215,19 +215,15 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         colorAttachmentInfos.emplace_back(
             makeAttachmentInfo(image, resolveImage, attachment, targetLayout));
 
-        if (image.syncState.currentLayout != targetLayout) {
-            transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+        transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+        if (resolveImage.has_value()) {
+            transitionImageCmd(frame.graphicsCmdBuffer, *resolveImage.value(),
+                               targetLayout,
                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-        }
-        if (resolveImage.has_value()) {
-            if (resolveImage.value()->syncState.currentLayout != targetLayout) {
-                transitionImageCmd(
-                    frame.graphicsCmdBuffer, *resolveImage.value(),
-                    targetLayout,
-                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-            }
         }
     }
     if (desc.depthAttachment.has_value()) {
@@ -258,22 +254,16 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         depthAttachmentInfo =
             makeAttachmentInfo(image, resolveImage, attachment, targetLayout);
 
-        if (image.syncState.currentLayout != targetLayout) {
-            transitionImageCmd(
-                frame.graphicsCmdBuffer, image, targetLayout,
-                VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
-        }
+        transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                           VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                               VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
         if (resolveImage.has_value()) {
-            if (resolveImage.value()->syncState.currentLayout != targetLayout) {
-                transitionImageCmd(
-                    frame.graphicsCmdBuffer, *resolveImage.value(),
-                    targetLayout,
-                    VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-            }
+            transitionImageCmd(frame.graphicsCmdBuffer, *resolveImage.value(),
+                               targetLayout,
+                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
         }
     }
 
@@ -287,12 +277,10 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         Image &image{attachment.images[m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-        if (image.syncState.currentLayout != targetLayout) {
-            transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
-                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                   VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                               VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        }
+        transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 
     VkRenderingInfo renderingInfo{
