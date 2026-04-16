@@ -13,9 +13,13 @@ void Scene::onUIRender() {
     ImGui::SetWindowPos(ImVec2(0, 0));
     ImGui::SetWindowSize(ImVec2(200, 600));
 
+    std::vector<Entity> deleteQueue;
     for (auto &e : getEntities<TransformComp>()) {
         if (!e.hasComponent<ParentComp>())
-            drawEntityNode(e);
+            drawEntityNode(e, deleteQueue);
+    }
+    for (const auto e : deleteQueue) {
+        removeEntity(e);
     }
 
     bool openCreateEntity = false;
@@ -78,12 +82,18 @@ auto inspectModel = [](Entity e, MeshComp* mc) {
         }
     }
 };
-void Scene::drawEntityNode(Entity entity) {
-
-    ImGui::PushID(entity.getComponent<UUIDComp>().id);
+void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
     //Have dropdown of all entities
-    if (ImGui::TreeNode(entity.getComponent<TagComp>().tag.c_str())) {
 
+    if (ImGui::TreeNode(entity.getComponent<TagComp>().tag.c_str())) {
+        ImGui::PushID((int)entity.getHandle());
+        if (ImGui::BeginPopupContextItem()) {
+            if (ImGui::MenuItem(entity.getComponent<TagComp>().tag.c_str())) {
+                deletionQueue.push_back(entity);
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
         if (ImGui::CollapsingHeader("Transform")) {
             auto* tc = entity.tryGetComponent<TransformComp>();
             inspectTransform(tc);
@@ -95,19 +105,12 @@ void Scene::drawEntityNode(Entity entity) {
 
         //draw children
         for (auto e : getEntities<ParentComp>()) {
-            if (e.getComponent<ParentComp>().id == entity.getComponent<UUIDComp>().id) {
-                drawEntityNode(e);
+            if (e.getComponent<ParentComp>().id == entity.getUUID()) {
+                drawEntityNode(e, deletionQueue);
             }
         }
 
         ImGui::TreePop();
     }
-    if (ImGui::BeginPopupContextItem("EntityPanelContext", ImGuiPopupFlags_MouseButtonRight)) {
-        if (ImGui::MenuItem("Delete")) {
-            removeEntity(entity);
-        }
 
-        ImGui::EndPopup();
-    }
-    ImGui::PopID();
 }
