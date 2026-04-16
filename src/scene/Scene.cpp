@@ -41,16 +41,15 @@ void Scene::onUpdate(float dt) {
     }
 
     for (auto e : getEntities<TransformComp>()) {
-            auto& tc = e.getComponent<TransformComp>();
-            glm::mat4 local = tc.getLocalMatrix();
+        auto& tc = e.getComponent<TransformComp>();
+        glm::mat4 local = tc.getLocalMatrix();
 
-            ParentComp* parent = e.tryGetComponent<ParentComp>();
-            if (e.hasComponent<ParentComp>() && getEntity(parent->id).isValid()) {
-                auto parentEntity = getEntity(parent->id);
-                tc.worldMatrix = parentEntity.getComponent<TransformComp>().worldMatrix * local;
-            } else {
-                tc.worldMatrix = local;
-            }
+        if (ParentComp* parent = e.tryGetComponent<ParentComp>()) {
+            auto parentEntity = getEntity(parent->id);
+            tc.worldMatrix = parentEntity.getComponent<TransformComp>().worldMatrix * local;
+        } else {
+            tc.worldMatrix = local;
+        }
 
     }
 
