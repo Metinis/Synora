@@ -42,7 +42,7 @@ namespace SYN {
         }
 
         template<typename T>
-        void removeComponent() {
+        void removeComponent() const {
             m_Registry->remove<T>(m_Handle);
         }
 
@@ -65,7 +65,7 @@ namespace SYN {
             return m_Registry != nullptr && m_Handle != entt::null;
         }
         //I want to avoid operator magic where possible so I think we should just directly call get methods if we need to
-        entt::entity getHandle() { return m_Handle; }
+        entt::entity getHandle() const { return m_Handle; }
 
     private:
         entt::registry *m_Registry{};

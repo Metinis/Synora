@@ -85,15 +85,16 @@ auto inspectModel = [](Entity e, MeshComp* mc) {
 void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
     //Have dropdown of all entities
 
+
     if (ImGui::TreeNode(entity.getComponent<TagComp>().tag.c_str())) {
-        ImGui::PushID((int)entity.getHandle());
+        ImGui::PushID(entity.getUUID());
         if (ImGui::BeginPopupContextItem()) {
-            if (ImGui::MenuItem(entity.getComponent<TagComp>().tag.c_str())) {
+            if (ImGui::MenuItem("Delete")) {
                 deletionQueue.push_back(entity);
             }
             ImGui::EndPopup();
         }
-        ImGui::PopID();
+
         if (ImGui::CollapsingHeader("Transform")) {
             auto* tc = entity.tryGetComponent<TransformComp>();
             inspectTransform(tc);
@@ -103,6 +104,7 @@ void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
             inspectModel(entity, mc);
         }
 
+
         //draw children
         for (auto e : getEntities<ParentComp>()) {
             if (e.getComponent<ParentComp>().id == entity.getUUID()) {
@@ -110,7 +112,9 @@ void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
             }
         }
 
+        ImGui::PopID();
         ImGui::TreePop();
     }
+
 
 }

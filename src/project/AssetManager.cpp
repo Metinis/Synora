@@ -151,6 +151,7 @@ void SYN::AssetManager::loadModel(Scene* scene, const std::string &path) {
     aiMatrix4x4 origin{};
     aiIdentityMatrix4(&origin);
     Entity parent = scene->createEntity();
+    parent.getComponent<TagComp>() = TagComp{.tag = aiScene->mName.C_Str()};
     processNode(scene, parent, aiScene->mRootNode, aiScene, path, origin);
 }
 

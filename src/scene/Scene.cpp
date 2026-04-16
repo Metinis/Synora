@@ -40,7 +40,7 @@ void Scene::onUpdate(float dt) {
         m_OnUpdate.clear();
     }
 
-    for (auto e : getEntities<TransformComp>()) {
+    for (auto e : m_EntityCache) {
         auto& tc = e.getComponent<TransformComp>();
         glm::mat4 local = tc.getLocalMatrix();
 
@@ -73,8 +73,6 @@ void Scene::onMeshAdded(entt::registry& reg, entt::entity e) {
     auto& comp = reg.get<MeshComp>(e);
 
     m_OnUpdate.push_back([&]() {
-        spdlog::debug("On Mesh Added");
-
         m_AssetManager->addRef(comp.id);
     });
 
@@ -84,15 +82,14 @@ void Scene::onMeshRemoved(entt::registry& reg, entt::entity e) {
     auto& comp = reg.get<MeshComp>(e);
 
     m_OnUpdate.push_back([&]() {
-
         m_AssetManager->removeRef(comp.id);
     });
 }
 
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
-    auto& comp = reg.get<ParentComp>(e);
+    auto comp = reg.get<ParentComp>(e);
 
-    m_OnUpdate.push_back([&]() {
+    //m_OnUpdate.push_back([&]() {
 
         int depth = 1;
         auto parentEntity = getEntity(comp.id);
@@ -106,11 +103,11 @@ void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
                       [&](Entity a, Entity b) {
                           return a.getComponent<TransformComp>().depth < b.getComponent<TransformComp>().depth;
                       });
-    });
+    //});
 }
 
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
-    m_OnUpdate.push_back([&]() {
+    //m_OnUpdate.push_back([&]() {
         Entity ent(&m_SceneState.registry, e);
         if (ent.hasComponent<TransformComp>()) {
             m_SceneState.registry.get<TransformComp>(e).depth = 0;
@@ -120,7 +117,7 @@ void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
                           });
         }
 
-    });
+    //});
 }
 
 bool Scene::isValidEntity(Entity entity) {
@@ -162,9 +159,11 @@ void Scene::init(EngineContext *ctx) {
     c.farPlane = 100.f;
     c.isPrimary = true;
 
-    auto parent = createEntity("Parent Entity");
-    auto child = createEntity("Child Entity");
-    child.addComponent<ParentComp>(parent.getUUID());
+    auto e1 = createEntity("Parent Entity");
+    auto e2 = createEntity("Parent Child Entity");
+    auto e3 = createEntity("Child Entity");
+    e2.addComponent<ParentComp>(e1.getUUID());
+    e3.addComponent<ParentComp>(e2.getUUID());
 
     for (auto e : getEntities<TransformComp>()) {
         if (e.isValid()) {
