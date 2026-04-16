@@ -22,10 +22,14 @@ class Scene : public ILayer {
     void onDettach() override;
     void onRender() override;
     void onUIRender() override;
+    void drawEntityNode(Entity entity);
+    Entity getEntity(UUID id);
 
     bool isValidEntity(Entity entity);
-    void onModelAdded(entt::registry& reg, entt::entity e);
-    void onModelRemoved(entt::registry& reg, entt::entity e);
+    void onMeshAdded(entt::registry& reg, entt::entity e);
+    void onMeshRemoved(entt::registry& reg, entt::entity e);
+    void onParentAdded(entt::registry& reg, entt::entity e);
+    void onParentRemoved(entt::registry& reg, entt::entity e);
 
     void init(EngineContext *ctx);
     Entity createEntity(const std::string &tag = "Unnamed Entity");
@@ -45,6 +49,7 @@ class Scene : public ILayer {
     AssetManager *m_AssetManager;
     SceneState m_SceneState;
     std::vector<std::function<void()>> m_OnUpdate;
+    std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update
 
     friend class Entity;
 };

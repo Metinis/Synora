@@ -6,6 +6,8 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <filesystem>
+#include "PuzzleEngine/scene/Entity.h"
+#include "PuzzleEngine/scene/Scene.h"
 
 void SYN::AssetManager::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
@@ -52,8 +54,8 @@ void SYN::AssetManager::addRef(UUID id) {
         if (m_AssetMap[id].ref == 0) {
             //add to renderer if an entity uses it
             auto asset = m_AssetMap[id].data;
-            if (std::holds_alternative<ModelData>(asset)) {
-                m_Renderer->addModel(id, std::get<ModelData>(asset));
+            if (std::holds_alternative<MeshData>(asset)) {
+                m_Renderer->addMesh(id, std::get<MeshData>(asset));
             }
         }
         m_AssetMap[id].ref++;
@@ -69,8 +71,8 @@ void SYN::AssetManager::removeRef(UUID id) {
         if (m_AssetMap[id].ref == 0) {
             //remove from renderer
             auto asset = m_AssetMap[id].data;
-            if (std::holds_alternative<ModelData>(asset)) {
-                m_Renderer->removeModel(id);
+            if (std::holds_alternative<MeshData>(asset)) {
+                m_Renderer->removeMesh(id);
             }
         }
     } else {
@@ -133,33 +135,23 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     return uuid;
 }
 
-SYN::UUID SYN::AssetManager::loadModel(const std::string &path) {
-    if (m_LoadedUUIDMap.contains(path)) {
-        return m_LoadedUUIDMap[path];
-    }
+void SYN::AssetManager::loadModel(Scene* scene, const std::string &path) {
     spdlog::debug("Loading {}", path);
 
-    const aiScene *scene{m_Importer.ReadFile(
+    const aiScene *aiScene{m_Importer.ReadFile(
         path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
                   aiProcess_SortByPType)};
 
     if (scene == nullptr) {
         spdlog::warn("Could not load {}", aiGetErrorString());
-        return 0; // TODO: make a default model
+        return; // TODO: make a default model
     }
 
     std::vector<MeshData> meshes{};
     aiMatrix4x4 origin{};
     aiIdentityMatrix4(&origin);
-    processNode(scene->mRootNode, scene, meshes, path, origin);
-
-    SYN::ModelData modelData{.meshes = std::move(meshes)};
-
-    UUID uuid{generateUUID()};
-    m_AssetMap[uuid].data = modelData;
-    m_LoadedUUIDMap[path] = uuid;
-
-    return uuid;
+    Entity parent = scene->createEntity();
+    processNode(scene, parent, aiScene->mRootNode, aiScene, path, origin);
 }
 
 SYN::UUID SYN::AssetManager::processMaterials(const aiMesh *mesh,
@@ -261,18 +253,25 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
 
     return processedMesh;
 }
-void SYN::AssetManager::processNode(aiNode *node, const aiScene *scene,
-                                    std::vector<SYN::MeshData> &meshes,
+void SYN::AssetManager::processNode(Scene* scene, Entity parent, aiNode *node, const aiScene *aiScene,
                                     const std::string &modelPath,
                                     const aiMatrix4x4 &parentTransform) {
     aiMatrix4x4 transform = parentTransform * node->mTransformation;
 
+    auto childEntity = scene->createEntity(node->mName.C_Str());
+    childEntity.addComponent<ParentComp>(ParentComp{.id = parent.getComponent<UUIDComp>().id});
+
     for (size_t i{}; i < node->mNumMeshes; i++) {
-        aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
-        meshes.emplace_back(processMesh(mesh, scene, modelPath, transform));
+        aiMesh *mesh = aiScene->mMeshes[node->mMeshes[i]];
+        UUID uuid{generateUUID()};
+        m_AssetMap[uuid].data = processMesh(mesh, aiScene, modelPath, transform);
+        m_LoadedUUIDMap[modelPath] = uuid;
+        Entity meshEnt = scene->createEntity(mesh->mName.C_Str());
+        meshEnt.addComponent<MeshComp>(MeshComp{.id = uuid});
+        meshEnt.addComponent<ParentComp>(ParentComp{.id = childEntity.getComponent<UUIDComp>().id});
     }
 
     for (size_t i{}; i < node->mNumChildren; i++) {
-        processNode(node->mChildren[i], scene, meshes, modelPath, transform);
+        processNode(scene, childEntity, node->mChildren[i], aiScene, modelPath, transform);
     }
 }

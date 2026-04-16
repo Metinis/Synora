@@ -28,15 +28,15 @@ struct MeshData {
     TextureData *albedo;
 };
 
-struct ModelData {
+/*struct ModelData {
     std::vector<MeshData> meshes;
-};
+};*/
 
 struct MaterialData {
     int temp;
 };
 
-using AssetType = std::variant<MeshData, MaterialData, TextureData, ModelData>;
+using AssetType = std::variant<MeshData, MaterialData, TextureData>;
 template <typename T> struct is_variant : std::false_type {};
 
 template <typename... Ts>
