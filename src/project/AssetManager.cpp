@@ -275,6 +275,7 @@ void SYN::AssetManager::processNode(aiNode *node, const aiScene *scene,
 
     for (size_t i{}; i < node->mNumMeshes; i++) {
         aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
+
         meshes.emplace_back(processMesh(mesh, scene, modelPath, transform));
     }
 

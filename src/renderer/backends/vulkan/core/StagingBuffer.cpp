@@ -60,6 +60,17 @@ SYN::VK::StagingBuffer::getLargestContiguousStagingRegion() {
     assert(m_Buffer.size >= (m_WriteCounter - m_ReadCounter));
 
     if (m_WriteCounter == m_ReadCounter) {
+        // this is VERY important. reset counters to zero cus the 2 cursors may
+        // be in the middle of the buffer, but the buffer offset will be 0 /
+        // writes will start at the beginning of the buffer, and on the next
+        // write the cursor will be roughly
+        // in the center still, and if the first region is the largest, it will
+        // set the offset to 0, overwriting this write.
+        // we could do .size = m_Buffer.size - writeCursor, .offset =
+        // writeCursor to avoid resetting the counters, but then you can get
+        // softlocked to only having like half the available buffer
+        m_WriteCounter = 0;
+        m_ReadCounter = 0;
         return {.size = m_Buffer.size, .offset = 0};
     }
 
@@ -76,7 +87,7 @@ SYN::VK::StagingBuffer::getLargestContiguousStagingRegion() {
 
     // --|(RC)-----|(WC)----
     // 2 valid regions
-    if (m_Buffer.size - writeCursor > readCursor) {
+    if ((m_Buffer.size - writeCursor) > readCursor) {
         return {.size = m_Buffer.size - writeCursor, .offset = writeCursor};
     }
     return {.size = readCursor, .offset = 0};
@@ -154,7 +165,14 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, const void *data,
 
     poll(device);
     Region region{getLargestContiguousStagingRegion()};
+
     while (size > region.size) {
+        assert(m_PendingUploads.size() > 0 &&
+               "no pending uploads despite staging buffer not having max "
+               "available size, something went horrifically wrong...");
+        vkWaitForFences(device.logical, 1,
+                        &m_PendingUploads.front().uploadFinishedFence, VK_TRUE,
+                        UINT64_MAX);
         poll(device);
         region = getLargestContiguousStagingRegion();
     }
@@ -162,7 +180,7 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, const void *data,
     memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + region.offset, data,
            size);
 
-    m_WriteCounter = m_WriteCounter + size;
+    m_WriteCounter += size;
     return region.offset;
 }
 
@@ -229,23 +247,22 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
         return;
     }
 
-    uint32_t rowsLeft{static_cast<uint32_t>(height)};
-
-    if ((rowsLeft * rowSize) > m_Buffer.size) {
+    if ((height * rowSize) > m_Buffer.size) {
         spdlog::debug("Uploading image thats larger than staging buffer");
     }
 
-    while (rowsLeft) {
-        uint32_t currentRow{height - rowsLeft};
-        uint32_t dstOffset{currentRow * rowSize};
+    for (uint32_t i{}; i < dstImage.layerCount; i++) {
+        uint32_t rowsLeft{static_cast<uint32_t>(height)};
+        while (rowsLeft) {
+            uint32_t currentRow{height - rowsLeft};
+            uint32_t dstOffset{currentRow * rowSize};
 
-        size_t rowsThisChunk{std::min(rowsPerChunk, rowsLeft)};
-        rowsLeft -= rowsThisChunk;
-        size_t chunkSize{rowsThisChunk * rowSize};
+            size_t rowsThisChunk{std::min(rowsPerChunk, rowsLeft)};
+            rowsLeft -= rowsThisChunk;
+            size_t chunkSize{rowsThisChunk * rowSize};
 
-        VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
+            VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
 
-        for (uint32_t i{}; i < dstImage.layerCount; i++) {
             size_t stagedOffset{stageData(
                 device,
                 static_cast<const uint8_t *>(perLayerData[i]) + dstOffset,
@@ -275,12 +292,13 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
             vkCmdCopyBufferToImage(cmdBuffer, m_Buffer.handle, dstImage.handle,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                    &copyRegion);
-        }
-        endTransientCmd(cmdBuffer);
+            endTransientCmd(cmdBuffer);
 
-        VkFence fence{acquireFence(device)};
-        submitCmdBuffer(m_CmdPool, cmdBuffer, device,
-                        device.queues.at(QueueFamily::transfer).handle, fence);
-        m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
+            VkFence fence{acquireFence(device)};
+            submitCmdBuffer(m_CmdPool, cmdBuffer, device,
+                            device.queues.at(QueueFamily::transfer).handle,
+                            fence);
+            m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
+        }
     }
 }

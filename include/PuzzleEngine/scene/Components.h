@@ -21,7 +21,8 @@ struct TransformComp {
     glm::vec3 position{0.f, 0.f, 0.f};
     glm::quat rotation{0.f, 0.f, 0.f, 0.f};
     glm::vec3 scale{1.f, 1.f, 1.f};
-    glm::vec3 eulerAngles = glm::degrees(glm::eulerAngles(rotation)); //cache for inspector
+    glm::vec3 eulerAngles =
+        glm::degrees(glm::eulerAngles(rotation)); // cache for inspector
 };
 struct MaterialComp {
     SYN::UUID id;
@@ -29,7 +30,7 @@ struct MaterialComp {
 struct CameraComp {
     float fovDegrees = 90.f;
     float aspectRatio = 16.f / 9.f;
-    float nearPlane = 0.0001;
+    float nearPlane = 0.1;
     float farPlane = 100.f;
     bool isPrimary;
 };

@@ -78,7 +78,7 @@ RenderPassDesc SYN::FirstPass::getPassDesc() {
 
 GraphicsPipelineDesc SYN::FirstPass::getPipelineDesc() const {
     GraphicsPipelineDesc c_PipelineDesc{
-        .cullMode = CullMode::backFace,
+        .cullMode = CullMode::disabled,
         .nColorAttachments = 1,
         .hasDepthTesting = true,
         .hasDepthWriting = true,
