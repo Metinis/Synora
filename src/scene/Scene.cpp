@@ -15,14 +15,15 @@
 
 using namespace SYN;
 
-Scene::Scene() {}
+Scene::Scene() {
+}
 
 
 Entity Scene::getEntity(UUID id) {
     if (m_EntityUUIDCache.contains(id)) {
         return m_EntityUUIDCache[id];
     }
-    for (auto view = getEntities<UUIDComp>(); auto entity : view) {
+    for (auto view = getEntities<UUIDComp>(); auto entity: view) {
         if (entity.getUUID() == id) {
             m_EntityUUIDCache[id] = entity;
             return entity;
@@ -34,34 +35,31 @@ Entity Scene::getEntity(UUID id) {
 void Scene::onUpdate(float dt) {
     //clear any ref queue
     if (!m_OnUpdate.empty()) {
-        for (auto& f : m_OnUpdate) {
+        for (auto &f: m_OnUpdate) {
             f();
         }
         m_OnUpdate.clear();
     }
 
-    for (auto e : m_EntityCache) {
-        auto& tc = e.getComponent<TransformComp>();
+    for (auto e: m_EntityCache) {
+        auto &tc = e.getComponent<TransformComp>();
         glm::mat4 local = tc.getLocalMatrix();
 
-        if (ParentComp* parent = e.tryGetComponent<ParentComp>()) {
+        if (ParentComp *parent = e.tryGetComponent<ParentComp>()) {
             auto parentEntity = getEntity(parent->id);
             tc.worldMatrix = parentEntity.getComponent<TransformComp>().worldMatrix * local;
         } else {
             tc.worldMatrix = local;
         }
-
     }
-
 }
 
 void Scene::onAttach() { spdlog::debug("Scene: Attached"); }
 
-void Scene::onDettach() { spdlog::debug("Scene: Dettached"); }
+void Scene::onDettach() { spdlog::debug("Scene: Detached"); }
 
 void Scene::onRender() {
-
-    for (auto &e : getEntities<MeshComp>()) {
+    for (auto &e: getEntities<MeshComp>()) {
         auto &modelComp = e.getComponent<MeshComp>();
         auto &tc = e.getComponent<TransformComp>();
 
@@ -69,17 +67,16 @@ void Scene::onRender() {
     }
 }
 
-void Scene::onMeshAdded(entt::registry& reg, entt::entity e) {
-    auto& comp = reg.get<MeshComp>(e);
+void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
+    auto &comp = reg.get<MeshComp>(e);
 
     m_OnUpdate.push_back([&]() {
         m_AssetManager->addRef(comp.id);
     });
-
 }
 
-void Scene::onMeshRemoved(entt::registry& reg, entt::entity e) {
-    auto& comp = reg.get<MeshComp>(e);
+void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
+    auto &comp = reg.get<MeshComp>(e);
 
     m_OnUpdate.push_back([&]() {
         m_AssetManager->removeRef(comp.id);
@@ -89,35 +86,29 @@ void Scene::onMeshRemoved(entt::registry& reg, entt::entity e) {
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
     auto comp = reg.get<ParentComp>(e);
 
-    //m_OnUpdate.push_back([&]() {
-
-        int depth = 1;
-        auto parentEntity = getEntity(comp.id);
-        while (parentEntity.hasComponent<ParentComp>()) {
-            depth++;
-            comp = parentEntity.getComponent<ParentComp>();
-            parentEntity = getEntity(comp.id);
-        }
-        m_SceneState.registry.get<TransformComp>(e).depth = depth;
-        std::ranges::sort(m_EntityCache,
+    int depth = 1;
+    auto parentEntity = getEntity(comp.id);
+    while (parentEntity.hasComponent<ParentComp>()) {
+        depth++;
+        comp = parentEntity.getComponent<ParentComp>();
+        parentEntity = getEntity(comp.id);
+    }
+    m_SceneState.registry.get<TransformComp>(e).depth = depth;
+    std::ranges::sort(m_EntityCache,
                       [&](Entity a, Entity b) {
                           return a.getComponent<TransformComp>().depth < b.getComponent<TransformComp>().depth;
                       });
-    //});
 }
 
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
-    //m_OnUpdate.push_back([&]() {
-        Entity ent(&m_SceneState.registry, e);
-        if (ent.hasComponent<TransformComp>()) {
-            m_SceneState.registry.get<TransformComp>(e).depth = 0;
-            std::ranges::sort(m_EntityCache,
+    Entity ent(&m_SceneState.registry, e);
+    if (ent.hasComponent<TransformComp>()) {
+        m_SceneState.registry.get<TransformComp>(e).depth = 0;
+        std::ranges::sort(m_EntityCache,
                           [&](Entity a, Entity b) {
                               return a.getComponent<TransformComp>().depth < b.getComponent<TransformComp>().depth;
                           });
-        }
-
-    //});
+    }
 }
 
 bool Scene::isValidEntity(Entity entity) {
@@ -126,7 +117,6 @@ bool Scene::isValidEntity(Entity entity) {
 
 void Scene::onUUIDRemoved(entt::registry &reg, entt::entity e) {
     //same as removing entity, remove any entity that had this as parent
-
 }
 
 void Scene::init(EngineContext *ctx) {
@@ -144,15 +134,15 @@ void Scene::init(EngineContext *ctx) {
     m_SceneState.registry.on_destroy<ParentComp>().connect<&Scene::onParentRemoved>(this);
 
     m_AssetManager->loadModel(this,
-        "resources/assets/Cabin/scene.gltf");
+                              "resources/assets/Cabin/scene.gltf");
 
     auto cam = createEntity("Primary Camera");
-    auto& tc = cam.getComponent<TransformComp>();
+    auto &tc = cam.getComponent<TransformComp>();
     tc.position = glm::vec3(0.f, 0.f, -2.f);
     tc.rotation = glm::quat(0.f, 0.f, 0.f, 0.f);
     tc.scale = glm::vec3(1.f, 1.f, 1.f);
 
-    auto& c = cam.addComponent<CameraComp>();
+    auto &c = cam.addComponent<CameraComp>();
     c.fovDegrees = 90.f;
     c.aspectRatio = 16.f / 9.f;
     c.nearPlane = 0.0001;
@@ -165,7 +155,7 @@ void Scene::init(EngineContext *ctx) {
     e2.addComponent<ParentComp>(e1.getUUID());
     e3.addComponent<ParentComp>(e2.getUUID());
 
-    for (auto e : getEntities<TransformComp>()) {
+    for (auto e: getEntities<TransformComp>()) {
         if (e.isValid()) {
             m_EntityCache.push_back(e);
         }
@@ -190,13 +180,13 @@ void Scene::removeEntity(Entity entity) {
     m_EntityUUIDCache.erase(entity.getUUID());
 
     std::vector<Entity> childrenToRemove;
-    for (auto &ent : getEntities<ParentComp>()) {
+    for (auto &ent: getEntities<ParentComp>()) {
         if (ent.isValid() && ent.getComponent<ParentComp>().id == entity.getUUID()) {
             childrenToRemove.push_back(ent);
         }
     }
 
-    for (auto& child : childrenToRemove) {
+    for (auto &child: childrenToRemove) {
         removeEntity(child);
     }
 
@@ -204,7 +194,7 @@ void Scene::removeEntity(Entity entity) {
     m_SceneState.registry.destroy(entity.getHandle());
 
     m_EntityCache.clear();
-    for (auto e : getEntities<TransformComp>()) {
+    for (auto e: getEntities<TransformComp>()) {
         if (e.isValid()) {
             m_EntityCache.push_back(e);
         }
