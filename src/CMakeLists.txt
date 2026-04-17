@@ -12,8 +12,6 @@ file(GLOB_RECURSE ENGINE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 )
 
-list(FILTER ENGINE_SOURCES EXCLUDE REGEX "cmake-build")
-
 add_library(SynoraEngine STATIC ${ENGINE_SOURCES})
 
 target_precompile_headers(
