@@ -28,6 +28,14 @@ void Scene::onUIRender() {
         if (ImGui::MenuItem("Create Entity")) {
             openCreateEntity = true;
         }
+        if (ImGui::MenuItem("Import Model")) {
+            std::array filters = { "*.obj", "*.fbx", "*.glb", "*.gltf", "*.mtl" };
+            const char* path = tinyfd_openFileDialog("Choose a model", "",
+                filters.size(), filters.data(), "3D Model Files", 1);
+            if (path) {
+                m_AssetManager->loadModel(this, path);
+            }
+        }
 
         ImGui::EndPopup();
     }
@@ -60,21 +68,12 @@ auto inspectTransform = [](TransformComp* tc) {
     }
     ImGui::DragFloat3("Scale", glm::value_ptr(tc->scale), 0.1f);
 };
-auto inspectModel = [](Entity e, MeshComp* mc) {
-    ImGui::Text("Model");
+auto inspectMesh = [](Entity e, MeshComp* mc) {
+    ImGui::Text("Mesh");
     ImGui::SameLine();
     if (!mc) {
         if (ImGui::Button("Add")) {
-            std::array filters = { "*.obj", "*.fbx", "*.glb", "*.gltf", "*.mtl" };
-            const char* path = tinyfd_openFileDialog("Choose a model", "",
-                filters.size(), filters.data(), "3D Model Files", 1);
-            if (path) {
-                //TODO
-                /*UUID uuid{m_AssetManager->loadModel(path)};
-                spdlog::info("uuid = {}", uuid);
-
-                e.addComponent<ModelComp>(ModelComp{.id = uuid});*/
-            }
+            //TODO
         }
     } else {
         if (ImGui::Button("Remove")) {
@@ -84,8 +83,6 @@ auto inspectModel = [](Entity e, MeshComp* mc) {
 };
 void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
     //Have dropdown of all entities
-
-
     if (ImGui::TreeNode(entity.getComponent<TagComp>().tag.c_str())) {
         ImGui::PushID(entity.getUUID());
         if (ImGui::BeginPopupContextItem()) {
@@ -101,9 +98,8 @@ void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
         }
         if (ImGui::CollapsingHeader("Model")) {
             auto* mc = entity.tryGetComponent<MeshComp>();
-            inspectModel(entity, mc);
+            inspectMesh(entity, mc);
         }
-
 
         //draw children
         for (auto e : getEntities<ParentComp>()) {
@@ -115,6 +111,4 @@ void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
         ImGui::PopID();
         ImGui::TreePop();
     }
-
-
 }
