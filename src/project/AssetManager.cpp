@@ -5,7 +5,6 @@
 #include "assimp/postprocess.h"
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include <filesystem>
 #include "PuzzleEngine/scene/Entity.h"
 #include "PuzzleEngine/scene/Scene.h"
 
@@ -135,8 +134,8 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     return uuid;
 }
 
-void SYN::AssetManager::loadModel(Scene* scene, const std::string &path) {
-    spdlog::debug("Loading {}", path);
+void SYN::AssetManager::loadModel(Scene* scene, const std::filesystem::path& path) {
+    spdlog::debug("Loading {}", path.c_str());
 
     const aiScene *aiScene{m_Importer.ReadFile(
         path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
@@ -151,7 +150,8 @@ void SYN::AssetManager::loadModel(Scene* scene, const std::string &path) {
     aiMatrix4x4 origin{};
     aiIdentityMatrix4(&origin);
     Entity parent = scene->createEntity();
-    parent.getComponent<TagComp>() = TagComp{.tag = aiScene->mName.C_Str()};
+    //std::string entName = path.substr(0, path.find_last_of('/'));
+    parent.getComponent<TagComp>() = TagComp{.tag = path.stem().string()};
     processNode(scene, parent, aiScene->mRootNode, aiScene, path, origin);
 }
 

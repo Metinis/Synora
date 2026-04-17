@@ -1,4 +1,6 @@
 #pragma once
+
+
 #include "Assets.h"
 #include "PuzzleEngine/core/InputTypes.h"
 #include "PuzzleEngine/scene/Components.h"
@@ -25,7 +27,7 @@ class AssetManager {
 
     void init(EngineContext *ctx);
 
-    void loadModel(Scene* scene, const std::string &path);
+    void loadModel(Scene* scene, const std::filesystem::path& path);
     UUID loadTexture(const std::string &path);
 
     void addRef(UUID id);

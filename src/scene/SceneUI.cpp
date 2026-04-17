@@ -84,7 +84,7 @@ auto inspectMesh = [](Entity e, MeshComp* mc) {
 void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
     //Have dropdown of all entities
     if (ImGui::TreeNode(entity.getComponent<TagComp>().tag.c_str())) {
-        ImGui::PushID(entity.getUUID());
+        ImGui::PushID((int)entity.getHandle());
         if (ImGui::BeginPopupContextItem()) {
             if (ImGui::MenuItem("Delete")) {
                 deletionQueue.push_back(entity);
