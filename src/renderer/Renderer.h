@@ -26,14 +26,14 @@ class Renderer {
 
     void init(EngineContext *ctx);
     void render(Window &window);
-    void addModel(UUID modelID, const ModelData &modelData);
-    void removeModel(UUID modelID);
+    void addMesh(UUID modelID, const MeshData &meshData);
+    void removeMesh(UUID meshID);
 
     void setCamera(const Camera &camera);
 
     // could make a renderable object struct with modelID, materialID etc, all
     // that are needed for drawing
-    void drawModel(UUID modelID, const TransformComp &transform);
+    void drawMesh(UUID modelID, const glm::mat4 &worldMatrix);
     void shutdown();
 
     struct UploadedMesh {
@@ -45,9 +45,9 @@ class Renderer {
         TextureHandle albedo;
     };
 
-    struct UploadedModel {
+    /*struct UploadedModel {
         std::vector<UploadedMesh> meshes;
-    };
+    };*/
     struct MeshDrawCall {
         UploadedMesh mesh;
         glm::mat4 modelMatrix;
@@ -64,7 +64,7 @@ class Renderer {
 
     AttachmentHandle m_DepthAttachment;
 
-    std::unordered_map<UUID, UploadedModel> m_UploadedModels;
+    std::unordered_map<UUID, UploadedMesh> m_UploadedMeshes;
     std::vector<MeshDrawCall> m_DrawCalls;
 };
 

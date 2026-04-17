@@ -1,4 +1,6 @@
 #pragma once
+
+
 #include "Assets.h"
 #include "PuzzleEngine/core/InputTypes.h"
 #include "PuzzleEngine/scene/Components.h"
@@ -14,6 +16,7 @@ struct aiMesh;
 struct aiScene;
 
 namespace SYN {
+    class Entity;
     struct AssetCounted {
         AssetType data{};
         uint64_t ref{};
@@ -24,7 +27,7 @@ class AssetManager {
 
     void init(EngineContext *ctx);
 
-    UUID loadModel(const std::string &path);
+    void loadModel(Scene* scene, const std::filesystem::path& path);
     UUID loadTexture(const std::string &path);
 
     void addRef(UUID id);
@@ -79,8 +82,7 @@ class AssetManager {
                          const std::string &modelPath,
                          const aiMatrix4x4 &transform);
 
-    void processNode(aiNode *node, const aiScene *scene,
-                     std::vector<SYN::MeshData> &meshes,
+    void processNode(Scene* scene, Entity parent, aiNode *node, const aiScene *aiScene,
                      const std::string &modelPath,
                      const aiMatrix4x4 &parentTransform);
 

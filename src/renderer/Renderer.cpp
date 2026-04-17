@@ -36,54 +36,49 @@ void SYN::Renderer::render(Window &window) {
     m_DrawCalls.clear();
 }
 
-void Renderer::addModel(UUID modelID, const ModelData &modelData) {
-    if (m_UploadedModels.contains(modelID)) {
+void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
+    if (m_UploadedMeshes.contains(modelID)) {
         spdlog::warn("Trying to add model (uuid = {}) that was already added",
                      modelID);
         return;
     }
 
-    UploadedModel model{};
 
-    for (const auto &mesh : modelData.meshes) {
-        TextureHandle albedo{
-            m_Backend->uploadTexture({.width = mesh.albedo->width,
-                                      .height = mesh.albedo->height,
-                                      .type = TextureType::srgb},
-                                     mesh.albedo->data)};
+    TextureHandle albedo{
+        m_Backend->uploadTexture({.width = meshData.albedo->width,
+                                  .height = meshData.albedo->height,
+                                  .type = TextureType::srgb},
+                                 meshData.albedo->data)};
 
-        BufferHandle vertexBuffer{m_Backend->uploadBuffer(
-            {.size = mesh.vertices.size() * sizeof(Vertex)},
-            mesh.vertices.data())};
+    BufferHandle vertexBuffer{m_Backend->uploadBuffer(
+        {.size = meshData.vertices.size() * sizeof(Vertex)},
+        meshData.vertices.data())};
 
-        BufferHandle indexBuffer{m_Backend->uploadBuffer(
-            {.size = mesh.indices.size() * sizeof(uint32_t)},
-            mesh.indices.data())};
+    BufferHandle indexBuffer{m_Backend->uploadBuffer(
+        {.size = meshData.indices.size() * sizeof(uint32_t)},
+        meshData.indices.data())};
 
-        model.meshes.emplace_back(UploadedMesh{
-            .vertexBuffer = vertexBuffer,
-            .indexBuffer = indexBuffer,
-            .localTransform = mesh.localTransform,
-            .numIndices = mesh.indices.size(),
-            .albedo = albedo,
-        });
-    }
-    m_UploadedModels[modelID] = std::move(model);
+    auto mesh = UploadedMesh{
+        .vertexBuffer = vertexBuffer,
+        .indexBuffer = indexBuffer,
+        .localTransform = meshData.localTransform,
+        .numIndices = meshData.indices.size(),
+        .albedo = albedo,
+    };
+    m_UploadedMeshes[modelID] = std::move(mesh);
     spdlog::info("added model");
 }
 
-void Renderer::removeModel(UUID modelID) {
-    if (m_UploadedModels.contains(modelID)) {
-        auto& model = m_UploadedModels[modelID];
-        for (auto &mesh : model.meshes) {
-            m_Backend->destroyTexture(mesh.albedo);
-            m_Backend->destroyBuffer(mesh.vertexBuffer);
-            m_Backend->destroyBuffer(mesh.indexBuffer);
-        }
-        m_UploadedModels.erase(modelID);
-        spdlog::debug("Removed model from renderer {}", modelID);
+void Renderer::removeMesh(UUID meshID) {
+    if (m_UploadedMeshes.contains(meshID)) {
+        auto& mesh = m_UploadedMeshes[meshID];
+        m_Backend->destroyTexture(mesh.albedo);
+        m_Backend->destroyBuffer(mesh.vertexBuffer);
+        m_Backend->destroyBuffer(mesh.indexBuffer);
+        m_UploadedMeshes.erase(meshID);
+        spdlog::debug("Removed model from renderer {}", meshID);
     } else {
-        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models", modelID);
+        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models", meshID);
     }
 }
 
@@ -99,37 +94,28 @@ void Renderer::setCamera(const Camera &camera) {
     m_CurrentCameraView = rotation * translation;
 }
 
-void Renderer::drawModel(UUID modelID, const TransformComp &transform) {
-    auto it{m_UploadedModels.find(modelID)};
-    if (it == m_UploadedModels.end()) {
+void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
+    auto it{m_UploadedMeshes.find(modelID)};
+    if (it == m_UploadedMeshes.end()) {
         spdlog::warn(
             "Trying to draw model (uuid = {}) that was not added to renderer",
             modelID);
         return;
     }
-    glm::mat4 translation{glm::translate(glm::mat4(1.0f), transform.position)};
-    glm::mat4 rotation{glm::mat4(transform.rotation)};
-    glm::mat4 scale{glm::scale(glm::mat4(1.0f), transform.scale)};
 
-    glm::mat4 modelMat{translation * rotation * scale};
-
-    UploadedModel &model{it->second};
-    for (auto &mesh : model.meshes) {
-        m_DrawCalls.emplace_back(MeshDrawCall{
+    UploadedMesh &mesh{it->second};
+    m_DrawCalls.emplace_back(MeshDrawCall{
             .mesh = mesh,
-            .modelMatrix = modelMat * mesh.localTransform,
+            .modelMatrix = worldMatrix * mesh.localTransform,
         });
-    }
 }
 
 void SYN::Renderer::shutdown() {
     m_RenderGraph.shutdown(*m_Backend);
-    for (auto &[uuid, model] : m_UploadedModels) {
-        for (auto &mesh : model.meshes) {
-            m_Backend->destroyTexture(mesh.albedo);
-            m_Backend->destroyBuffer(mesh.vertexBuffer);
-            m_Backend->destroyBuffer(mesh.indexBuffer);
-        }
+    for (auto &[uuid, mesh] : m_UploadedMeshes) {
+        m_Backend->destroyTexture(mesh.albedo);
+        m_Backend->destroyBuffer(mesh.vertexBuffer);
+        m_Backend->destroyBuffer(mesh.indexBuffer);
     }
     m_Backend->destroyAttachment(m_DepthAttachment);
 
