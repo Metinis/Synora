@@ -1,9 +1,9 @@
 #pragma once
 #include <entt/entt.hpp>
 
-#include "PuzzleEngine/core/Application.h"
-#include "PuzzleEngine/core/Layer.h"
-#include "PuzzleEngine/scene/Entity.h"
+#include "SynoraEngine/core/Application.h"
+#include "SynoraEngine/core/Layer.h"
+#include "SynoraEngine/scene/Entity.h"
 #include "renderer/Renderer.h"
 #include "scene/SceneState.h"
 

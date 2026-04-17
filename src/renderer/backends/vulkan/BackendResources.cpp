@@ -14,7 +14,7 @@
 #include <stb_image.h>
 #include <vk_mem_alloc.h>
 
-#include <PuzzleEngine/core/Window.h>
+#include <SynoraEngine/core/Window.h>
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;

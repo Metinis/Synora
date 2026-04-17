@@ -3,8 +3,8 @@
 
 #include "Components.h"
 #include "scene/SceneState.h"
-#include "PuzzleEngine/core/InputTypes.h"
-#include "PuzzleEngine/project/UUID.h"
+#include "SynoraEngine/core/InputTypes.h"
+#include "SynoraEngine/project/UUID.h"
 
 namespace SYN {
     class Scene;

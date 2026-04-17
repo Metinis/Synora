@@ -2,8 +2,8 @@
 
 
 #include "Assets.h"
-#include "PuzzleEngine/core/InputTypes.h"
-#include "PuzzleEngine/scene/Components.h"
+#include "SynoraEngine/core/InputTypes.h"
+#include "SynoraEngine/scene/Components.h"
 #include "UUID.h"
 #include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"

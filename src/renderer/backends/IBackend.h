@@ -1,7 +1,7 @@
 #pragma once
-#include "PuzzleEngine/core/Application.h"
-#include "PuzzleEngine/project/Assets.h"
-#include "PuzzleEngine/project/UUID.h"
+#include "SynoraEngine/core/Application.h"
+#include "SynoraEngine/project/Assets.h"
+#include "SynoraEngine/project/UUID.h"
 #include "renderer/RenderTypes.h"
 
 struct MeshData;

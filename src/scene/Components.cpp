@@ -1,4 +1,4 @@
-#include "PuzzleEngine/scene/Components.h"
+#include "SynoraEngine/scene/Components.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/quaternion.hpp"
 
