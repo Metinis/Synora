@@ -1,8 +1,8 @@
-#include <PuzzleEngine/scene/Scene.h>
+#include <SynoraEngine/scene/Scene.h>
 #include "imgui.h"
 #include "tinyfiledialogs.h"
 #include "glm/gtc/type_ptr.hpp"
-#include "PuzzleEngine/project/AssetManager.h"
+#include "SynoraEngine/project/AssetManager.h"
 
 using namespace SYN;
 

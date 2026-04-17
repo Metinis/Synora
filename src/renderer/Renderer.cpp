@@ -1,5 +1,5 @@
 #include "Renderer.h"
-#include "PuzzleEngine/core/Window.h"
+#include "SynoraEngine/core/Window.h"
 #include "RenderGraph.h"
 #include "backends/vulkan/Backend.h"
 #include "glm/ext/quaternion_common.hpp"

@@ -14,56 +14,27 @@ file(GLOB_RECURSE ENGINE_SOURCES
 
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX "cmake-build")
 
-add_library(Synora STATIC ${ENGINE_SOURCES})
+add_library(SynoraEngine STATIC ${ENGINE_SOURCES})
+
 target_precompile_headers(
-  Synora
+  SynoraEngine
   PUBLIC
-  "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_SOURCE_DIR}/include/PuzzleEngine/synpch.h>"
+  "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/../include/SynoraEngine/synpch.h>"
 )
 target_include_directories(
-  Synora 
-  PUBLIC 
-  ${PROJECT_SOURCE_DIR}/include
-  PRIVATE 
-  ${PROJECT_SOURCE_DIR}/src
-  ${PROJECT_SOURCE_DIR}/3rdparty/stb
-  ${PROJECT_SOURCE_DIR}/3rdparty/imgui
-  ${PROJECT_SOURCE_DIR}/3rdparty/imgui/backends
-  ${PROJECT_SOURCE_DIR}/3rdparty/tinyfiledialogs
-)
-target_link_libraries(
-  Synora 
+  SynoraEngine
   PUBLIC
-  glfw
-  spdlog
-  miniaudio
-  EnTT::EnTT
-  Jolt
-  Vulkan::Vulkan
-  GPUOpen::VulkanMemoryAllocator
-  glm::glm
-  assimp
-)
-
-add_executable(PuzzleEngine
-        ${ENGINE_SOURCES}
-)
-target_precompile_headers(PuzzleEngine
-        PUBLIC
-        "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_SOURCE_DIR}/include/PuzzleEngine/synpch.h>"
-)
-target_include_directories(PuzzleEngine
-  PUBLIC 
-  ${PROJECT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
   PRIVATE
-  ${PROJECT_SOURCE_DIR}/src
-  ${PROJECT_SOURCE_DIR}/3rdparty/stb
-  ${PROJECT_SOURCE_DIR}/3rdparty/tinyfiledialogs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/stb
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/imgui
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/imgui/backends
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/tinyfiledialogs
 )
-
 target_link_libraries(
-  PuzzleEngine 
-  PRIVATE
+  SynoraEngine
+  PUBLIC
   glfw
   spdlog
   miniaudio
@@ -78,4 +49,4 @@ target_link_libraries(
 )
 
 # This is to make the projection matrices in glm work with vulkan
-target_compile_definitions(PuzzleEngine PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED GLFW_INCLUDE_VULKAN ${APPLE_COMPILE_DEFINITIONS})
+target_compile_definitions(SynoraEngine PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED GLFW_INCLUDE_VULKAN ${APPLE_COMPILE_DEFINITIONS})

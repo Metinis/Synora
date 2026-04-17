@@ -1,9 +1,9 @@
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>
 
-#include <PuzzleEngine/core/Input.h>
-#include <PuzzleEngine/core/InputContext.h>
-#include <PuzzleEngine/core/Window.h>
+#include <SynoraEngine/core/Input.h>
+#include <SynoraEngine/core/InputContext.h>
+#include <SynoraEngine/core/Window.h>
 
 #include <optional>
 

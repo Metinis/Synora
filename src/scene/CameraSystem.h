@@ -1,6 +1,6 @@
 #pragma once
-#include "PuzzleEngine/core/Application.h"
-#include "PuzzleEngine/scene/Entity.h"
+#include "SynoraEngine/core/Application.h"
+#include "SynoraEngine/scene/Entity.h"
 
 namespace SYN {
     struct Camera;

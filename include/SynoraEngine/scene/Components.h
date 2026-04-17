@@ -1,5 +1,5 @@
 #pragma once
-#include "PuzzleEngine/project/UUID.h"
+#include "SynoraEngine/project/UUID.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 

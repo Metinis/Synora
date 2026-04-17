@@ -1,12 +1,12 @@
 #pragma once
-#include "PuzzleEngine/core/Application.h"
+#include "SynoraEngine/core/Application.h"
 #include "RenderGraph.h"
 #include "backends/IBackend.h"
 #include "renderer/RenderTypes.h"
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 
-#include "PuzzleEngine/scene/Components.h"
+#include "SynoraEngine/scene/Components.h"
 
 namespace SYN {
 class Window;
@@ -45,9 +45,6 @@ class Renderer {
         TextureHandle albedo;
     };
 
-    /*struct UploadedModel {
-        std::vector<UploadedMesh> meshes;
-    };*/
     struct MeshDrawCall {
         UploadedMesh mesh;
         glm::mat4 modelMatrix;

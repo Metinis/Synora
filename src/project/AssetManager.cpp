@@ -1,12 +1,12 @@
-#include "PuzzleEngine/project/AssetManager.h"
+#include "SynoraEngine/project/AssetManager.h"
 #include "assimp/cimport.h"
 #include "assimp/material.h"
 #include "assimp/mesh.h"
 #include "assimp/postprocess.h"
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include "PuzzleEngine/scene/Entity.h"
-#include "PuzzleEngine/scene/Scene.h"
+#include "SynoraEngine/scene/Entity.h"
+#include "SynoraEngine/scene/Scene.h"
 
 void SYN::AssetManager::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
