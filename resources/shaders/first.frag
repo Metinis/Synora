@@ -35,7 +35,7 @@ layout(buffer_reference, std430) buffer readonly IndexBuffer {
 };
 
 layout(push_constant, std430) uniform PushConstants {
-    mat4 modelMatrix;
+    mat4 modelMat;
     VertexBuffer vertexBuffer;
     IndexBuffer indexBuffer;
     uint textureIndex;
@@ -45,8 +45,9 @@ layout(push_constant, std430) uniform PushConstants {
 layout(set = 1, binding = 0) uniform Uniform {
     mat4 projectionMat;
     mat4 viewMat;
-    LightCaster lights[16];
+    vec3 cameraPos;
     uint nLights;
+    LightCaster lights[16];
 };
 
 void main() {
@@ -55,15 +56,12 @@ void main() {
         discard;
     }
 
-    outColor = vec4(0.f, 0.f, 0.f, 0.f);
-
+    fragColor = vec3(0.f, 0.f, 0.f);
     for (int i = 0; i < nLights; i++) {
         LightCaster light = lights[i];
 
-        vec3 lightPos = vec4(viewMat * vec4(light.pos, 1.f)).xyz;
-
-        vec3 lightDir = normalize(lightPos - fragPos);
-        vec3 viewDir = normalize(-fragPos);
+        vec3 lightDir = normalize(light.pos - fragPos);
+        vec3 viewDir = normalize(cameraPos - fragPos);
 
         vec3 halfway = normalize(lightDir + viewDir);
 
@@ -72,6 +70,8 @@ void main() {
 
         vec3 specular = fragAlbedo.xyz * pow(max(dot(norm, halfway), 0.f), 16.f);
 
-        outColor += vec4(specular + diffuse + ambient, 1.f);
+        fragColor += (specular + diffuse + ambient) * light.color;
     }
+
+    outColor = vec4(fragColor, 0.f);
 }

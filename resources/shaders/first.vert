@@ -6,7 +6,7 @@ layout(set = 0, binding = 0) uniform sampler2D textures[];
 layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
 
 layout(location = 0) out vec2 outUV;
-layout(location = 1) out vec3 outViewPos;
+layout(location = 1) out vec3 outWorldPos;
 layout(location = 2) out vec3 outNorm;
 
 struct Vertex {
@@ -45,21 +45,20 @@ layout(push_constant, std430) uniform PushConstants {
 layout(set = 1, binding = 0) uniform Uniform {
     mat4 projectionMat;
     mat4 viewMat;
-    LightCaster lights[16];
+    vec3 cameraPos;
     uint nLights;
+    LightCaster lights[16];
 };
 
 void main() {
     Vertex vertex = vertexBuffer.vertices[indexBuffer.indices[gl_VertexIndex]];
 
     outUV = vec2(vertex.u, vertex.v);
-    mat4 viewModelMat = viewMat * modelMat;
-    vec4 viewPos = viewModelMat * vec4(vertex.pos.xyz, 1.f);
-    outViewPos = viewPos.xyz;
+    vec4 worldPos = modelMat * vec4(vertex.pos.xyz, 1.f);
+    outWorldPos = worldPos.xyz;
 
-    mat3 normalMat = mat3(transpose(inverse(viewModelMat)));
-
+    mat3 normalMat = transpose(mat3(modelMat));
     outNorm = normalize(normalMat * vertex.normal);
 
-	gl_Position = projectionMat * viewPos;
+	gl_Position = projectionMat * viewMat * worldPos;
 }

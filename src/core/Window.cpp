@@ -1,6 +1,6 @@
 #include <GLFW/glfw3.h>
 
-#include <PuzzleEngine/core/Window.h>
+#include <SynoraEngine/core/Window.h>
 
 #include <spdlog/spdlog.h>
 

@@ -18,7 +18,7 @@
 #include <stb_image.h>
 #include <vk_mem_alloc.h>
 
-#include <PuzzleEngine/core/Window.h>
+#include <SynoraEngine/core/Window.h>
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
 #include <vulkan/vulkan_core.h>

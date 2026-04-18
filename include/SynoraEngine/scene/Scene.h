@@ -1,9 +1,9 @@
 #pragma once
 #include <entt/entt.hpp>
 
-#include "PuzzleEngine/core/Application.h"
-#include "PuzzleEngine/core/Layer.h"
-#include "PuzzleEngine/scene/Entity.h"
+#include "SynoraEngine/core/Application.h"
+#include "SynoraEngine/core/Layer.h"
+#include "SynoraEngine/scene/Entity.h"
 #include "renderer/Renderer.h"
 #include "scene/SceneState.h"
 
@@ -22,10 +22,15 @@ class Scene : public ILayer {
     void onDettach() override;
     void onRender() override;
     void onUIRender() override;
+    void drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue);
+    Entity getEntity(UUID id);
 
     bool isValidEntity(Entity entity);
-    void onModelAdded(entt::registry& reg, entt::entity e);
-    void onModelRemoved(entt::registry& reg, entt::entity e);
+    void onUUIDRemoved(entt::registry& reg, entt::entity e); //same as removing entity
+    void onMeshAdded(entt::registry& reg, entt::entity e);
+    void onMeshRemoved(entt::registry& reg, entt::entity e);
+    void onParentAdded(entt::registry& reg, entt::entity e);
+    void onParentRemoved(entt::registry& reg, entt::entity e);
 
     void init(EngineContext *ctx);
     Entity createEntity(const std::string &tag = "Unnamed Entity");
@@ -45,6 +50,8 @@ class Scene : public ILayer {
     AssetManager *m_AssetManager;
     SceneState m_SceneState;
     std::vector<std::function<void()>> m_OnUpdate;
+    std::unordered_map<UUID, Entity> m_EntityUUIDCache;
+    std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update
 
     friend class Entity;
 };

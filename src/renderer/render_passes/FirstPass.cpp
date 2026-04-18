@@ -30,8 +30,9 @@ struct LightCaster {
 struct Uniforms {
     glm::mat4 projectionMat;
     glm::mat4 viewMat;
-    std::array<LightCaster, 16> lights;
+    glm::vec3 cameraPos;
     uint32_t nLights;
+    std::array<LightCaster, 16> lights;
 };
 } // namespace
 
@@ -57,10 +58,13 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
     LightCaster sun{.pos = glm::vec3(0.f, 20.f, 0.f),
                     .color = glm::vec3(1.f, 1.f, 1.f),
                     .dir = glm::vec3(1.f, -1.f, 0.f)};
+    glm::vec3 cameraPos{glm::transpose(glm::mat3(m_CameraView)) *
+                        -m_CameraView[3]};
 
     Uniforms uniform{
         .projectionMat = m_CameraProjection,
         .viewMat = m_CameraView,
+        .cameraPos = cameraPos,
         .nLights = 1,
     };
     uniform.lights[0] = sun;
