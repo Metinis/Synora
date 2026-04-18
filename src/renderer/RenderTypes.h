@@ -26,7 +26,11 @@ struct TextureDesc {
     uint32_t width;
     uint32_t height;
 
+    uint32_t layerCount{1};
+
     TextureType type;
+    bool hasMipChain{true};
+    bool isCubeMap{false}; // layer count must be 6 if this is true
 };
 
 enum class AttachmentSize : uint32_t { fixed, relative };
@@ -36,8 +40,12 @@ struct AttachmentDesc {
     uint32_t height{}; // ignored if size is relative
     AttachmentSize size{AttachmentSize::relative};
 
+    uint32_t layerCount{1};
+
     TextureType type;
     bool isSampleable;
+    uint32_t msaaSamples{1}; // 1 is no multisampling
+    bool isCubeMap{false};   // layer count must be 6 if this is true
 };
 
 struct BufferDesc {
@@ -50,9 +58,16 @@ enum class PolygonMode { fill, line };
 struct GraphicsPipelineDesc {
     CullMode cullMode{CullMode::backFace};
     PolygonMode polygonMode{PolygonMode::fill};
+    bool hasAlphaBlending{false};
 
     uint32_t nColorAttachments{};
-    bool hasDepthAttachment{}; // if this is true, depth testing is enabled
+    // if either of these are true, there must be a depth attachment / these
+    // being true imply a depth attachment
+    bool hasDepthTesting{};
+    bool hasDepthWriting{};
+
+    uint32_t msaaSamples{
+        1}; // all attachments must have the same number of samples
 
     std::optional<std::string_view> vertexShaderPath{};
     std::optional<std::string_view> fragmentShaderPath{};
@@ -74,8 +89,13 @@ struct Viewport {
 enum class StoreOp { store, dontCare };
 enum class LoadOp { load, clear, dontCare };
 
-struct WriteAttachment {
+struct WriteAttachmentInfo {
     AttachmentHandle handle;
+    std::optional<AttachmentHandle> resolveHandle{};
+
+    uint32_t layer{0};
+    uint32_t resolveLayer{0};
+
     StoreOp storeOp{StoreOp::store};
     LoadOp loadOp{LoadOp::clear};
     union {
@@ -85,9 +105,11 @@ struct WriteAttachment {
 };
 
 struct RenderPassDesc {
-    std::span<const AttachmentHandle> readAttachments;
-    std::span<const WriteAttachment> colorAttachments;
-    std::optional<const WriteAttachment> depthAttachment;
+    std::string debugName{"Default Pass"};
+
+    std::span<AttachmentHandle> readAttachments;
+    std::span<WriteAttachmentInfo> colorAttachments;
+    std::optional<WriteAttachmentInfo> depthAttachment;
 };
 
 } // namespace SYN

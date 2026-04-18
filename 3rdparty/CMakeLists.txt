@@ -45,3 +45,7 @@ target_link_libraries(imgui
         PRIVATE
         glfw
 )
+target_link_libraries(tinyfiledialogs
+        PRIVATE
+        glfw
+)

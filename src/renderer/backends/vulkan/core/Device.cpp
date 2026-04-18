@@ -57,7 +57,10 @@ Device VK::createDevice(VkInstance instance, VkSurfaceKHR surface) {
     VkPhysicalDeviceFeatures2 features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = &features13,
-        .features = {.samplerAnisotropy = VK_TRUE}};
+        .features = {
+            .fillModeNonSolid = VK_TRUE,
+            .samplerAnisotropy = VK_TRUE,
+        }};
 
     VkPhysicalDevice physicalDevice{selectPhysicalDevice(instance, surface)};
 
@@ -115,7 +118,8 @@ VkPhysicalDevice selectPhysicalDevice(VkInstance instance,
 
         // TODO: pass in features and compare them against what are actually
         // supported
-        bool featuresSupported{features.features.samplerAnisotropy == VK_TRUE};
+        bool featuresSupported{features.features.samplerAnisotropy == VK_TRUE &&
+                               features.features.fillModeNonSolid == VK_TRUE};
         bool features12Supported{
             features12.descriptorIndexing &&
             features12.shaderSampledImageArrayNonUniformIndexing &&

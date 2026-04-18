@@ -59,7 +59,10 @@ class Renderer {
     Window *m_Window;
     RenderGraph m_RenderGraph;
 
-    AttachmentHandle m_DepthAttachment;
+    AttachmentHandle m_MSAADepthAttachment;
+    AttachmentHandle m_MSAAScreenColorAttachment;
+
+    TextureHandle m_SkyBox;
 
     std::unordered_map<UUID, UploadedMesh> m_UploadedMeshes;
     std::vector<MeshDrawCall> m_DrawCalls;

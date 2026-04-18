@@ -26,12 +26,12 @@ using namespace SYN::VK;
 namespace {
 constexpr uint32_t c_MB{1024 * 1024};
 
+VkRenderingAttachmentInfo makeAttachmentInfo(
+    const Image &image, std::optional<const Image *> resolveImage,
+    const WriteAttachmentInfo &attachment, VkImageLayout targetLayout);
+
 VkAttachmentLoadOp toVkLoadOp(LoadOp loadOp);
 VkAttachmentStoreOp toVkStoreOp(StoreOp loadOp);
-
-VkRenderingAttachmentInfo makeAttachmentInfo(const Image &image,
-                                             const WriteAttachment &attachment,
-                                             VkImageLayout targetLayout);
 
 } // namespace
 
@@ -98,6 +98,22 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
     vkResetCommandPool(m_Device.logical, frame.graphicsCmdPool, 0);
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
+
+    VkDescriptorBufferInfo bufferInfo{
+        .buffer = frame.UBOBuffer.getVkBuffer(),
+        .range = DynamicUBO::c_MaxSizePerUBO,
+    };
+
+    VkWriteDescriptorSet writeDescriptorSet{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = m_UBODescriptorSet,
+        .dstBinding = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        .pBufferInfo = &bufferInfo,
+    };
+    vkUpdateDescriptorSets(m_Device.logical, 1, &writeDescriptorSet, 0,
+                           nullptr);
 
     vkCmdBindDescriptorSets(
         frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -174,6 +190,13 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         Image &image{
             m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
 
+        std::optional<Image *> resolveImage{};
+
+        if (attachment.resolveHandle.has_value()) {
+            resolveImage = &m_Attachments[attachment.resolveHandle.value()]
+                                .images[m_CurrentFrameIndex];
+        }
+
         if (viewportExtent.width == UINT32_MAX &&
             viewportExtent.height == UINT32_MAX) {
             viewportExtent = image.extent;
@@ -190,18 +213,29 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
 
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         colorAttachmentInfos.emplace_back(
-            makeAttachmentInfo(image, attachment, targetLayout));
+            makeAttachmentInfo(image, resolveImage, attachment, targetLayout));
 
-        if (image.syncState.currentLayout != targetLayout) {
-            transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+        transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+        if (resolveImage.has_value()) {
+            transitionImageCmd(frame.graphicsCmdBuffer, *resolveImage.value(),
+                               targetLayout,
                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
         }
     }
     if (desc.depthAttachment.has_value()) {
-        WriteAttachment attachment{desc.depthAttachment.value()};
+        WriteAttachmentInfo attachment{desc.depthAttachment.value()};
         Image &image{
             m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
+
+        std::optional<Image *> resolveImage{};
+        if (attachment.resolveHandle.has_value()) {
+            resolveImage = &m_Attachments[attachment.resolveHandle.value()]
+                                .images[m_CurrentFrameIndex];
+        }
 
         if (viewportExtent.width == UINT32_MAX &&
             viewportExtent.height == UINT32_MAX) {
@@ -218,15 +252,18 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         }
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL};
         depthAttachmentInfo =
-            makeAttachmentInfo(image, attachment, targetLayout);
+            makeAttachmentInfo(image, resolveImage, attachment, targetLayout);
 
-        if (image.syncState.currentLayout != targetLayout) {
-            transitionImageCmd(
-                frame.graphicsCmdBuffer, image, targetLayout,
-                VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                    VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-                    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
+        transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                           VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                               VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
+        if (resolveImage.has_value()) {
+            transitionImageCmd(frame.graphicsCmdBuffer, *resolveImage.value(),
+                               targetLayout,
+                               VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                               VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
         }
     }
 
@@ -240,12 +277,10 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
         Image &image{attachment.images[m_CurrentFrameIndex]};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-        if (image.syncState.currentLayout != targetLayout) {
-            transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
-                               VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                   VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                               VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        }
+        transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
+                           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 
     VkRenderingInfo renderingInfo{
@@ -288,21 +323,8 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
 
     beginRenderPassCmd(desc, pipelineHandle);
 
-    VkDescriptorBufferInfo bufferInfo{
-        frame.UBOBuffer.write(uniformData, uniformSize)};
+    uint32_t dynamicOffset{frame.UBOBuffer.write(uniformData, uniformSize)};
 
-    VkWriteDescriptorSet writeDescriptorSet{
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_UBODescriptorSet,
-        .dstBinding = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        .pBufferInfo = &bufferInfo,
-    };
-    vkUpdateDescriptorSets(m_Device.logical, 1, &writeDescriptorSet, 0,
-                           nullptr);
-
-    uint32_t dynamicOffset{static_cast<uint32_t>(bufferInfo.offset)};
     vkCmdBindDescriptorSets(
         frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
         m_GraphicsPipelineLayout, 1, 1, &m_UBODescriptorSet, 1, &dynamicOffset);
@@ -341,28 +363,8 @@ void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices) {
 void VulkanBackend::drawImGUI() {
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
-    VkRenderingAttachmentInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    info.pNext = nullptr;
-
-    info.imageView = m_Swapchain.imageViews[frame.swapchainImageIndex];
-    info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-    VkRenderingInfo renderingInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = VkRect2D{.extent = m_Swapchain.extent},
-        .layerCount = 1,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &info,
-    };
-
-
-    vkCmdBeginRendering(frame.graphicsCmdBuffer, &renderingInfo);
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.graphicsCmdBuffer);
-    vkCmdEndRendering(frame.graphicsCmdBuffer);
-
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
+                                    frame.graphicsCmdBuffer);
 }
 
 AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
@@ -389,6 +391,46 @@ uint64_t SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
 }
 
 namespace {
+
+VkRenderingAttachmentInfo makeAttachmentInfo(
+    const Image &image, std::optional<const Image *> resolveImage,
+    const WriteAttachmentInfo &attachment, VkImageLayout targetLayout) {
+
+    VkClearValue clearValue{};
+    if (image.subresourceRange.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
+        clearValue = {.color = VkClearColorValue{
+                          attachment.clearColor.r,
+                          attachment.clearColor.g,
+                          attachment.clearColor.b,
+                          attachment.clearColor.a,
+                      }};
+    } else {
+        clearValue = {.depthStencil = VkClearDepthStencilValue{
+                          .depth = attachment.clearDepth}};
+    }
+
+    VkAttachmentLoadOp loadOp{toVkLoadOp(attachment.loadOp)};
+    VkAttachmentStoreOp storeOp{toVkStoreOp(attachment.storeOp)};
+
+    VkRenderingAttachmentInfo attachmentInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = image.view,
+        .imageLayout = targetLayout,
+        .loadOp = loadOp,
+        .storeOp = storeOp,
+        .clearValue = clearValue,
+    };
+
+    if (resolveImage.has_value()) {
+        assert(attachment.resolveHandle.has_value());
+
+        attachmentInfo.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+        attachmentInfo.resolveImageLayout = targetLayout;
+        attachmentInfo.resolveImageView = resolveImage.value()->view;
+    }
+
+    return attachmentInfo;
+}
 VkAttachmentLoadOp toVkLoadOp(LoadOp loadOp) {
     VkAttachmentLoadOp vkLoadOp{};
     switch (loadOp) {
@@ -421,34 +463,4 @@ VkAttachmentStoreOp toVkStoreOp(StoreOp storeOp) {
     return vkStoreOp;
 }
 
-VkRenderingAttachmentInfo makeAttachmentInfo(const Image &image,
-                                             const WriteAttachment &attachment,
-                                             VkImageLayout targetLayout) {
-    VkClearValue clearValue{};
-    if (image.subresourceRange.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
-        clearValue = {.color = VkClearColorValue{
-                          attachment.clearColor.r,
-                          attachment.clearColor.g,
-                          attachment.clearColor.b,
-                          attachment.clearColor.a,
-                      }};
-    } else {
-        clearValue = {.depthStencil = VkClearDepthStencilValue{
-                          .depth = attachment.clearDepth}};
-    }
-
-    VkAttachmentLoadOp loadOp{toVkLoadOp(attachment.loadOp)};
-    VkAttachmentStoreOp storeOp{toVkStoreOp(attachment.storeOp)};
-
-    VkRenderingAttachmentInfo attachmentInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = image.view,
-        .imageLayout = targetLayout,
-        .loadOp = loadOp,
-        .storeOp = storeOp,
-        .clearValue = clearValue,
-    };
-
-    return attachmentInfo;
-}
 } // namespace

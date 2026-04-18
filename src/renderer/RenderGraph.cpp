@@ -43,6 +43,7 @@ void RenderGraph::execute(IBackend &backend) {
         PipelineHandle pipeline{m_PipelineHandles[passIndex]};
         pass->execute(backend, pipeline);
     }
+
     m_Passes.clear();
     m_PipelineHandles.clear();
     m_Compiled = false;
@@ -69,9 +70,10 @@ makeTopoSorted(const std::vector<std::unique_ptr<IRenderPass>> &renderPasses) {
 
         for (auto attachment : node.inputAttachments) {
             if (!attachmentToLastOutputPass.contains(attachment)) {
-                spdlog::warn("Render pass contains input attachment that was "
+                spdlog::warn("{} contains input attachment that was "
                              "not yet produced by a renderpass in submission "
-                             "order to the render graph");
+                             "order to the render graph",
+                             node.debugName);
                 continue;
             }
             size_t predecessor{attachmentToLastOutputPass[attachment]};

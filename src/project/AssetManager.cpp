@@ -1,12 +1,12 @@
 #include "SynoraEngine/project/AssetManager.h"
+#include "SynoraEngine/scene/Entity.h"
+#include "SynoraEngine/scene/Scene.h"
 #include "assimp/cimport.h"
 #include "assimp/material.h"
 #include "assimp/mesh.h"
 #include "assimp/postprocess.h"
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-#include "SynoraEngine/scene/Entity.h"
-#include "SynoraEngine/scene/Scene.h"
 
 void SYN::AssetManager::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
@@ -51,7 +51,7 @@ void SYN::AssetManager::addRef(UUID id) {
     if (m_AssetMap.contains(id)) {
         spdlog::debug("Asset Manager: {} Ref increased", id);
         if (m_AssetMap[id].ref == 0) {
-            //add to renderer if an entity uses it
+            // add to renderer if an entity uses it
             auto asset = m_AssetMap[id].data;
             if (std::holds_alternative<MeshData>(asset)) {
                 m_Renderer->addMesh(id, std::get<MeshData>(asset));
@@ -68,14 +68,15 @@ void SYN::AssetManager::removeRef(UUID id) {
         spdlog::debug("Asset Manager: {} Ref decreased", id);
         m_AssetMap[id].ref--;
         if (m_AssetMap[id].ref == 0) {
-            //remove from renderer
+            // remove from renderer
             auto asset = m_AssetMap[id].data;
             if (std::holds_alternative<MeshData>(asset)) {
                 m_Renderer->removeMesh(id);
             }
         }
     } else {
-        spdlog::warn("Asset Manager: Could not remove ref {}, asset missing", id);
+        spdlog::warn("Asset Manager: Could not remove ref {}, asset missing",
+                     id);
     }
 }
 
@@ -134,7 +135,8 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     return uuid;
 }
 
-void SYN::AssetManager::loadModel(Scene* scene, const std::filesystem::path& path) {
+void SYN::AssetManager::loadModel(Scene *scene,
+                                  const std::filesystem::path &path) {
     spdlog::debug("Loading {}", path.c_str());
 
     const aiScene *aiScene{m_Importer.ReadFile(
@@ -150,7 +152,7 @@ void SYN::AssetManager::loadModel(Scene* scene, const std::filesystem::path& pat
     aiMatrix4x4 origin{};
     aiIdentityMatrix4(&origin);
     Entity parent = scene->createEntity();
-    //std::string entName = path.substr(0, path.find_last_of('/'));
+    // std::string entName = path.substr(0, path.find_last_of('/'));
     parent.getComponent<TagComp>() = TagComp{.tag = path.stem().string()};
     processNode(scene, parent, aiScene->mRootNode, aiScene, path, origin);
 }
@@ -241,6 +243,13 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
             relativeVertex.u = mesh->mTextureCoords[0][i].x;
             relativeVertex.v = mesh->mTextureCoords[0][i].y;
         }
+        glm::vec3 normal(0.f, 0.f, -1.f);
+        if (mesh->HasNormals()) {
+            normal = glm::vec3(mesh->mNormals[i].x, mesh->mNormals[i].y,
+                               mesh->mNormals[i].z);
+        }
+
+        relativeVertex.normal = normal;
 
         processedMesh.vertices.emplace_back(relativeVertex);
     }
@@ -254,25 +263,30 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
 
     return processedMesh;
 }
-void SYN::AssetManager::processNode(Scene* scene, Entity parent, aiNode *node, const aiScene *aiScene,
+void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
+                                    const aiScene *aiScene,
                                     const std::string &modelPath,
                                     const aiMatrix4x4 &parentTransform) {
     aiMatrix4x4 transform = parentTransform * node->mTransformation;
 
     auto childEntity = scene->createEntity(node->mName.C_Str());
-    childEntity.addComponent<ParentComp>(ParentComp{.id = parent.getComponent<UUIDComp>().id});
+    childEntity.addComponent<ParentComp>(
+        ParentComp{.id = parent.getComponent<UUIDComp>().id});
 
     for (size_t i{}; i < node->mNumMeshes; i++) {
         aiMesh *mesh = aiScene->mMeshes[node->mMeshes[i]];
         UUID uuid{generateUUID()};
-        m_AssetMap[uuid].data = processMesh(mesh, aiScene, modelPath, transform);
+        m_AssetMap[uuid].data =
+            processMesh(mesh, aiScene, modelPath, transform);
         m_LoadedUUIDMap[modelPath] = uuid;
         Entity meshEnt = scene->createEntity(mesh->mName.C_Str());
         meshEnt.addComponent<MeshComp>(MeshComp{.id = uuid});
-        meshEnt.addComponent<ParentComp>(ParentComp{.id = childEntity.getComponent<UUIDComp>().id});
+        meshEnt.addComponent<ParentComp>(
+            ParentComp{.id = childEntity.getComponent<UUIDComp>().id});
     }
 
     for (size_t i{}; i < node->mNumChildren; i++) {
-        processNode(scene, childEntity, node->mChildren[i], aiScene, modelPath, transform);
+        processNode(scene, childEntity, node->mChildren[i], aiScene, modelPath,
+                    transform);
     }
 }

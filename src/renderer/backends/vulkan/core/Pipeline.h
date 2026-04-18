@@ -30,18 +30,21 @@ class GraphicsPipelineBuilder {
     GraphicsPipelineBuilder &setPolygonMode(VkPolygonMode mode,
                                             float lineWidth = 1.f);
 
-    GraphicsPipelineBuilder &setDepthTest();
+    GraphicsPipelineBuilder &addColorAttachment(VkFormat format,
+                                                bool enableAlphaBlend);
 
-    GraphicsPipelineBuilder &addColorAttachment(VkFormat format);
-    // note there can only be one depth attachment
-    GraphicsPipelineBuilder &enableDepthAttachment();
+    GraphicsPipelineBuilder &enableDepthTesting();
+    GraphicsPipelineBuilder &enableDepthWriting();
+
+    GraphicsPipelineBuilder &setMSAA(VkSampleCountFlagBits sampleCount);
 
   private:
     std::vector<VkPipelineColorBlendAttachmentState>
         m_ColorBlendAttachmentStates{};
 
     std::vector<VkFormat> m_ColorFormats{};
-    VkFormat m_DepthFormat{};
+    VkFormat m_DepthFormat{VK_FORMAT_D32_SFLOAT};
+    bool m_HasDepthAttachment{};
 
     VkPipelineInputAssemblyStateCreateInfo m_InputAssemblyStateCI;
     VkPipelineRasterizationStateCreateInfo m_RasterizationStateCI;

@@ -31,8 +31,9 @@ class VulkanBackend : public IBackend {
     void destroyBuffer(BufferHandle handle) override;
 
     TextureHandle createTexture(const TextureDesc &desc) override;
-    void uploadToTexture(TextureHandle handle, uint32_t width, uint32_t height,
-                         const void *data) override;
+    void uploadToTexture(TextureHandle handle, std::span<const void *> data,
+                         uint32_t width, uint32_t height) override;
+
     void destroyTexture(TextureHandle handle) override;
 
     AttachmentHandle createAttachment(const AttachmentDesc &desc) override;
@@ -69,7 +70,9 @@ class VulkanBackend : public IBackend {
   private:
     static constexpr uint32_t c_MaxFramesInFlight{2};
     static constexpr uint32_t c_TextureBinding{0};
+    static constexpr uint32_t c_CubeMapBinding{1};
     static constexpr uint32_t c_MaxBindlessTextures{1024};
+    static constexpr uint32_t c_MaxBindlessCubeMaps{1024};
     static constexpr uint32_t c_MinGuarenteedPushConstantSize{128};
 
     struct FrameData {
@@ -135,6 +138,7 @@ class VulkanBackend : public IBackend {
     VkDescriptorSet m_UBODescriptorSet{};
 
     std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
+    std::vector<uint32_t> m_BindlessCubeMapFreeList{};
 
     VkSampler m_DefaultSampler{};
 
@@ -142,7 +146,7 @@ class VulkanBackend : public IBackend {
 
     AttachmentHandle m_SwapchainAttachmentHandle{};
 
-    //imgui
+    // imgui
     VkDescriptorPool m_ImGUIDescriptorPool{};
 
     // per frame

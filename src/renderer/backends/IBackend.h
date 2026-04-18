@@ -27,13 +27,25 @@ class IBackend {
     virtual void destroyBuffer(BufferHandle handle) = 0;
 
     virtual TextureHandle createTexture(const TextureDesc &desc) = 0;
-    // stride of image must be 4bytes
-    virtual void uploadToTexture(TextureHandle handle, uint32_t width,
-                                 uint32_t height, const void *data) = 0;
+    virtual void uploadToTexture(TextureHandle handle,
+                                 std::span<const void *> data, uint32_t width,
+                                 uint32_t height) = 0;
+    inline void uploadToTexture(TextureHandle handle, const void *data,
+                                uint32_t width, uint32_t height) {
+        uploadToTexture(handle, std::span(&data, 1), width, height);
+    }
+
+    inline TextureHandle uploadTexture(const TextureDesc &desc,
+                                       std::span<const void *> data) {
+        TextureHandle handle{createTexture(desc)};
+        uploadToTexture(handle, data, desc.width, desc.height);
+        return handle;
+    }
+
     inline TextureHandle uploadTexture(const TextureDesc &desc,
                                        const void *data) {
         TextureHandle handle{createTexture(desc)};
-        uploadToTexture(handle, desc.width, desc.height, data);
+        uploadToTexture(handle, data, desc.width, desc.height);
         return handle;
     }
 
@@ -84,8 +96,6 @@ class IBackend {
     virtual uint64_t getBufferAddressCmd(BufferHandle buffer) = 0;
 
     virtual void shutdown() = 0;
-
-  private:
 };
 
 } // namespace SYN

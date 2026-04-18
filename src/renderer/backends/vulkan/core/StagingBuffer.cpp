@@ -51,23 +51,46 @@ size_t SYN::VK::StagingBuffer::getAvailableStagingSize() {
            (m_WriteCounter - m_ReadCounter); // --|(RC)----|(WC)----
 }
 
-size_t SYN::VK::StagingBuffer::getContiguousStagingSize() {
-    // size_t writeCursor{m_WriteCounter % m_Buffer.size};
-    // size_t readCursor{m_ReadCounter % m_Buffer.size};
+StagingBuffer::Region
+SYN::VK::StagingBuffer::getLargestContiguousStagingRegion() {
+    size_t writeCursor{m_WriteCounter % m_Buffer.size};
+    size_t readCursor{m_ReadCounter % m_Buffer.size};
 
     assert(m_ReadCounter <= m_WriteCounter);
     assert(m_Buffer.size >= (m_WriteCounter - m_ReadCounter));
-    return m_Buffer.size - (m_WriteCounter - m_ReadCounter);
 
-    // if (writeCursor > readCursor) {
-    //     return m_Buffer.size - writeCursor;
-    // } else if (writeCursor == readCursor) {
-    //     if (m_WriteCounter == m_ReadCounter) {
-    //         return m_Buffer.size;
-    //     }
-    //     return 0;
-    // }
-    // return readCursor - writeCursor;
+    if (m_WriteCounter == m_ReadCounter) {
+        // this is VERY important. reset counters to zero cus the 2 cursors may
+        // be in the middle of the buffer, but the buffer offset will be 0 /
+        // writes will start at the beginning of the buffer, and on the next
+        // write the cursor will be roughly
+        // in the center still, and if the first region is the largest, it will
+        // set the offset to 0, overwriting this write.
+        // we could do .size = m_Buffer.size - writeCursor, .offset =
+        // writeCursor to avoid resetting the counters, but then you can get
+        // softlocked to only having like half the available buffer
+        m_WriteCounter = 0;
+        m_ReadCounter = 0;
+        return {.size = m_Buffer.size, .offset = 0};
+    }
+
+    // --|(WC)-----|(RC)----
+    // 1 valid region
+    // if writeCursor == readCursor, the buffer is full, not empty, since if it
+    // was empty the prev return wouldve caught it
+    if (readCursor >= writeCursor) {
+        return {
+            .size = readCursor - writeCursor,
+            .offset = writeCursor,
+        };
+    }
+
+    // --|(RC)-----|(WC)----
+    // 2 valid regions
+    if ((m_Buffer.size - writeCursor) > readCursor) {
+        return {.size = m_Buffer.size - writeCursor, .offset = writeCursor};
+    }
+    return {.size = readCursor, .offset = 0};
 }
 
 void SYN::VK::StagingBuffer::poll(const Device &device) {
@@ -141,25 +164,24 @@ size_t SYN::VK::StagingBuffer::stageData(const Device &device, const void *data,
     }
 
     poll(device);
-    stallOnPendingUploads(device);
-    while (size > getContiguousStagingSize()) {
-        PendingUpload pendingUpload{m_PendingUploads.front()};
+    Region region{getLargestContiguousStagingRegion()};
 
-        vkWaitForFences(device.logical, 1, &pendingUpload.uploadFinishedFence,
-                        VK_TRUE, UINT64_MAX);
-        m_ReadCounter = pendingUpload.nextReadCounter;
-        freePendingUpload(device, pendingUpload);
-        m_PendingUploads.pop();
+    while (size > region.size) {
+        assert(m_PendingUploads.size() > 0 &&
+               "no pending uploads despite staging buffer not having max "
+               "available size, something went horrifically wrong...");
+        vkWaitForFences(device.logical, 1,
+                        &m_PendingUploads.front().uploadFinishedFence, VK_TRUE,
+                        UINT64_MAX);
+        poll(device);
+        region = getLargestContiguousStagingRegion();
     }
 
-    size_t writeCursor{m_WriteCounter - m_ReadCounter};
-    assert((writeCursor + size) <= m_Buffer.size);
-
-    memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + writeCursor, data,
+    memcpy(static_cast<uint8_t *>(m_Buffer.mappedData) + region.offset, data,
            size);
 
-    m_WriteCounter = m_WriteCounter + size;
-    return writeCursor;
+    m_WriteCounter += size;
+    return region.offset;
 }
 
 void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
@@ -201,15 +223,18 @@ void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
         m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
     }
 }
+
 void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
-                                           const void *data, int width,
-                                           int height, const Image &dstImage) {
+                                           std::span<const void *> perLayerData,
+                                           int width, int height,
+                                           const Image &dstImage) {
     constexpr uint32_t bytesPerPixel{4};
     uint32_t rowSize{bytesPerPixel * dstImage.extent.width};
     uint32_t rowsPerChunk{static_cast<uint32_t>(m_Buffer.size / rowSize)};
 
     if (rowsPerChunk == 0) {
-        spdlog::warn("Could not write to Vulkan image, one image row did not "
+        spdlog::info("row size = {}", rowSize);
+        spdlog::warn("Could not write to Vulkan image, image row can't "
                      "fit in staging buffer");
         assert(false);
         return;
@@ -222,25 +247,26 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
         return;
     }
 
-    uint32_t rowsLeft{static_cast<uint32_t>(height)};
-
-    if ((rowsLeft * rowSize) > m_Buffer.size) {
-        spdlog::warn("Trying to upload image thats larger than staging buffer");
+    if ((height * rowSize) > m_Buffer.size) {
+        spdlog::debug("Uploading image thats larger than staging buffer");
     }
 
-    while (rowsLeft) {
-        uint32_t currentRow{height - rowsLeft};
-        uint32_t dstOffset{currentRow * rowSize};
+    for (uint32_t i{}; i < dstImage.layerCount; i++) {
+        uint32_t rowsLeft{static_cast<uint32_t>(height)};
+        while (rowsLeft) {
+            uint32_t currentRow{height - rowsLeft};
+            uint32_t dstOffset{currentRow * rowSize};
 
-        size_t rowsThisChunk{std::min(rowsPerChunk, rowsLeft)};
-        rowsLeft -= rowsThisChunk;
-        size_t chunkSize{rowsThisChunk * rowSize};
+            size_t rowsThisChunk{std::min(rowsPerChunk, rowsLeft)};
+            rowsLeft -= rowsThisChunk;
+            size_t chunkSize{rowsThisChunk * rowSize};
 
-        size_t stagedOffset{stageData(
-            device, static_cast<const uint8_t *>(data) + dstOffset, chunkSize)};
+            VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
 
-        VkCommandBuffer cmdBuffer{beginTransientCmd(m_CmdPool, device)};
-        {
+            size_t stagedOffset{stageData(
+                device,
+                static_cast<const uint8_t *>(perLayerData[i]) + dstOffset,
+                chunkSize)};
 
             VkBufferImageCopy copyRegion{
                 .bufferOffset = stagedOffset,
@@ -248,9 +274,8 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
                     {
                         .aspectMask = dstImage.subresourceRange.aspectMask,
                         .mipLevel = 0,
-                        .baseArrayLayer =
-                            dstImage.subresourceRange.baseArrayLayer,
-                        .layerCount = dstImage.subresourceRange.layerCount,
+                        .baseArrayLayer = i,
+                        .layerCount = 1,
                     },
                 .imageOffset =
                     {
@@ -267,12 +292,13 @@ void SYN::VK::StagingBuffer::uploadToImage(const Device &device,
             vkCmdCopyBufferToImage(cmdBuffer, m_Buffer.handle, dstImage.handle,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                    &copyRegion);
-        }
-        endTransientCmd(cmdBuffer);
+            endTransientCmd(cmdBuffer);
 
-        VkFence fence{acquireFence(device)};
-        submitCmdBuffer(m_CmdPool, cmdBuffer, device,
-                        device.queues.at(QueueFamily::transfer).handle, fence);
-        m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
+            VkFence fence{acquireFence(device)};
+            submitCmdBuffer(m_CmdPool, cmdBuffer, device,
+                            device.queues.at(QueueFamily::transfer).handle,
+                            fence);
+            m_PendingUploads.push(createPendingUpload(cmdBuffer, fence));
+        }
     }
 }

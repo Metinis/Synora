@@ -1,6 +1,5 @@
 #include "SynoraEngine/scene/Scene.h"
 
-#include "imgui.h"
 #include "SynoraEngine/core/Input.h"
 #include "SynoraEngine/core/InputContext.h"
 #include "SynoraEngine/core/InputTypes.h"
@@ -8,22 +7,20 @@
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/scene/Components.h"
 #include "glm/ext.hpp"
+#include "imgui.h"
 #include "renderer/Renderer.h"
 #include "renderer/backends/vulkan/Backend.h"
 #include "spdlog/spdlog.h"
 
-
 using namespace SYN;
 
-Scene::Scene() {
-}
-
+Scene::Scene() {}
 
 Entity Scene::getEntity(UUID id) {
     if (m_EntityUUIDCache.contains(id)) {
         return m_EntityUUIDCache[id];
     }
-    for (auto view = getEntities<UUIDComp>(); auto entity: view) {
+    for (auto view = getEntities<UUIDComp>(); auto entity : view) {
         if (entity.getUUID() == id) {
             m_EntityUUIDCache[id] = entity;
             return entity;
@@ -33,21 +30,22 @@ Entity Scene::getEntity(UUID id) {
 }
 
 void Scene::onUpdate(float dt) {
-    //clear any ref queue
+    // clear any ref queue
     if (!m_OnUpdate.empty()) {
-        for (auto &f: m_OnUpdate) {
+        for (auto &f : m_OnUpdate) {
             f();
         }
         m_OnUpdate.clear();
     }
 
-    for (auto e: m_EntityCache) {
+    for (auto e : m_EntityCache) {
         auto &tc = e.getComponent<TransformComp>();
         glm::mat4 local = tc.getLocalMatrix();
 
         if (ParentComp *parent = e.tryGetComponent<ParentComp>()) {
             auto parentEntity = getEntity(parent->id);
-            tc.worldMatrix = parentEntity.getComponent<TransformComp>().worldMatrix * local;
+            tc.worldMatrix =
+                parentEntity.getComponent<TransformComp>().worldMatrix * local;
         } else {
             tc.worldMatrix = local;
         }
@@ -59,7 +57,7 @@ void Scene::onAttach() { spdlog::debug("Scene: Attached"); }
 void Scene::onDettach() { spdlog::debug("Scene: Detached"); }
 
 void Scene::onRender() {
-    for (auto &e: getEntities<MeshComp>()) {
+    for (auto &e : getEntities<MeshComp>()) {
         auto &modelComp = e.getComponent<MeshComp>();
         auto &tc = e.getComponent<TransformComp>();
 
@@ -70,17 +68,13 @@ void Scene::onRender() {
 void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
 
-    m_OnUpdate.push_back([&]() {
-        m_AssetManager->addRef(comp.id);
-    });
+    m_OnUpdate.push_back([&]() { m_AssetManager->addRef(comp.id); });
 }
 
 void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
 
-    m_OnUpdate.push_back([&]() {
-        m_AssetManager->removeRef(comp.id);
-    });
+    m_OnUpdate.push_back([&]() { m_AssetManager->removeRef(comp.id); });
 }
 
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
@@ -94,20 +88,20 @@ void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
         parentEntity = getEntity(comp.id);
     }
     m_SceneState.registry.get<TransformComp>(e).depth = depth;
-    std::ranges::sort(m_EntityCache,
-                      [&](Entity a, Entity b) {
-                          return a.getComponent<TransformComp>().depth < b.getComponent<TransformComp>().depth;
-                      });
+    std::ranges::sort(m_EntityCache, [&](Entity a, Entity b) {
+        return a.getComponent<TransformComp>().depth <
+               b.getComponent<TransformComp>().depth;
+    });
 }
 
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
     Entity ent(&m_SceneState.registry, e);
     if (ent.hasComponent<TransformComp>()) {
         m_SceneState.registry.get<TransformComp>(e).depth = 0;
-        std::ranges::sort(m_EntityCache,
-                          [&](Entity a, Entity b) {
-                              return a.getComponent<TransformComp>().depth < b.getComponent<TransformComp>().depth;
-                          });
+        std::ranges::sort(m_EntityCache, [&](Entity a, Entity b) {
+            return a.getComponent<TransformComp>().depth <
+                   b.getComponent<TransformComp>().depth;
+        });
     }
 }
 
@@ -116,7 +110,7 @@ bool Scene::isValidEntity(Entity entity) {
 }
 
 void Scene::onUUIDRemoved(entt::registry &reg, entt::entity e) {
-    //same as removing entity, remove any entity that had this as parent
+    // same as removing entity, remove any entity that had this as parent
 }
 
 void Scene::init(EngineContext *ctx) {
@@ -124,17 +118,21 @@ void Scene::init(EngineContext *ctx) {
     m_Window = ctx->window.get();
     m_AssetManager = ctx->projectConfig.assetManager.get();
 
-    //initialize callbacks
-    m_SceneState.registry.on_destroy<UUIDComp>().connect<&Scene::onUUIDRemoved>(this);
+    // initialize callbacks
+    m_SceneState.registry.on_destroy<UUIDComp>().connect<&Scene::onUUIDRemoved>(
+        this);
 
-    m_SceneState.registry.on_construct<MeshComp>().connect<&Scene::onMeshAdded>(this);
-    m_SceneState.registry.on_destroy<MeshComp>().connect<&Scene::onMeshRemoved>(this);
+    m_SceneState.registry.on_construct<MeshComp>().connect<&Scene::onMeshAdded>(
+        this);
+    m_SceneState.registry.on_destroy<MeshComp>().connect<&Scene::onMeshRemoved>(
+        this);
 
-    m_SceneState.registry.on_construct<ParentComp>().connect<&Scene::onParentAdded>(this);
-    m_SceneState.registry.on_destroy<ParentComp>().connect<&Scene::onParentRemoved>(this);
+    m_SceneState.registry.on_construct<ParentComp>()
+        .connect<&Scene::onParentAdded>(this);
+    m_SceneState.registry.on_destroy<ParentComp>()
+        .connect<&Scene::onParentRemoved>(this);
 
-    m_AssetManager->loadModel(this,
-                              "resources/assets/Cabin/scene.gltf");
+    m_AssetManager->loadModel(this, "resources/assets/Cabin/scene.gltf");
 
     auto cam = createEntity("Primary Camera");
     auto &tc = cam.getComponent<TransformComp>();
@@ -145,7 +143,7 @@ void Scene::init(EngineContext *ctx) {
     auto &c = cam.addComponent<CameraComp>();
     c.fovDegrees = 90.f;
     c.aspectRatio = 16.f / 9.f;
-    c.nearPlane = 0.0001;
+    c.nearPlane = 0.1;
     c.farPlane = 100.f;
     c.isPrimary = true;
 
@@ -155,7 +153,7 @@ void Scene::init(EngineContext *ctx) {
     e2.addComponent<ParentComp>(e1.getUUID());
     e3.addComponent<ParentComp>(e2.getUUID());
 
-    for (auto e: getEntities<TransformComp>()) {
+    for (auto e : getEntities<TransformComp>()) {
         if (e.isValid()) {
             m_EntityCache.push_back(e);
         }
@@ -175,18 +173,20 @@ Entity Scene::createEntity(const std::string &tag) {
 }
 
 void Scene::removeEntity(Entity entity) {
-    if (!entity.isValid()) return;
+    if (!entity.isValid())
+        return;
 
     m_EntityUUIDCache.erase(entity.getUUID());
 
     std::vector<Entity> childrenToRemove;
-    for (auto &ent: getEntities<ParentComp>()) {
-        if (ent.isValid() && ent.getComponent<ParentComp>().id == entity.getUUID()) {
+    for (auto &ent : getEntities<ParentComp>()) {
+        if (ent.isValid() &&
+            ent.getComponent<ParentComp>().id == entity.getUUID()) {
             childrenToRemove.push_back(ent);
         }
     }
 
-    for (auto &child: childrenToRemove) {
+    for (auto &child : childrenToRemove) {
         removeEntity(child);
     }
 
@@ -194,7 +194,7 @@ void Scene::removeEntity(Entity entity) {
     m_SceneState.registry.destroy(entity.getHandle());
 
     m_EntityCache.clear();
-    for (auto e: getEntities<TransformComp>()) {
+    for (auto e : getEntities<TransformComp>()) {
         if (e.isValid()) {
             m_EntityCache.push_back(e);
         }

@@ -7,8 +7,8 @@ namespace SYN {
 
 struct alignas(16) Vertex {
     glm::vec3 pos;
-    // seperated so we can reduce padding
     float u;
+    glm::vec3 normal;
     float v;
 };
 

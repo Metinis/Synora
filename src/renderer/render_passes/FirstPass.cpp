@@ -18,29 +18,56 @@ struct alignas(16) PushConstants {
     uint32_t textureIndex;
 };
 
+struct LightCaster {
+    glm::vec3 pos;
+    float padding0;
+    glm::vec3 color;
+    float padding1;
+    glm::vec3 dir;
+    float padding2;
+};
+
 struct Uniforms {
-    glm::mat4 projectionViewMat;
+    glm::mat4 projectionMat;
+    glm::mat4 viewMat;
+    glm::vec3 cameraPos;
+    uint32_t nLights;
+    std::array<LightCaster, 16> lights;
 };
 } // namespace
 
-SYN::FirstPass::FirstPass(std::span<Renderer::MeshDrawCall> drawCalls,
+SYN::FirstPass::FirstPass(uint32_t msaaSampleCount,
+                          std::span<Renderer::MeshDrawCall> drawCalls,
                           const glm::mat4 &cameraProjection,
                           const glm::mat4 &cameraView,
-                          AttachmentHandle colorAttachment,
-                          AttachmentHandle depthAttachment)
-    : m_DrawCalls(drawCalls), m_CameraProjection(cameraProjection),
-      m_CameraView(cameraView) {
-    m_ColorAttachment = WriteAttachment{.handle = colorAttachment,
-                                        .clearColor = {0.f, 0.f, 0.f, 1.f}};
-    m_DepthAttachment = WriteAttachment{
-        .handle = depthAttachment,
+                          AttachmentHandle msaaColorAttachment,
+                          AttachmentHandle msaaDepthAttachment,
+                          AttachmentHandle colorAttachment)
+    : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
+      m_CameraProjection(cameraProjection), m_CameraView(cameraView) {
+    m_ColorAttachment = WriteAttachmentInfo{.handle = msaaColorAttachment,
+                                            .resolveHandle = colorAttachment,
+                                            .clearColor = {0.f, 0.f, 0.f, 1.f}};
+    m_DepthAttachment = WriteAttachmentInfo{
+        .handle = msaaDepthAttachment,
         .clearDepth = 1.f,
     };
 }
 
 void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
+    LightCaster sun{.pos = glm::vec3(0.f, 20.f, 0.f),
+                    .color = glm::vec3(1.f, 1.f, 1.f),
+                    .dir = glm::vec3(1.f, -1.f, 0.f)};
+    glm::vec3 cameraPos{glm::transpose(glm::mat3(m_CameraView)) *
+                        -m_CameraView[3]};
 
-    Uniforms uniform{.projectionViewMat = m_CameraProjection * m_CameraView};
+    Uniforms uniform{
+        .projectionMat = m_CameraProjection,
+        .viewMat = m_CameraView,
+        .cameraPos = cameraPos,
+        .nLights = 1,
+    };
+    uniform.lights[0] = sun;
 
     backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
@@ -66,18 +93,21 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
     backend.endRenderPassCmd();
 }
 
-RenderPassDesc SYN::FirstPass::getPassDesc() const {
+RenderPassDesc SYN::FirstPass::getPassDesc() {
     return RenderPassDesc{
+        .debugName = "First Pass",
         .colorAttachments = std::span(&m_ColorAttachment, 1),
         .depthAttachment = m_DepthAttachment,
     };
 }
 
 GraphicsPipelineDesc SYN::FirstPass::getPipelineDesc() const {
-    constexpr GraphicsPipelineDesc c_PipelineDesc{
-        .cullMode = CullMode::backFace,
+    GraphicsPipelineDesc c_PipelineDesc{
+        .cullMode = CullMode::disabled,
         .nColorAttachments = 1,
-        .hasDepthAttachment = true,
+        .hasDepthTesting = true,
+        .hasDepthWriting = true,
+        .msaaSamples = m_MSAASampleCount,
         .vertexShaderPath = "generated/shaders/first.vert.spv",
         .fragmentShaderPath = "generated/shaders/first.frag.spv",
     };

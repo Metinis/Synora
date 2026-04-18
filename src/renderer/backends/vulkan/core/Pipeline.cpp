@@ -21,14 +21,17 @@ void SYN::VK::GraphicsPipelineBuilder::reset() {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
     };
     m_RasterizationStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+    };
     // default disabled
     m_MultisampleStateCI = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
     // default disabled
     m_DepthStencilStateCI = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+    };
 }
 
 GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setInputAssembly(
@@ -57,27 +60,27 @@ SYN::VK::GraphicsPipelineBuilder::setPolygonMode(VkPolygonMode mode,
     return *this;
 }
 
-GraphicsPipelineBuilder &SYN::VK::GraphicsPipelineBuilder::setDepthTest() {
-    m_DepthStencilStateCI.depthWriteEnable = VK_TRUE;
-    m_DepthStencilStateCI.depthCompareOp = VK_COMPARE_OP_LESS;
-    m_DepthStencilStateCI.depthTestEnable = VK_TRUE;
-
-    return *this;
-}
-
 SYN::VK::GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
+SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format,
+                                                     bool enableAlphaBlend) {
     VkPipelineColorBlendAttachmentState blendState{
-        .blendEnable = VK_TRUE,
-        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        .colorBlendOp = VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-        .alphaBlendOp = VK_BLEND_OP_ADD,
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
     };
+    if (enableAlphaBlend) {
+        blendState = VkPipelineColorBlendAttachmentState{
+            .blendEnable = VK_TRUE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .colorBlendOp = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .alphaBlendOp = VK_BLEND_OP_ADD,
+            .colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        };
+    }
 
     m_ColorBlendAttachmentStates.emplace_back(blendState);
     m_ColorFormats.emplace_back(format);
@@ -86,9 +89,24 @@ SYN::VK::GraphicsPipelineBuilder::addColorAttachment(VkFormat format) {
 }
 
 SYN::VK::GraphicsPipelineBuilder &
-SYN::VK::GraphicsPipelineBuilder::enableDepthAttachment() {
-    m_DepthFormat = VK_FORMAT_D32_SFLOAT;
+SYN::VK::GraphicsPipelineBuilder::enableDepthWriting() {
+    m_DepthStencilStateCI.depthWriteEnable = VK_TRUE;
+    m_HasDepthAttachment = true;
 
+    return *this;
+}
+
+SYN::VK::GraphicsPipelineBuilder &
+SYN::VK::GraphicsPipelineBuilder::enableDepthTesting() {
+    m_DepthStencilStateCI.depthTestEnable = VK_TRUE;
+    m_HasDepthAttachment = true;
+
+    return *this;
+}
+
+SYN::VK::GraphicsPipelineBuilder &
+SYN::VK::GraphicsPipelineBuilder::setMSAA(VkSampleCountFlagBits sampleCount) {
+    m_MultisampleStateCI.rasterizationSamples = sampleCount;
     return *this;
 }
 
@@ -125,8 +143,11 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
         .colorAttachmentCount = static_cast<uint32_t>(m_ColorFormats.size()),
         .pColorAttachmentFormats = m_ColorFormats.data(),
-        .depthAttachmentFormat = m_DepthFormat,
     };
+
+    if (m_HasDepthAttachment) {
+        renderingCI.depthAttachmentFormat = m_DepthFormat;
+    }
 
     VkGraphicsPipelineCreateInfo pipelineCI{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,

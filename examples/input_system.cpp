@@ -1,7 +1,7 @@
-#include <PuzzleEngine/core/Application.h>
-#include <PuzzleEngine/core/Input.h>
-#include <PuzzleEngine/core/InputContext.h>
-#include <PuzzleEngine/core/InputTypes.h>
+#include <SynoraEngine/core/Application.h>
+#include <SynoraEngine/core/Input.h>
+#include <SynoraEngine/core/InputContext.h>
+#include <SynoraEngine/core/InputTypes.h>
 
 #include <GLFW/glfw3.h>
 #include <spdlog/spdlog.h>

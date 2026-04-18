@@ -58,6 +58,10 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                             VK_IMAGE_USAGE_SAMPLED_BIT};
+    if (desc.hasMipChain) {
+        usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+
     switch (desc.type) {
     case TextureType::srgb:
         format = VK_FORMAT_R8G8B8A8_SRGB;
@@ -76,17 +80,27 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
         break;
     }
 
+    uint32_t mipLevels{1};
+    if (desc.hasMipChain) {
+        mipLevels = static_cast<uint32_t>(
+            std::floor(std::log2(std::max(desc.height, desc.width))) + 1);
+    }
+
     Image image{createImage(m_Device, m_Allocator, format,
                             {.width = desc.width, .height = desc.height}, usage,
-                            aspect)};
+                            aspect, VK_SAMPLE_COUNT_1_BIT, mipLevels,
+                            desc.layerCount, desc.isCubeMap)};
 
-    if (m_BindlessTextureIndexFreelist.empty()) {
-        spdlog::warn("Could not create texture, bindless array, array is full");
+    if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
+        spdlog::warn("Could not create attachment, bindless array is full");
         destroyImage(m_Device, m_Allocator, image);
         return {};
     }
-    uint32_t descriptorElement{m_BindlessTextureIndexFreelist.back()};
-    m_BindlessTextureIndexFreelist.pop_back();
+    if (m_BindlessCubeMapFreeList.empty() && desc.isCubeMap) {
+        spdlog::warn("Could not create attachment, bindless array is full");
+        destroyImage(m_Device, m_Allocator, image);
+        return {};
+    }
 
     VkDescriptorImageInfo imageInfo{
         .sampler = m_DefaultSampler,
@@ -94,10 +108,22 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
 
+    uint32_t descriptorElement{};
+    uint32_t descriptorBinding{};
+    if (!desc.isCubeMap) {
+        descriptorElement = m_BindlessTextureIndexFreelist.back();
+        m_BindlessTextureIndexFreelist.pop_back();
+
+    } else {
+        descriptorElement = m_BindlessCubeMapFreeList.back();
+        m_BindlessCubeMapFreeList.pop_back();
+        descriptorBinding = c_CubeMapBinding;
+    }
+
     VkWriteDescriptorSet bindlessWrite{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = m_BindlessDescriptorSet,
-        .dstBinding = 0,
+        .dstBinding = descriptorBinding,
         .dstArrayElement = descriptorElement,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -114,31 +140,20 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
 }
 
 void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
-                                             uint32_t width, uint32_t height,
-                                             const void *data) {
+                                             std::span<const void *> data,
+                                             uint32_t width, uint32_t height) {
     Texture &texture{m_Textures[handle]};
 
-    transitionImage(
-        m_TransientCmdPool, m_Device, texture.image, VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        texture.image.syncState.lastStageMask,
-        texture.image.syncState.lastAccessMask,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    transitionImage(m_TransientCmdPool, m_Device, texture.image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     m_StagingBuffer.uploadToImage(m_Device, data, width, height, texture.image);
-    // TODO: maybe try to make this better
-    transitionImage(
-        m_TransientCmdPool, m_Device, texture.image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-
-    texture.image.syncState.lastStageMask =
-        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-    texture.image.syncState.lastAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    texture.image.syncState.currentLayout =
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    generateMipChain(m_TransientCmdPool, m_Device, texture.image,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                     VK_ACCESS_2_SHADER_READ_BIT);
 }
 
 void SYN::VK::VulkanBackend::destroyTexture(TextureHandle handle) {
@@ -160,13 +175,13 @@ void SYN::VK::VulkanBackend::destroyTexture(TextureHandle handle) {
 
 AttachmentHandle
 SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
-    VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};
+    VkFormat format{};
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{};
     switch (desc.type) {
     case TextureType::srgb:
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        format = VK_FORMAT_R8G8B8A8_SRGB;
+        format = m_Swapchain.format;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         break;
     case TextureType::depth:
@@ -175,8 +190,10 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
         aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
         break;
     case TextureType::rgba:
+        spdlog::warn("Trying to use rgba texture type for attachment, all "
+                     "attachments should be srgb");
+        format = m_Swapchain.format;
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        format = VK_FORMAT_R8G8B8A8_UNORM;
         aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         break;
     default:
@@ -198,15 +215,19 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
 
     std::array<Image, c_MaxFramesInFlight> images{};
     std::array<uint32_t, c_MaxFramesInFlight> bindlessSamplerIndices{};
+    VkSampleCountFlagBits samples{getSamples(m_Device, desc.msaaSamples)};
+
     for (size_t i{}; i < images.size(); i++) {
-        images[i] =
-            createImage(m_Device, m_Allocator, format,
-                        {.width = width, .height = height}, usage, aspect);
+        images[i] = createImage(m_Device, m_Allocator, format,
+                                {.width = width, .height = height}, usage,
+                                aspect, samples, desc.layerCount,
+                                desc.layerCount, desc.isCubeMap);
 
         if (!desc.isSampleable) {
             continue;
         }
-        if (m_BindlessTextureIndexFreelist.empty()) {
+
+        if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
             spdlog::warn("Could not create attachment, bindless array is full");
 
             destroyImage(m_Device, m_Allocator, images[i]);
@@ -218,8 +239,18 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
 
             return {};
         }
-        uint32_t descriptorElement{m_BindlessTextureIndexFreelist.back()};
-        m_BindlessTextureIndexFreelist.pop_back();
+        if (m_BindlessCubeMapFreeList.empty() && desc.isCubeMap) {
+            spdlog::warn("Could not create attachment, bindless array is full");
+
+            destroyImage(m_Device, m_Allocator, images[i]);
+            for (size_t j{}; j < i; j++) {
+                destroyImage(m_Device, m_Allocator, images[j]);
+                m_BindlessCubeMapFreeList.emplace_back(
+                    bindlessSamplerIndices[j]);
+            }
+
+            return {};
+        }
 
         VkDescriptorImageInfo imageInfo{
             .sampler = m_DefaultSampler,
@@ -227,10 +258,22 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
 
+        uint32_t descriptorElement{};
+        uint32_t descriptorBinding{};
+        if (!desc.isCubeMap) {
+            descriptorElement = m_BindlessTextureIndexFreelist.back();
+            m_BindlessTextureIndexFreelist.pop_back();
+
+        } else {
+            descriptorElement = m_BindlessCubeMapFreeList.back();
+            m_BindlessCubeMapFreeList.pop_back();
+            descriptorBinding = c_CubeMapBinding;
+        }
+
         VkWriteDescriptorSet bindlessWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = m_BindlessDescriptorSet,
-            .dstBinding = 0,
+            .dstBinding = descriptorBinding,
             .dstArrayElement = descriptorElement,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -277,13 +320,17 @@ PipelineHandle
 SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     GraphicsPipelineBuilder pipelineBuilder{};
     pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-    if (desc.hasDepthAttachment) {
-        pipelineBuilder.enableDepthAttachment();
-        pipelineBuilder.setDepthTest();
-        spdlog::info("Enabled depth");
+
+    if (desc.hasDepthTesting) {
+        pipelineBuilder.enableDepthTesting();
     }
+    if (desc.hasDepthWriting) {
+        pipelineBuilder.enableDepthWriting();
+    }
+
     for (size_t i{}; i < desc.nColorAttachments; i++) {
-        pipelineBuilder.addColorAttachment(m_Swapchain.format);
+        pipelineBuilder.addColorAttachment(m_Swapchain.format,
+                                           desc.hasAlphaBlending);
     }
 
     switch (desc.cullMode) {
@@ -308,6 +355,9 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     default:
         break;
     }
+
+    VkSampleCountFlagBits sampleCount{getSamples(m_Device, desc.msaaSamples)};
+    pipelineBuilder.setMSAA(sampleCount);
 
     std::unordered_map<VkShaderStageFlagBits, std::string> shaderPaths{};
 
