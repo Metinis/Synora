@@ -255,6 +255,8 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
                                mesh->mNormals[i].z);
         }
 
+        relativeVertex.normal = normal;
+
         processedMesh.vertices.emplace_back(relativeVertex);
     }
 

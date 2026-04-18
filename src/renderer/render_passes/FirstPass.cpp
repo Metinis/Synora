@@ -18,8 +18,20 @@ struct alignas(16) PushConstants {
     uint32_t textureIndex;
 };
 
+struct LightCaster {
+    glm::vec3 pos;
+    float padding0;
+    glm::vec3 color;
+    float padding1;
+    glm::vec3 dir;
+    float padding2;
+};
+
 struct Uniforms {
-    glm::mat4 projectionViewMat;
+    glm::mat4 projectionMat;
+    glm::mat4 viewMat;
+    std::array<LightCaster, 16> lights;
+    uint32_t nLights;
 };
 } // namespace
 
@@ -42,7 +54,16 @@ SYN::FirstPass::FirstPass(uint32_t msaaSampleCount,
 }
 
 void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
-    Uniforms uniform{.projectionViewMat = m_CameraProjection * m_CameraView};
+    LightCaster sun{.pos = glm::vec3(0.f, 20.f, 0.f),
+                    .color = glm::vec3(1.f, 1.f, 1.f),
+                    .dir = glm::vec3(1.f, -1.f, 0.f)};
+
+    Uniforms uniform{
+        .projectionMat = m_CameraProjection,
+        .viewMat = m_CameraView,
+        .nLights = 1,
+    };
+    uniform.lights[0] = sun;
 
     backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
