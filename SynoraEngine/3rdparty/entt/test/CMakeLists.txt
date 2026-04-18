@@ -1,0 +1,374 @@
+# Tests configuration
+
+include(FetchContent)
+include(CheckCXXSourceCompiles)
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+if(ENTT_FIND_GTEST_PACKAGE)
+    find_package(GTest REQUIRED)
+else()
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG main
+        GIT_SHALLOW 1
+    )
+
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(googletest)
+
+    add_library(GTest::Main ALIAS gtest_main)
+
+    target_compile_features(gtest PUBLIC cxx_std_20)
+    set_target_properties(gtest PROPERTIES CXX_CLANG_TIDY "")
+
+    target_compile_features(gtest_main PUBLIC cxx_std_20)
+    set_target_properties(gtest_main PROPERTIES CXX_CLANG_TIDY "")
+
+    target_compile_features(gmock PUBLIC cxx_std_20)
+    set_target_properties(gmock PROPERTIES CXX_CLANG_TIDY "")
+
+    target_compile_features(gmock_main PUBLIC cxx_std_20)
+    set_target_properties(gmock_main PROPERTIES CXX_CLANG_TIDY "")
+endif()
+
+include_directories($<TARGET_PROPERTY:EnTT,INTERFACE_INCLUDE_DIRECTORIES>)
+add_compile_options($<TARGET_PROPERTY:EnTT,INTERFACE_COMPILE_OPTIONS>)
+
+function(SETUP_TARGET TARGET_NAME)
+    set_target_properties(${TARGET_NAME} PROPERTIES CXX_EXTENSIONS OFF)
+    target_compile_features(${TARGET_NAME} PRIVATE ${ENTT_CXX_STD})
+    target_link_libraries(${TARGET_NAME} PRIVATE EnTT)
+
+    if(MSVC)
+        set_target_properties(${TARGET_NAME} PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/PROFILE")
+
+        target_compile_options(
+            ${TARGET_NAME}
+            PRIVATE
+                $<$<STREQUAL:"${CMAKE_CXX_COMPILER_ID}","Clang">:
+                    -Wdocumentation
+                    -Wno-deprecated-declarations
+                    -Wno-exceptions
+                    -Wconversion
+                >
+                /EHsc /wd4324 /wd4996 /bigobj
+                # disabling INCREMENTAL is required by SizeBench
+                $<$<CONFIG:Debug>:/Od /INCREMENTAL:NO>
+                $<$<CONFIG:Release>:/O2>
+        )
+
+        target_link_options(
+            ${TARGET_NAME}
+            PRIVATE
+                # disabling INCREMENTAL is required by SizeBench
+                $<$<CONFIG:Debug>:/INCREMENTAL:NO>
+                $<$<CONFIG:Release>:/OPT:NOICF>
+        )
+    else()
+        target_compile_options(
+            ${TARGET_NAME}
+            PRIVATE
+                -fvisibility=hidden
+                -pedantic
+                -Wall
+                -Wconversion
+                -Wno-deprecated-declarations
+                -Wshadow
+                $<$<CONFIG:Debug>:-O0 -g>
+                $<$<CONFIG:Release>:-O2>
+        )
+    endif()
+
+    target_compile_definitions(
+        ${TARGET_NAME}
+        PRIVATE
+            ENTT_ID_TYPE=${ENTT_ID_TYPE}
+            _ENABLE_EXTENDED_ALIGNED_STORAGE
+            NOMINMAX
+            ${ARGN}
+    )
+endfunction()
+
+add_library(odr OBJECT odr.cpp)
+set_target_properties(odr PROPERTIES POSITION_INDEPENDENT_CODE ON)
+SETUP_TARGET(odr)
+
+function(SETUP_BASIC_TEST)
+    cmake_parse_arguments(BASIC_TEST "DEFS" "NAME" "SOURCES" ${ARGN})
+    add_executable(${BASIC_TEST_NAME} $<TARGET_OBJECTS:odr> ${BASIC_TEST_SOURCES})
+    target_link_libraries(${BASIC_TEST_NAME} PRIVATE GTest::Main Threads::Threads)
+    SETUP_TARGET(${BASIC_TEST_NAME} ${BASIC_TEST_UNPARSED_ARGUMENTS})
+    add_test(NAME ${BASIC_TEST_NAME} COMMAND ${BASIC_TEST_NAME})
+    set_tests_properties(${BASIC_TEST_NAME} PROPERTIES TIMEOUT 60)
+endfunction()
+
+function(SETUP_LIB_SHARED_TEST TEST_NAME SUB_PATH)
+    set(TARGET_NAME ${TEST_NAME}_${SUB_PATH})
+    add_library(_${TARGET_NAME} SHARED $<TARGET_OBJECTS:odr> lib/${TEST_NAME}/${SUB_PATH}/lib.cpp)
+    SETUP_TARGET(_${TARGET_NAME} ENTT_API_EXPORT)
+    SETUP_BASIC_TEST(NAME lib_${TARGET_NAME} SOURCES lib/${TEST_NAME}/${SUB_PATH}/main.cpp DEFS ENTT_API_IMPORT)
+    set_target_properties(lib_${TARGET_NAME} PROPERTIES CXX_CLANG_TIDY "")
+    target_link_libraries(lib_${TARGET_NAME} PRIVATE _${TARGET_NAME})
+endfunction()
+
+function(SETUP_LIB_PLUGIN_TEST TEST_NAME SUB_PATH)
+    set(TARGET_NAME ${TEST_NAME}_${SUB_PATH})
+    add_library(_${TARGET_NAME} MODULE $<TARGET_OBJECTS:odr> lib/${TEST_NAME}/${SUB_PATH}/plugin.cpp)
+    SETUP_TARGET(_${TARGET_NAME} ${ARGVN})
+    SETUP_BASIC_TEST(NAME lib_${TARGET_NAME} SOURCES lib/${TEST_NAME}/${SUB_PATH}/main.cpp DEFS PLUGIN="$<TARGET_FILE:_${TARGET_NAME}>" ${ARGVN})
+    target_link_libraries(_${TARGET_NAME} PRIVATE cr::cr)
+    target_link_libraries(lib_${TARGET_NAME} PRIVATE cr::cr ${CMAKE_DL_LIBS})
+    set_target_properties(_${TARGET_NAME} PROPERTIES CXX_CLANG_TIDY "")
+    set_target_properties(lib_${TARGET_NAME} PROPERTIES CXX_CLANG_TIDY "")
+    target_compile_options(_${TARGET_NAME} PRIVATE $<$<NOT:$<STREQUAL:"${CMAKE_CXX_COMPILER_ID}","MSVC">>:-Wno-conversion>)
+    target_compile_options(lib_${TARGET_NAME} PRIVATE $<$<NOT:$<STREQUAL:"${CMAKE_CXX_COMPILER_ID}","MSVC">>:-Wno-conversion>)
+    add_dependencies(lib_${TARGET_NAME} _${TARGET_NAME})
+endfunction()
+
+# Test benchmark
+
+if(ENTT_BUILD_BENCHMARK)
+    SETUP_BASIC_TEST(
+        NAME benchmark
+        SOURCES benchmark/benchmark.cpp
+    )
+
+    set_target_properties(benchmark PROPERTIES CXX_CLANG_TIDY "")
+endif()
+
+# Test example
+
+if(ENTT_BUILD_EXAMPLE)
+    SETUP_BASIC_TEST(
+        NAME example
+        SOURCES
+            example/custom_identifier.cpp
+            example/entity_copy.cpp
+            example/reserved_bits.cpp
+            example/signal_less.cpp
+    )
+endif()
+
+# Test lib
+
+if(ENTT_BUILD_LIB)
+    FetchContent_Declare(
+        cr
+        GIT_REPOSITORY https://github.com/fungos/cr.git
+        GIT_TAG master
+        GIT_SHALLOW 1
+    )
+
+    FetchContent_MakeAvailable(cr)
+
+    add_library(cr::cr ALIAS cr)
+
+    SETUP_LIB_SHARED_TEST(dispatcher shared)
+    SETUP_LIB_PLUGIN_TEST(dispatcher plugin)
+
+    SETUP_LIB_SHARED_TEST(emitter shared)
+    SETUP_LIB_PLUGIN_TEST(emitter plugin)
+
+    SETUP_LIB_SHARED_TEST(locator shared)
+    SETUP_LIB_PLUGIN_TEST(locator plugin)
+
+    SETUP_LIB_SHARED_TEST(meta shared)
+    SETUP_LIB_PLUGIN_TEST(meta plugin)
+    SETUP_LIB_PLUGIN_TEST(meta plugin_std ENTT_STANDARD_CPP)
+
+    SETUP_LIB_SHARED_TEST(registry shared)
+    SETUP_LIB_PLUGIN_TEST(registry plugin)
+
+    SETUP_LIB_SHARED_TEST(view shared)
+    SETUP_LIB_PLUGIN_TEST(view plugin)
+endif()
+
+# Test snapshot
+
+if(ENTT_BUILD_SNAPSHOT)
+    FetchContent_Declare(
+        cereal
+        GIT_REPOSITORY https://github.com/USCiLab/cereal.git
+        GIT_TAG v1.3.2
+        GIT_SHALLOW 1
+    )
+       
+    set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+    set(BUILD_SANDBOX OFF CACHE BOOL "" FORCE)
+    set(SKIP_PORTABILITY_TEST ON CACHE BOOL "" FORCE)
+    set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(cereal)
+
+    SETUP_BASIC_TEST(
+        NAME snapshot
+        SOURCES snapshot/snapshot.cpp
+    )
+
+    target_link_libraries(snapshot PRIVATE cereal)
+    target_compile_options(snapshot PRIVATE $<$<NOT:$<STREQUAL:"${CMAKE_CXX_COMPILER_ID}","MSVC">>:-Wno-conversion>)
+    set_target_properties(snapshot PROPERTIES CXX_CLANG_TIDY "")
+endif()
+
+# Test config
+
+SETUP_BASIC_TEST(
+    NAME config
+    SOURCES entt/config/version.cpp
+)
+
+# Test container
+
+SETUP_BASIC_TEST(
+    NAME container
+    SOURCES
+        entt/container/dense_map.cpp
+        entt/container/dense_set.cpp
+        entt/container/table.cpp
+)
+
+# Test core
+
+SETUP_BASIC_TEST(
+    NAME core
+    SOURCES
+        entt/core/algorithm.cpp
+        entt/core/any.cpp
+        entt/core/bit.cpp
+        entt/core/compressed_pair.cpp
+        entt/core/concepts.cpp
+        entt/core/enum.cpp
+        entt/core/family.cpp
+        entt/core/hashed_string.cpp
+        entt/core/ident.cpp
+        entt/core/iterator.cpp
+        entt/core/memory.cpp
+        entt/core/monostate.cpp
+        entt/core/tuple.cpp
+        entt/core/type_info.cpp
+        entt/core/type_traits.cpp
+        entt/core/utility.cpp
+)
+
+# Test entity
+
+SETUP_BASIC_TEST(
+    NAME entity
+    SOURCES
+        entt/entity/component.cpp
+        entt/entity/entity.cpp
+        entt/entity/group.cpp
+        entt/entity/handle.cpp
+        entt/entity/helper.cpp
+        entt/entity/organizer.cpp
+        entt/entity/reactive_mixin.cpp
+        entt/entity/registry.cpp
+        entt/entity/runtime_view.cpp
+        entt/entity/sigh_mixin.cpp
+        entt/entity/snapshot.cpp
+        entt/entity/sparse_set.cpp
+        entt/entity/storage.cpp
+        entt/entity/storage_entity.cpp
+        entt/entity/storage_no_instance.cpp
+        entt/entity/storage_utility.cpp
+        entt/entity/view.cpp
+)
+
+SETUP_BASIC_TEST(
+    NAME entity_no_mixin
+    SOURCES
+        entt/entity/storage_utility.cpp
+    DEFS ENTT_NO_MIXIN
+)
+
+# Test graph
+
+SETUP_BASIC_TEST(
+    NAME graph
+    SOURCES
+        entt/graph/adjacency_matrix.cpp
+        entt/graph/dot.cpp
+        entt/graph/flow.cpp
+)
+
+# Test locator
+
+SETUP_BASIC_TEST(
+    NAME locator
+    SOURCES entt/locator/locator.cpp
+)
+
+# Test meta
+
+SETUP_BASIC_TEST(
+    NAME meta
+    SOURCES
+        entt/meta/meta_any.cpp
+        entt/meta/meta_base.cpp
+        entt/meta/meta_container.cpp
+        entt/meta/meta_context.cpp
+        entt/meta/meta_conv.cpp
+        entt/meta/meta_ctor.cpp
+        entt/meta/meta_custom.cpp
+        entt/meta/meta_data.cpp
+        entt/meta/meta_dereference.cpp
+        entt/meta/meta_factory.cpp
+        entt/meta/meta_func.cpp
+        entt/meta/meta_handle.cpp
+        entt/meta/meta_range.cpp
+        entt/meta/meta_template.cpp
+        entt/meta/meta_type.cpp
+        entt/meta/meta_utility.cpp
+)
+
+# Test poly
+
+SETUP_BASIC_TEST(
+    NAME poly
+    SOURCES entt/poly/poly.cpp
+)
+
+# Test process
+
+SETUP_BASIC_TEST(
+    NAME process
+    SOURCES
+        entt/process/process.cpp
+        entt/process/scheduler.cpp
+)
+
+# Test resource
+
+SETUP_BASIC_TEST(
+    NAME resource
+    SOURCES
+        entt/resource/resource.cpp
+        entt/resource/resource_cache.cpp
+        entt/resource/resource_loader.cpp
+)
+
+# Test signal
+
+SETUP_BASIC_TEST(
+    NAME signal
+    SOURCES
+        entt/signal/delegate.cpp
+        entt/signal/dispatcher.cpp
+        entt/signal/emitter.cpp
+        entt/signal/sigh.cpp
+)
+
+# Test stl
+
+SETUP_BASIC_TEST(
+    NAME stl
+    SOURCES
+        entt/stl/functional.cpp
+        entt/stl/iterator.cpp
+        entt/stl/memory.cpp
+    DEFS ENTT_USE_STL
+)
