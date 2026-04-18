@@ -229,9 +229,9 @@ struct Shader {
 };
 
 struct PipelineState {
-    Shader shader;
+    Handle<Shader> shader;
     PrimitiveTopology topology = PrimitiveTopology::Triangles;
-    CullMode cullMode = CullMode::Back;
+    CullMode cullMode = CullMode::None;
     PolygonMode polygonMode = PolygonMode::Fill;
     bool frontFaceCcw = true;
 
@@ -263,10 +263,9 @@ class Pass {
 
     void usePipeline(const PipelineState &pipelineState);
 
-    void bindVertexArray(VertexArray vertexArray);
+    void bindVertexArray(Handle<VertexArray> vertexArrayHandle);
 
     void bindUniformBuffer(uint32_t binding, Buffer buffer);
-
     // Float uniforms
     void bindUniform(std::string_view name, float v0);
     void bindUniform(std::string_view name, const glm::vec2 &v);
@@ -304,12 +303,15 @@ class Pass {
     friend class Context;
     Pass(class Context *context, const PassDesc &desc);
     Context *m_ContextPtr;
+
+    PrimitiveTopology m_CurrentDrawTopology = PrimitiveTopology::Triangles;
 };
 
 class Context {
   public:
     static std::optional<Context> createContext(const ContextInitDesc &desc);
 
+    // TODO: Delete any leftover resources
     ~Context();
 
     void present();
@@ -357,6 +359,13 @@ class Context {
     Context(const ContextInitDesc &desc);
 
   private:
+    std::optional<VertexArray>
+    getVertexArray(Handle<VertexArray> vertexArrayHandle);
+    std::optional<Buffer> getBuffer(Handle<Buffer> bufferHandle);
+    std::optional<Shader> getShader(Handle<Shader> shaderHandle);
+
+  private:
+    friend class Pass;
     GLResourceRegistry<VertexArray> m_VertexArrayRegistry;
     GLResourceRegistry<Buffer> m_BufferRegistry;
     GLResourceRegistry<Shader> m_ShaderRegistry;

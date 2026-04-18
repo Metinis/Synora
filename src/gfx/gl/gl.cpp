@@ -303,8 +303,90 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
     m_PendingDeleteBuffers.clear();
 }
 
+std::optional<SYN::gfx::gl::VertexArray>
+SYN::gfx::gl::Context::getVertexArray(Handle<VertexArray> vertexArrayHandle) {
+    return m_VertexArrayRegistry.getResource(vertexArrayHandle);
+}
+std::optional<SYN::gfx::gl::Buffer>
+SYN::gfx::gl::Context::getBuffer(Handle<Buffer> bufferHandle) {
+    return m_BufferRegistry.getResource(bufferHandle);
+}
+
+std::optional<SYN::gfx::gl::Shader>
+SYN::gfx::gl::Context::getShader(Handle<Shader> shaderHandle) {
+    return m_ShaderRegistry.getResource(shaderHandle);
+}
+
 SYN::gfx::gl::Pass::~Pass() {
     glUseProgram(0);
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
+    std::optional<Shader> currentShaderOpt =
+        m_ContextPtr->getShader(pipelineState.shader);
+    assert(currentShaderOpt.has_value() &&
+           "Shader handle is invalid. Cannot set pipeline.");
+    Shader shader = currentShaderOpt.value();
+
+    switch (pipelineState.cullMode) {
+    case CullMode::None:
+        glDisable(GL_CULL_FACE);
+        break;
+    case CullMode::Front:
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);
+        break;
+    case CullMode::Back:
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        break;
+    }
+
+    if (pipelineState.frontFaceCcw)
+        glFrontFace(GL_CCW);
+    else
+        glFrontFace(GL_CW);
+
+    switch (pipelineState.polygonMode) {
+    case PolygonMode::Fill:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        break;
+    case PolygonMode::Line:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        break;
+    case PolygonMode::Point:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+        break;
+    }
+
+    m_CurrentDrawTopology = pipelineState.topology;
+
+    glUseProgram(shader.program);
+}
+
+void SYN::gfx::gl::Pass::bindVertexArray(
+    Handle<VertexArray> vertexArrayHandle) {
+    std::optional<VertexArray> currentVaoOpt =
+        m_ContextPtr->getVertexArray(vertexArrayHandle);
+    assert(currentVaoOpt.has_value() && "Vertex Array handle is invalid.");
+    VertexArray vertexArray = currentVaoOpt.value();
+    glBindVertexArray(vertexArray.id);
+}
+
+void SYN::gfx::gl::Pass::draw(uint32_t vertexCount, uint32_t firstVertex) {
+    GLenum drawMode;
+    switch (m_CurrentDrawTopology) {
+    case PrimitiveTopology::Triangles:
+        drawMode = GL_TRIANGLES;
+        break;
+    case PrimitiveTopology::Lines:
+        drawMode = GL_LINES;
+        break;
+    case PrimitiveTopology::Points:
+        drawMode = GL_POINTS;
+        break;
+    }
+    glDrawArrays(drawMode, firstVertex, vertexCount);
 }
