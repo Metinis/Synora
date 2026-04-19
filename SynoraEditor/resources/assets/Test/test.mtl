@@ -1,0 +1,3 @@
+mtllib test.mtl
+newmtl mat0
+map_Kd test.png
