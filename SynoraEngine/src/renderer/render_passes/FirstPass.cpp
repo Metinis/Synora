@@ -58,6 +58,12 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
     LightCaster sun{.pos = glm::vec3(0.f, 20.f, 0.f),
                     .color = glm::vec3(1.f, 1.f, 1.f),
                     .dir = glm::vec3(1.f, -1.f, 0.f)};
+    LightCaster lamp{.pos = glm::vec3(10.f, 10.f, 10.f),
+                     .color = glm::vec3(1.f, 0.f, 1.f),
+                     .dir = glm::vec3(1.f, -1.f, 0.f)};
+
+    std::array<LightCaster, 16> lights{sun, lamp};
+
     glm::vec3 cameraPos{glm::transpose(glm::mat3(m_CameraView)) *
                         -m_CameraView[3]};
 
@@ -65,9 +71,9 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
         .projectionMat = m_CameraProjection,
         .viewMat = m_CameraView,
         .cameraPos = cameraPos,
-        .nLights = 1,
+        .nLights = 2,
     };
-    uniform.lights[0] = sun;
+    uniform.lights = lights;
 
     backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
