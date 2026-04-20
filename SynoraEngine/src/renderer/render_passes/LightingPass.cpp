@@ -1,4 +1,4 @@
-#include "FirstPass.h"
+#include "LightingPass.h"
 #include "renderer/RenderTypes.h"
 #include <glm/ext.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
@@ -36,13 +36,13 @@ struct Uniforms {
 };
 } // namespace
 
-SYN::FirstPass::FirstPass(uint32_t msaaSampleCount,
-                          std::span<Renderer::MeshDrawCall> drawCalls,
-                          const glm::mat4 &cameraProjection,
-                          const glm::mat4 &cameraView,
-                          AttachmentHandle msaaColorAttachment,
-                          AttachmentHandle msaaDepthAttachment,
-                          AttachmentHandle colorAttachment)
+SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
+                                std::span<Renderer::MeshDrawCall> drawCalls,
+                                const glm::mat4 &cameraProjection,
+                                const glm::mat4 &cameraView,
+                                AttachmentHandle msaaColorAttachment,
+                                AttachmentHandle msaaDepthAttachment,
+                                AttachmentHandle colorAttachment)
     : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
       m_CameraProjection(cameraProjection), m_CameraView(cameraView) {
     m_ColorAttachment = WriteAttachmentInfo{.handle = msaaColorAttachment,
@@ -54,13 +54,15 @@ SYN::FirstPass::FirstPass(uint32_t msaaSampleCount,
     };
 }
 
-void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
+void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
     LightCaster sun{.pos = glm::vec3(0.f, 20.f, 0.f),
                     .color = glm::vec3(1.f, 1.f, 1.f),
                     .dir = glm::vec3(1.f, -1.f, 0.f)};
+    sun.color *= 10.f;
     LightCaster lamp{.pos = glm::vec3(10.f, 10.f, 10.f),
                      .color = glm::vec3(1.f, 0.f, 1.f),
                      .dir = glm::vec3(1.f, -1.f, 0.f)};
+    lamp.color *= 5.f;
 
     std::array<LightCaster, 16> lights{sun, lamp};
 
@@ -99,7 +101,7 @@ void SYN::FirstPass::execute(IBackend &backend, PipelineHandle pipeline) {
     backend.endRenderPassCmd();
 }
 
-RenderPassDesc SYN::FirstPass::getPassDesc() {
+RenderPassDesc SYN::LightingPass::getPassDesc() {
     return RenderPassDesc{
         .debugName = "First Pass",
         .colorAttachments = std::span(&m_ColorAttachment, 1),
@@ -107,15 +109,15 @@ RenderPassDesc SYN::FirstPass::getPassDesc() {
     };
 }
 
-GraphicsPipelineDesc SYN::FirstPass::getPipelineDesc() const {
+GraphicsPipelineDesc SYN::LightingPass::getPipelineDesc() const {
     GraphicsPipelineDesc c_PipelineDesc{
         .cullMode = CullMode::disabled,
         .nColorAttachments = 1,
         .hasDepthTesting = true,
         .hasDepthWriting = true,
         .msaaSamples = m_MSAASampleCount,
-        .vertexShaderPath = "generated/shaders/first.vert.spv",
-        .fragmentShaderPath = "generated/shaders/first.frag.spv",
+        .vertexShaderPath = "generated/shaders/lighting.vert.spv",
+        .fragmentShaderPath = "generated/shaders/lighting.frag.spv",
     };
     return c_PipelineDesc;
 }

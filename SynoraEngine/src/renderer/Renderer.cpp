@@ -3,8 +3,8 @@
 #include "SynoraEngine/core/Window.h"
 #include "backends/vulkan/Backend.h"
 #include "glm/ext/quaternion_common.hpp"
-#include "render_passes/FirstPass.h"
 #include "render_passes/ImGUIPass.h"
+#include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
 #include "renderer/RenderTypes.h"
 
@@ -62,7 +62,7 @@ void SYN::Renderer::render(Window &window) {
         m_Backend->getSwapchainAttachmentCmd()};
 
     uint32_t msaaSamples{4};
-    m_RenderGraph.addPass<FirstPass>(
+    m_RenderGraph.addPass<LightingPass>(
         msaaSamples, m_DrawCalls, m_CurrentCameraProjection,
         m_CurrentCameraView, m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
         swapchainAttachment);

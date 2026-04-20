@@ -4,14 +4,14 @@
 #include "renderer/Renderer.h"
 
 namespace SYN {
-class FirstPass : public IRenderPass {
+class LightingPass : public IRenderPass {
   public:
-    FirstPass(uint32_t msaaSampleCount,
-              std::span<Renderer::MeshDrawCall> drawCalls,
-              const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
-              AttachmentHandle msaaColorAttachment,
-              AttachmentHandle msaaDepthAttachment,
-              AttachmentHandle colorAttachment);
+    LightingPass(uint32_t msaaSampleCount,
+                 std::span<Renderer::MeshDrawCall> drawCalls,
+                 const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
+                 AttachmentHandle msaaColorAttachment,
+                 AttachmentHandle msaaDepthAttachment,
+                 AttachmentHandle colorAttachment);
 
     void execute(IBackend &backend, PipelineHandle pipeline) override;
     GraphicsPipelineDesc getPipelineDesc() const override;
