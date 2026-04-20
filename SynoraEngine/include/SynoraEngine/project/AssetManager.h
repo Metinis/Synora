@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "Assets.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/scene/Components.h"
@@ -9,6 +8,7 @@
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
 
+#include "assimp/material.h"
 #include <assimp/Importer.hpp>
 
 struct aiNode;
@@ -16,18 +16,18 @@ struct aiMesh;
 struct aiScene;
 
 namespace SYN {
-    class Entity;
-    struct AssetCounted {
-        AssetType data{};
-        uint64_t ref{};
-    };
+class Entity;
+struct AssetCounted {
+    AssetType data{};
+    uint64_t ref{};
+};
 class AssetManager {
   public:
     AssetManager() = default;
 
     void init(EngineContext *ctx);
 
-    void loadModel(Scene* scene, const std::filesystem::path& path);
+    void loadModel(Scene *scene, const std::filesystem::path &path);
     UUID loadTexture(const std::string &path);
 
     void addRef(UUID id);
@@ -70,6 +70,12 @@ class AssetManager {
     ~AssetManager() = default;
 
   private:
+    struct Material {
+        UUID albedo;
+        UUID metallicRoughness;
+        UUID normalMap;
+    };
+
     // NOTE: textures are malloced and must be freed. currently they leak.
 
     // no file format or compression, just bytes and sizes
@@ -82,18 +88,26 @@ class AssetManager {
                          const std::string &modelPath,
                          const aiMatrix4x4 &transform);
 
-    void processNode(Scene* scene, Entity parent, aiNode *node, const aiScene *aiScene,
-                     const std::string &modelPath,
+    void processNode(Scene *scene, Entity parent, aiNode *node,
+                     const aiScene *aiScene, const std::string &modelPath,
                      const aiMatrix4x4 &parentTransform);
 
-    // currently only processes albedo texture
-    SYN::UUID processMaterials(const aiMesh *mesh, const aiScene *scene,
-                               const std::string &path);
+    std::optional<SYN::UUID> loadMaterial(const aiMesh *mesh,
+                                          const aiScene *scene,
+                                          const std::string &modelPath,
+                                          aiTextureType textureType);
+
+    Material processMaterials(const aiMesh *mesh, const aiScene *scene,
+                              const std::string &path);
 
     std::unordered_map<UUID, AssetCounted> m_AssetMap{};
     std::unordered_map<std::string, UUID> m_LoadedUUIDMap{};
     Renderer *m_Renderer{};
     Assimp::Importer m_Importer;
+
     UUID m_MissingTextureUUID{};
+    UUID m_DefaultMetallicRoughness{};
+    UUID m_WhiteTexture{};
+    UUID m_DefaultNormalMap{};
 };
 } // namespace SYN

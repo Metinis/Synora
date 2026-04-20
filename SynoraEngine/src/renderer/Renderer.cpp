@@ -94,6 +94,16 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
                                   .height = meshData.albedo->height,
                                   .type = TextureType::srgb},
                                  meshData.albedo->data)};
+    TextureHandle metallicRoughness{
+        m_Backend->uploadTexture({.width = meshData.metallicRoughness->width,
+                                  .height = meshData.metallicRoughness->height,
+                                  .type = TextureType::rgba},
+                                 meshData.metallicRoughness->data)};
+    TextureHandle normalMap{
+        m_Backend->uploadTexture({.width = meshData.normalMap->width,
+                                  .height = meshData.normalMap->height,
+                                  .type = TextureType::rgba},
+                                 meshData.normalMap->data)};
 
     BufferHandle vertexBuffer{m_Backend->uploadBuffer(
         {.size = meshData.vertices.size() * sizeof(Vertex)},
@@ -103,13 +113,13 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         {.size = meshData.indices.size() * sizeof(uint32_t)},
         meshData.indices.data())};
 
-    auto mesh = UploadedMesh{
-        .vertexBuffer = vertexBuffer,
-        .indexBuffer = indexBuffer,
-        .localTransform = meshData.localTransform,
-        .numIndices = meshData.indices.size(),
-        .albedo = albedo,
-    };
+    auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,
+                             .indexBuffer = indexBuffer,
+                             .localTransform = meshData.localTransform,
+                             .numIndices = meshData.indices.size(),
+                             .albedo = albedo,
+                             .metallicRoughness = metallicRoughness,
+                             .normalMap = normalMap};
     m_UploadedMeshes[modelID] = std::move(mesh);
     spdlog::info("added model");
 }
@@ -118,6 +128,8 @@ void Renderer::removeMesh(UUID meshID) {
     if (m_UploadedMeshes.contains(meshID)) {
         auto &mesh = m_UploadedMeshes[meshID];
         m_Backend->destroyTexture(mesh.albedo);
+        m_Backend->destroyTexture(mesh.metallicRoughness);
+        m_Backend->destroyTexture(mesh.normalMap);
         m_Backend->destroyBuffer(mesh.vertexBuffer);
         m_Backend->destroyBuffer(mesh.indexBuffer);
         m_UploadedMeshes.erase(meshID);
@@ -160,6 +172,8 @@ void SYN::Renderer::shutdown() {
     m_RenderGraph.shutdown(*m_Backend);
     for (auto &[uuid, mesh] : m_UploadedMeshes) {
         m_Backend->destroyTexture(mesh.albedo);
+        m_Backend->destroyTexture(mesh.metallicRoughness);
+        m_Backend->destroyTexture(mesh.normalMap);
         m_Backend->destroyBuffer(mesh.vertexBuffer);
         m_Backend->destroyBuffer(mesh.indexBuffer);
     }

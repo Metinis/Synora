@@ -15,7 +15,10 @@ struct alignas(16) PushConstants {
 
     uint64_t vertexBuffer;
     uint64_t indexBuffer;
-    uint32_t textureIndex;
+
+    uint32_t albedoIndex;
+    uint32_t metallicRoughnessIndex;
+    uint32_t normalMapIndex;
 };
 
 struct LightCaster {
@@ -55,11 +58,11 @@ SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
 }
 
 void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
-    LightCaster sun{.pos = glm::vec3(0.f, 20.f, 0.f),
+    LightCaster sun{.pos = glm::vec3(0.f, 1.f, -1.f),
                     .color = glm::vec3(1.f, 1.f, 1.f),
                     .dir = glm::vec3(1.f, -1.f, 0.f)};
     sun.color *= 10.f;
-    LightCaster lamp{.pos = glm::vec3(10.f, 10.f, 10.f),
+    LightCaster lamp{.pos = glm::vec3(1.f, 1.f, -1.f),
                      .color = glm::vec3(1.f, 0.f, 1.f),
                      .dir = glm::vec3(1.f, -1.f, 0.f)};
     lamp.color *= 5.f;
@@ -90,8 +93,12 @@ void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
                 backend.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
             .indexBuffer =
                 backend.getBufferAddressCmd(drawCall.mesh.indexBuffer),
-            .textureIndex =
+            .albedoIndex =
                 backend.getShaderSamplerIndexCmd(drawCall.mesh.albedo),
+            .metallicRoughnessIndex = backend.getShaderSamplerIndexCmd(
+                drawCall.mesh.metallicRoughness),
+            .normalMapIndex =
+                backend.getShaderSamplerIndexCmd(drawCall.mesh.normalMap),
         };
 
         backend.setPushConstantsCmd(pushConstants);

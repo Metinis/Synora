@@ -7,7 +7,9 @@ layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
 
 layout(location = 0) in vec2 uv;
 layout(location = 1) in vec3 fragPos;
-layout(location = 2) in vec3 norm;
+layout(location = 2) in vec3 faceNormal;
+layout(location = 3) in vec3 faceTangent;
+layout(location = 4) in float handedness;
 
 layout (location = 0) out vec4 outColor;
 
@@ -16,6 +18,7 @@ struct Vertex {
     float u;
     vec3 normal;
     float v;
+    vec4 tangent;
 };
 struct LightCaster {
     vec3 pos;
@@ -38,7 +41,9 @@ layout(push_constant, std430) uniform PushConstants {
     mat4 modelMat;
     VertexBuffer vertexBuffer;
     IndexBuffer indexBuffer;
-    uint textureIndex;
+    uint albedoIndex;
+    uint metallicRoughnessIndex;
+    uint normalMap;
 };
 
 
@@ -79,7 +84,23 @@ float ggxVisibility(float roughness, float nDotL, float nDotV) {
 }
 
 void main() {
-    vec4 fragAlbedo = vec4(texture(textures[textureIndex], uv));
+    vec3 tangent = normalize(faceTangent - dot(faceTangent, faceNormal) * faceNormal);
+    vec3 bitangent = cross(faceNormal, faceTangent) * handedness;
+
+    mat3 tbn = mat3(tangent, bitangent, faceNormal);
+
+    vec3 mapNormal = texture(textures[normalMap], uv).xyz;
+    mapNormal = (mapNormal * 2.f) - 1.f;
+
+    vec3 norm = normalize(tbn * mapNormal);
+
+    vec4 fragAlbedo = vec4(texture(textures[albedoIndex], uv));
+    vec4 fragMetallicRoughness = vec4(texture(textures[metallicRoughnessIndex], uv));
+
+    vec3 albedo = fragAlbedo.xyz;
+    float roughness = fragMetallicRoughness.g;
+    float metallic = fragMetallicRoughness.b;
+
     if (fragAlbedo.a == 0.f) {
         discard;
     }
@@ -94,15 +115,12 @@ void main() {
 
         vec3 halfway = normalize(lightDir + viewDir);
 
-        float nDotL = abs(dot(norm, lightDir));
-        float vDotH = abs(dot(viewDir, halfway));
+        float nDotL = abs(dot(norm, lightDir)) + 0.00001f;
+        float vDotH = max(dot(viewDir, halfway), 0.f);
         float nDotH = abs(dot(norm, halfway));
         float nDotV = abs(dot(norm, viewDir));
 
-        float roughness = 0.5f;
-        float metallic = 0.f;
-
-        vec3 f0 = mix(vec3(0.04f), fragAlbedo.xyz, metallic);
+        vec3 f0 = mix(vec3(0.04f), albedo, metallic);
 
         float r = roughness * roughness;
 
@@ -111,7 +129,7 @@ void main() {
         vec3 F = f0 + (1.f - f0) * pow(1.f - vDotH, 5.f);
 
         vec3 specular = D * G * F; // normalization is in G
-        vec3 diffuse = ((1.f - metallic) * (1.f - F) * fragAlbedo.xyz) / PI;
+        vec3 diffuse = ((1.f - metallic) * (1.f - F) * albedo) / PI;
 
         vec3 brdf = specular + diffuse;
 

@@ -7,13 +7,16 @@ layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
 
 layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec3 outWorldPos;
-layout(location = 2) out vec3 outNorm;
+layout(location = 2) out vec3 outFaceNormal;
+layout(location = 3) out vec3 outFaceTangent;
+layout(location = 4) out float outHandedness;
 
 struct Vertex {
     vec3 pos;
     float u;
     vec3 normal;
     float v;
+    vec4 tangent;
 };
 
 struct LightCaster {
@@ -38,7 +41,9 @@ layout(push_constant, std430) uniform PushConstants {
     mat4 modelMat;
     VertexBuffer vertexBuffer;
     IndexBuffer indexBuffer;
-    uint textureIndex;
+    uint albedoIndex;
+    uint metallicRoughnessIndex;
+    uint normalMap;
 };
 
 
@@ -58,7 +63,10 @@ void main() {
     outWorldPos = worldPos.xyz;
 
     mat3 normalMat = transpose(mat3(modelMat));
-    outNorm = normalize(normalMat * vertex.normal);
+
+    outFaceNormal = normalize(normalMat * vertex.normal);
+    outFaceTangent = vertex.tangent.xyz;
+    outHandedness = vertex.tangent.w;
 
 	gl_Position = projectionMat * viewMat * worldPos;
 }

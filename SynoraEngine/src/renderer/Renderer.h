@@ -1,6 +1,6 @@
 #pragma once
-#include "SynoraEngine/core/Application.h"
 #include "RenderGraph.h"
+#include "SynoraEngine/core/Application.h"
 #include "backends/IBackend.h"
 #include "renderer/RenderTypes.h"
 #include <glm/gtc/quaternion.hpp>
@@ -43,6 +43,8 @@ class Renderer {
         size_t numIndices;
 
         TextureHandle albedo;
+        TextureHandle metallicRoughness;
+        TextureHandle normalMap;
     };
 
     struct MeshDrawCall {

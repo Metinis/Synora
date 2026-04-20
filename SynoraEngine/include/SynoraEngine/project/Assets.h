@@ -10,6 +10,7 @@ struct alignas(16) Vertex {
     float u;
     glm::vec3 normal;
     float v;
+    glm::vec4 tangent;
 };
 
 struct TextureData {
@@ -26,6 +27,8 @@ struct MeshData {
                               // relative to world space
 
     TextureData *albedo;
+    TextureData *metallicRoughness;
+    TextureData *normalMap;
 };
 
 /*struct ModelData {

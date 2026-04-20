@@ -13,6 +13,11 @@ void SYN::AssetManager::init(EngineContext *ctx) {
     stbi_set_flip_vertically_on_load(true);
     m_MissingTextureUUID =
         loadTexture("resources/textures/missing_texture.png");
+    m_DefaultMetallicRoughness =
+        loadTexture("resources/textures/default_metallic_roughness.png");
+    m_WhiteTexture = loadTexture("resources/textures/white.png");
+    m_DefaultNormalMap =
+        loadTexture("resources/textures/default_normal_map.png");
 }
 
 SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
@@ -157,65 +162,48 @@ void SYN::AssetManager::loadModel(Scene *scene,
     processNode(scene, parent, aiScene->mRootNode, aiScene, path, origin);
 }
 
-SYN::UUID SYN::AssetManager::processMaterials(const aiMesh *mesh,
-                                              const aiScene *scene,
-                                              const std::string &modelPath) {
+SYN::AssetManager::Material
+SYN::AssetManager::processMaterials(const aiMesh *mesh, const aiScene *scene,
+                                    const std::string &modelPath) {
+    Material material{
+        .albedo = m_MissingTextureUUID,
+        .metallicRoughness = m_MissingTextureUUID,
+    };
+
     if (!scene->HasMaterials()) {
         spdlog::warn("{} had no materials", modelPath);
-        return m_MissingTextureUUID;
+        return material;
     }
 
-    aiMaterial *material{scene->mMaterials[mesh->mMaterialIndex]};
-    aiString relPath{};
+    std::optional<UUID> albedo{
+        loadMaterial(mesh, scene, modelPath, aiTextureType_BASE_COLOR)};
 
-    if (material->GetTexture(aiTextureType_BASE_COLOR, 0, &relPath) !=
-        AI_SUCCESS) {
-        // fallback to diffuse
-        if (material->GetTexture(aiTextureType_DIFFUSE, 0, &relPath) !=
-            AI_SUCCESS) {
-            return m_MissingTextureUUID;
+    std::optional<UUID> metallicRoughness{loadMaterial(
+        mesh, scene, modelPath, aiTextureType_GLTF_METALLIC_ROUGHNESS)};
+
+    std::optional<UUID> normalMap{
+        loadMaterial(mesh, scene, modelPath, aiTextureType_NORMALS)};
+
+    if (!albedo.has_value()) {
+        albedo = loadMaterial(mesh, scene, modelPath, aiTextureType_DIFFUSE);
+        if (!albedo.has_value()) {
+            albedo = m_MissingTextureUUID;
         }
     }
-    bool isEmbeddedTexture{relPath.C_Str()[0] == '*'};
 
-    std::filesystem::path absDir{
-        std::filesystem::path(modelPath).parent_path()};
-    std::string absPath{absDir.append(relPath.C_Str())};
-
-    if (!isEmbeddedTexture) {
-        return loadTexture(absPath);
+    if (!metallicRoughness.has_value()) {
+        metallicRoughness = m_DefaultMetallicRoughness;
     }
 
-    const aiTexture *texture{scene->GetEmbeddedTexture(relPath.C_Str())};
-    std::string name{absPath};
-
-    bool isCompressed{texture->mHeight == 0};
-    if (isCompressed) {
-        uint32_t textureSize{texture->mWidth};
-
-        return loadTexture(reinterpret_cast<stbi_uc *>(texture->pcData),
-                           textureSize, name);
+    if (!normalMap.has_value()) {
+        normalMap = m_DefaultNormalMap;
     }
 
-    // textures are stored ARGB, when we store them as RGBA, so we need to
-    // swizzle
-    size_t pixelCount{texture->mWidth * texture->mHeight};
-    auto *pixels{reinterpret_cast<aiTexel *>(texture->pcData)};
+    material.albedo = albedo.value();
+    material.metallicRoughness = metallicRoughness.value();
+    material.normalMap = normalMap.value();
 
-    auto *rgbaData{reinterpret_cast<stbi_uc *>(malloc(pixelCount * 4))};
-    if (rgbaData == nullptr) {
-        spdlog::warn("Could not allocate memory for {} albedo", modelPath);
-        return m_MissingTextureUUID;
-    }
-
-    for (size_t i{}; i < pixelCount; i++) {
-        rgbaData[i * 4 + 0] = pixels[i].r;
-        rgbaData[i * 4 + 1] = pixels[i].g;
-        rgbaData[i * 4 + 2] = pixels[i].b;
-        rgbaData[i * 4 + 3] = pixels[i].a;
-    }
-
-    return loadRawTexture(rgbaData, texture->mWidth, texture->mHeight, name);
+    return material;
 }
 
 SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
@@ -230,8 +218,12 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
                       transform.a4, transform.b4, transform.c4, transform.d4),
     };
 
-    UUID albedoUUID{processMaterials(mesh, scene, modelPath)};
-    processedMesh.albedo = get<TextureData>(albedoUUID);
+    Material material{processMaterials(mesh, scene, modelPath)};
+
+    processedMesh.albedo = get<TextureData>(material.albedo);
+    processedMesh.metallicRoughness =
+        get<TextureData>(material.metallicRoughness);
+    processedMesh.normalMap = get<TextureData>(material.normalMap);
 
     for (size_t i{}; i < mesh->mNumVertices; i++) {
         SYN::Vertex relativeVertex{
@@ -249,7 +241,21 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
                                mesh->mNormals[i].z);
         }
 
+        glm::vec4 tangentAndHandedness(0.f, 1.f, 0.f, 1.f);
+        if (mesh->HasTangentsAndBitangents()) {
+            glm::vec3 tangent{glm::vec3(mesh->mTangents[i].x,
+                                        mesh->mTangents[i].y,
+                                        mesh->mTangents[i].z)};
+            glm::vec3 bitangent{glm::vec3(mesh->mBitangents[i].x,
+                                          mesh->mBitangents[i].y,
+                                          mesh->mBitangents[i].z)};
+            float handedness{glm::dot(glm::cross(normal, tangent), bitangent)};
+            tangentAndHandedness =
+                glm::vec4(tangent.x, tangent.y, tangent.z, handedness);
+        }
+
         relativeVertex.normal = normal;
+        relativeVertex.tangent = tangentAndHandedness;
 
         processedMesh.vertices.emplace_back(relativeVertex);
     }
@@ -289,4 +295,56 @@ void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
         processNode(scene, childEntity, node->mChildren[i], aiScene, modelPath,
                     transform);
     }
+}
+
+std::optional<SYN::UUID>
+SYN::AssetManager::loadMaterial(const aiMesh *mesh, const aiScene *scene,
+                                const std::string &modelPath,
+                                aiTextureType textureType) {
+    aiMaterial *material{scene->mMaterials[mesh->mMaterialIndex]};
+    aiString relPath{};
+
+    if (material->GetTexture(textureType, 0, &relPath) != AI_SUCCESS) {
+        return {};
+    }
+    bool isEmbeddedTexture{relPath.C_Str()[0] == '*'};
+
+    std::filesystem::path absDir{
+        std::filesystem::path(modelPath).parent_path()};
+    std::string absPath{absDir.append(relPath.C_Str())};
+
+    if (!isEmbeddedTexture) {
+        return loadTexture(absPath);
+    }
+
+    const aiTexture *texture{scene->GetEmbeddedTexture(relPath.C_Str())};
+    std::string name{absPath};
+
+    bool isCompressed{texture->mHeight == 0};
+    if (isCompressed) {
+        uint32_t textureSize{texture->mWidth};
+
+        return loadTexture(reinterpret_cast<stbi_uc *>(texture->pcData),
+                           textureSize, name);
+    }
+
+    // textures are stored ARGB, when we store them as RGBA, so we need to
+    // swizzle
+    size_t pixelCount{texture->mWidth * texture->mHeight};
+    auto *pixels{reinterpret_cast<aiTexel *>(texture->pcData)};
+
+    auto *rgbaData{reinterpret_cast<stbi_uc *>(malloc(pixelCount * 4))};
+    if (rgbaData == nullptr) {
+        spdlog::warn("Could not allocate memory for {} albedo", modelPath);
+        return {};
+    }
+
+    for (size_t i{}; i < pixelCount; i++) {
+        rgbaData[i * 4 + 0] = pixels[i].r;
+        rgbaData[i * 4 + 1] = pixels[i].g;
+        rgbaData[i * 4 + 2] = pixels[i].b;
+        rgbaData[i * 4 + 3] = pixels[i].a;
+    }
+
+    return loadRawTexture(rgbaData, texture->mWidth, texture->mHeight, name);
 }
