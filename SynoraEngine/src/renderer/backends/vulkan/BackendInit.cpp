@@ -203,12 +203,11 @@ void SYN::VK::VulkanBackend::initContext(Window *window) {
 }
 
 void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
-    uint32_t textureDescriptorCount{
+    uint32_t descriptorCount{
         std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
-    uint32_t cubeMapDescriptorCount{
-        std::min(c_MaxBindlessCubeMaps,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+    auto textureDescriptorCount = (uint32_t)((float)descriptorCount * 0.75f);
+    auto cubeMapDescriptorCount = (uint32_t)((float)descriptorCount * 0.25f);
 
     VkDescriptorBindingFlags bindlessBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
