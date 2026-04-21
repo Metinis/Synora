@@ -72,17 +72,18 @@ void SYN::VK::VulkanBackend::init(Window *window) {
         .isSampleable = false,         // tis an output
     });
 
-    uint32_t textureDescriptorCount{
+    uint32_t descriptorCount{
         std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
-
-    m_BindlessTextureIndexFreelist.reserve(textureDescriptorCount);
-    for (uint32_t i = 0; i < textureDescriptorCount; i++) {
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+    auto textureDesCount = (uint32_t)((float)descriptorCount * 0.75f);
+    auto cubemapDesCount = (uint32_t)((float)descriptorCount * 0.25f);
+    m_BindlessTextureIndexFreelist.reserve(textureDesCount);
+    for (uint32_t i = 0; i < textureDesCount; i++) {
         m_BindlessTextureIndexFreelist.emplace_back(i);
     }
 
-    m_BindlessCubeMapFreeList.reserve(textureDescriptorCount);
-    for (size_t i{}; i < textureDescriptorCount; i++) {
+    m_BindlessCubeMapFreeList.reserve(cubemapDesCount);
+    for (size_t i{}; i < cubemapDesCount; i++) {
         m_BindlessCubeMapFreeList.emplace_back(i);
     }
 }
