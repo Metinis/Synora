@@ -67,14 +67,20 @@ void Scene::onRender() {
 
 void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
+    UUID id = comp.id;
 
-    m_OnUpdate.push_back([&]() { m_AssetManager->addRef(comp.id); });
+    m_OnUpdate.emplace_back([this, id]() {
+        m_AssetManager->addRef(id);
+    });
 }
 
 void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
+    UUID id = comp.id;
 
-    m_OnUpdate.push_back([&]() { m_AssetManager->removeRef(comp.id); });
+    m_OnUpdate.emplace_back([this, id]() {
+        m_AssetManager->removeRef(id);
+    });
 }
 
 bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {

@@ -115,13 +115,11 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
 
     auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,
                              .indexBuffer = indexBuffer,
-                             .localTransform = meshData.localTransform,
                              .numIndices = meshData.indices.size(),
                              .albedo = albedo,
                              .metallicRoughness = metallicRoughness,
                              .normalMap = normalMap};
     m_UploadedMeshes[modelID] = std::move(mesh);
-    spdlog::info("added model");
 }
 
 void Renderer::removeMesh(UUID meshID) {
@@ -154,6 +152,10 @@ void Renderer::setCamera(const Camera &camera) {
 
 void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
     auto it{m_UploadedMeshes.find(modelID)};
+    if (modelID == 0) {
+        //empty mesh comp
+        return;
+    }
     if (it == m_UploadedMeshes.end()) {
         spdlog::warn(
             "Trying to draw model (uuid = {}) that was not added to renderer",
@@ -164,7 +166,7 @@ void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
     UploadedMesh &mesh{it->second};
     m_DrawCalls.emplace_back(MeshDrawCall{
         .mesh = mesh,
-        .modelMatrix = worldMatrix * mesh.localTransform,
+        .modelMatrix = worldMatrix,
     });
 }
 

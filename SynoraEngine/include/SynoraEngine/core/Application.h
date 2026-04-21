@@ -1,7 +1,7 @@
 #pragma once
 #include "Layer.h"
 #include "SynoraEngine/project/Project.h"
-
+#define GLM_ENABLE_EXPERIMENTAL
 
 
 namespace SYN {

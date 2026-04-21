@@ -39,7 +39,6 @@ class Renderer {
     struct UploadedMesh {
         BufferHandle vertexBuffer;
         BufferHandle indexBuffer;
-        glm::mat4 localTransform;
         size_t numIndices;
 
         TextureHandle albedo;
