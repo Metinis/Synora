@@ -1,9 +1,9 @@
 #include "EditorApp.h"
-#include "ScenePanel.h"
+#include "EditorPanel.h"
 using namespace SYE;
 
 EditorApp::EditorApp() {
-    m_ScenePanel = std::make_unique<ScenePanel>();
+    m_ScenePanel = std::make_unique<EditorPanel>();
 }
 void EditorApp::init() {
     Application::init();

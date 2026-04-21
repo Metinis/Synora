@@ -77,6 +77,23 @@ void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     m_OnUpdate.push_back([&]() { m_AssetManager->removeRef(comp.id); });
 }
 
+bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {
+    if (!possibleChild.hasComponent<ParentComp>())
+        return false;
+
+    auto current = possibleChild;
+    while (current.hasComponent<ParentComp>()) {
+        auto pid = current.getComponent<ParentComp>().id;
+        if (pid == parent.getComponent<UUIDComp>().id)
+            return true;
+
+        current = getEntity(pid);
+        if (!current.isValid())
+            break;
+    }
+    return false;
+}
+
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
     auto comp = reg.get<ParentComp>(e);
 
