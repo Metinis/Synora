@@ -1,25 +1,29 @@
+#include "ScenePanel.h"
+#include <SynoraEngine/project/AssetManager.h>
+#include <SynoraEngine/core/Application.h>
+#include <tinyfiledialogs.h>
 #include <SynoraEngine/scene/Scene.h>
-#include "imgui.h"
-#include "tinyfiledialogs.h"
+#include <imgui.h>
 #include "glm/gtc/type_ptr.hpp"
-#include "SynoraEngine/project/AssetManager.h"
 
-using namespace SYN;
+using namespace SYE;
 
-
-
-void Scene::onUIRender() {
+void ScenePanel::init(SYN::EngineContext *ctx) {
+    m_Scene = ctx->scene.get();
+    m_AssetManager = ctx->projectConfig.assetManager.get();
+}
+void ScenePanel::onUIRender() {
     ImGui::Begin("Scene UI");
     ImGui::SetWindowPos(ImVec2(0, 0));
     ImGui::SetWindowSize(ImVec2(200, 600));
 
-    std::vector<Entity> deleteQueue;
-    for (auto &e : getEntities<TransformComp>()) {
+    std::vector<SYN::Entity> deleteQueue;
+    for (auto &e : m_Scene->getEntities<TransformComp>()) {
         if (!e.hasComponent<ParentComp>())
             drawEntityNode(e, deleteQueue);
     }
     for (const auto e : deleteQueue) {
-        removeEntity(e);
+        m_Scene->removeEntity(e);
     }
 
     bool openCreateEntity = false;
@@ -33,12 +37,12 @@ void Scene::onUIRender() {
             const char* path = tinyfd_openFileDialog("Choose a model", "",
                 filters.size(), filters.data(), "3D Model Files", 1);
             if (path) {
-                m_AssetManager->loadModel(this, path);
+                m_AssetManager->loadModel(m_Scene, path);
             }
         }
 
         ImGui::EndPopup();
-    }
+        }
     if (openCreateEntity) {
         ImGui::OpenPopup("EntityPopup");
     }
@@ -50,7 +54,7 @@ void Scene::onUIRender() {
         ImGui::Separator();
 
         if (ImGui::Button("Create", ImVec2(120, 0))) {
-            createEntity(entityName);
+            m_Scene->createEntity(entityName);
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -68,7 +72,7 @@ auto inspectTransform = [](TransformComp* tc) {
     }
     ImGui::DragFloat3("Scale", glm::value_ptr(tc->scale), 0.1f);
 };
-auto inspectMesh = [](Entity e, MeshComp* mc) {
+auto inspectMesh = [](SYN::Entity e, MeshComp* mc) {
     ImGui::Text("Mesh");
     ImGui::SameLine();
     if (!mc) {
@@ -81,7 +85,7 @@ auto inspectMesh = [](Entity e, MeshComp* mc) {
         }
     }
 };
-void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
+void ScenePanel::drawEntityNode(SYN::Entity entity, std::vector<SYN::Entity>& deletionQueue) {
     //Have dropdown of all entities
     if (ImGui::TreeNode(entity.getComponent<TagComp>().tag.c_str())) {
         ImGui::PushID((int)entity.getHandle());
@@ -102,7 +106,7 @@ void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
         }
 
         //draw children
-        for (auto e : getEntities<ParentComp>()) {
+        for (auto e : m_Scene->getEntities<ParentComp>()) {
             if (e.getComponent<ParentComp>().id == entity.getUUID()) {
                 drawEntityNode(e, deletionQueue);
             }
@@ -112,3 +116,4 @@ void Scene::drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue) {
         ImGui::TreePop();
     }
 }
+SYE::ScenePanel::~ScenePanel() {}

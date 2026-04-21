@@ -1,4 +1,5 @@
-#include "Renderer.h"
+#include "../../include/SynoraEngine/renderer/Renderer.h"
+#include "../../include/SynoraEngine/renderer/RenderTypes.h"
 #include "RenderGraph.h"
 #include "SynoraEngine/core/Window.h"
 #include "backends/vulkan/Backend.h"
@@ -6,7 +7,6 @@
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
-#include "renderer/RenderTypes.h"
 
 using namespace SYN;
 

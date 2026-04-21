@@ -1,7 +1,7 @@
 #pragma once
-#include "renderer/IRenderPass.h"
-#include "renderer/RenderTypes.h"
-#include "renderer/Renderer.h"
+#include "../../../include/SynoraEngine/renderer/IRenderPass.h"
+#include "../../../include/SynoraEngine/renderer/RenderTypes.h"
+#include "../../../include/SynoraEngine/renderer/Renderer.h"
 
 namespace SYN {
 class LightingPass : public IRenderPass {

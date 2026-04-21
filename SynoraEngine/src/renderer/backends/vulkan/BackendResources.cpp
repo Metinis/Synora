@@ -5,7 +5,7 @@
 #include "core/Image.h"
 #include "core/Pipeline.h"
 #include "core/StagingBuffer.h"
-#include "renderer/RenderTypes.h"
+#include "SynoraEngine/renderer/RenderTypes.h"
 
 #include <GLFW/glfw3.h>
 #include <cstring>

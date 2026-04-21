@@ -23,12 +23,12 @@ target_include_directories(
   SynoraEngine
   PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/tinyfiledialogs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/stb
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../src
-  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/stb
   ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/imgui
   ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/imgui/backends
-  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/tinyfiledialogs
 )
 target_link_libraries(
   SynoraEngine

@@ -1,11 +1,11 @@
 #pragma once
 #include <entt/entt.hpp>
 
+#include "../renderer/Renderer.h"
+#include "SceneState.h"
 #include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/core/Layer.h"
 #include "SynoraEngine/scene/Entity.h"
-#include "renderer/Renderer.h"
-#include "scene/SceneState.h"
 
 namespace SYN {
 class Renderer;
@@ -21,8 +21,7 @@ class Scene : public ILayer {
     void onAttach() override;
     void onDettach() override;
     void onRender() override;
-    void onUIRender() override;
-    void drawEntityNode(Entity entity, std::vector<Entity>& deletionQueue);
+    void onUIRender() override {};
     Entity getEntity(UUID id);
 
     bool isValidEntity(Entity entity);

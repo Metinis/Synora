@@ -2,7 +2,7 @@
 #include <entt/entity/entity.hpp>
 
 #include "Components.h"
-#include "scene/SceneState.h"
+#include "SynoraEngine/scene/SceneState.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/project/UUID.h"
 

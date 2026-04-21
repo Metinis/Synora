@@ -1,3 +1,4 @@
+#include "../../../../include/SynoraEngine/renderer/RenderTypes.h"
 #include "Backend.h"
 #include "core/Buffer.h"
 #include "core/Commands.h"
@@ -8,7 +9,6 @@
 #include "core/Pipeline.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
-#include "renderer/RenderTypes.h"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>

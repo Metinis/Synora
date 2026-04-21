@@ -1,6 +1,6 @@
 #pragma once
+#include "../../../include/SynoraEngine/renderer/IRenderPass.h"
 #include "imgui.h"
-#include "renderer/IRenderPass.h"
 
 namespace SYN {
 class ImGUIPass : public IRenderPass {

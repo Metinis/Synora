@@ -1,6 +1,6 @@
 #pragma once
-#include "IRenderPass.h"
-#include "renderer/RenderTypes.h"
+#include "../../include/SynoraEngine/renderer/IRenderPass.h"
+#include "../../include/SynoraEngine/renderer/RenderTypes.h"
 #include <memory>
 #include <typeindex>
 #include <typeinfo>

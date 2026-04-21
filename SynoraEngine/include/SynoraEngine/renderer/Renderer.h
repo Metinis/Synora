@@ -1,8 +1,8 @@
 #pragma once
-#include "RenderGraph.h"
+#include "../../../src/renderer/RenderGraph.h"
+#include "RenderTypes.h"
 #include "SynoraEngine/core/Application.h"
 #include "backends/IBackend.h"
-#include "renderer/RenderTypes.h"
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 

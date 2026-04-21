@@ -1,5 +1,5 @@
 #include "LightingPass.h"
-#include "renderer/RenderTypes.h"
+#include "../../../include/SynoraEngine/renderer/RenderTypes.h"
 #include <glm/ext.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>

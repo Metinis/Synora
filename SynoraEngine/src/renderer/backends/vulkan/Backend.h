@@ -1,3 +1,5 @@
+#include "../../../../include/SynoraEngine/renderer/RenderTypes.h"
+#include "../../../../include/SynoraEngine/renderer/backends/IBackend.h"
 #include "core/Buffer.h"
 #include "core/Device.h"
 #include "core/DynamicUBO.h"
@@ -5,8 +7,6 @@
 #include "core/SlotMap.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
-#include "renderer/RenderTypes.h"
-#include "renderer/backends/IBackend.h"
 
 #include <stb_image.h>
 #include <vulkan/vulkan.h>

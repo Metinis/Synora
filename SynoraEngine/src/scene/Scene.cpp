@@ -1,5 +1,6 @@
 #include "SynoraEngine/scene/Scene.h"
 
+#include "../../include/SynoraEngine/renderer/Renderer.h"
 #include "SynoraEngine/core/Input.h"
 #include "SynoraEngine/core/InputContext.h"
 #include "SynoraEngine/core/InputTypes.h"
@@ -8,7 +9,6 @@
 #include "SynoraEngine/scene/Components.h"
 #include "glm/ext.hpp"
 #include "imgui.h"
-#include "renderer/Renderer.h"
 #include "renderer/backends/vulkan/Backend.h"
 #include "spdlog/spdlog.h"
 
