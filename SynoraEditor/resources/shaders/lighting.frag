@@ -80,7 +80,6 @@ float ggxVisibility(float roughness, float nDotL, float nDotV) {
     denom += ui * sqrt(a2 + uo2 * (1.f - a2));
 
     return 0.5f / denom;
-
 }
 
 void main() {
@@ -109,6 +108,7 @@ void main() {
     for (int i = 0; i < nLights; i++) {
         LightCaster light = lights[i];
         float lightDistance = distance(light.pos, fragPos);
+        float attenuation = 1.f / (lightDistance * lightDistance);
 
         vec3 lightDir = normalize(light.pos - fragPos);
         vec3 viewDir = normalize(cameraPos - fragPos);
@@ -120,20 +120,20 @@ void main() {
         float nDotH = abs(dot(norm, halfway));
         float nDotV = abs(dot(norm, viewDir));
 
-        vec3 f0 = mix(vec3(0.04f), albedo, metallic);
+        vec3 F0 = mix(vec3(0.04f), albedo, metallic);
 
         float r = roughness * roughness;
 
         float D = ggxNDF(r, nDotH);
         float G = ggxVisibility(r, nDotL, nDotV);
-        vec3 F = f0 + (1.f - f0) * pow(1.f - vDotH, 5.f);
+        vec3 F = F0 + (1.f - F0) * pow(1.f - vDotH, 5.f);
 
         vec3 specular = D * G * F; // normalization is in G
         vec3 diffuse = ((1.f - metallic) * (1.f - F) * albedo) / PI;
 
-        vec3 brdf = specular + diffuse;
+        vec3 brdf = diffuse + specular;
 
-        lo += brdf * light.color * nDotL;
+        lo += brdf * light.color * attenuation * nDotL;
     }
 
     vec3 skyColor = vec3(0.2f, 0.2f, 0.3f);
@@ -142,7 +142,7 @@ void main() {
     float hemisphere = dot(norm, vec3(0.f, 1.f, 0.f)) * 0.5f + 0.5f;
     vec3 ambient = fragAlbedo.xyz * mix(groundColor, skyColor, hemisphere);
 
-    vec3 color = ambient + lo;
+    vec3 color = lo;
     color = color / (color + vec3(1.f));
 
     outColor = vec4(color, 1.f);

@@ -12,7 +12,7 @@ class SkyBoxPass : public IRenderPass {
                AttachmentHandle msaaDepthAttachment,
                AttachmentHandle colorAttachment);
 
-    void execute(IBackend &backend, PipelineHandle pipeline) override;
+    void execute(IGraphicsContext &ctx, PipelineHandle pipeline) override;
     GraphicsPipelineDesc getPipelineDesc() const override;
     RenderPassDesc getPassDesc() override;
 

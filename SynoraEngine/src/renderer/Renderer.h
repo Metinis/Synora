@@ -1,7 +1,7 @@
 #pragma once
 #include "RenderGraph.h"
 #include "SynoraEngine/core/Application.h"
-#include "backends/IBackend.h"
+#include "backends/IDevice.h"
 #include "renderer/RenderTypes.h"
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
@@ -57,7 +57,9 @@ class Renderer {
     glm::mat4 m_CurrentCameraProjection;
     glm::mat4 m_CurrentCameraView;
 
-    std::unique_ptr<IBackend> m_Backend;
+    std::unique_ptr<IDevice> m_Device;
+    std::unique_ptr<IGraphicsContext> m_GraphicsCtx;
+
     Window *m_Window;
     RenderGraph m_RenderGraph;
 

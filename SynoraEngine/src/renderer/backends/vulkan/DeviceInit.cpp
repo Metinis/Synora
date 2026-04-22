@@ -1,4 +1,6 @@
-#include "Backend.h"
+#include "Device.h"
+#include "GraphicsContext.h"
+
 #include "core/Buffer.h"
 #include "core/Commands.h"
 #include "core/DebugMessenger.h"
@@ -34,7 +36,7 @@ constexpr uint32_t c_MB{1024 * 1024};
 
 } // namespace
 
-void SYN::VK::VulkanBackend::init(Window *window) {
+void SYN::VK::VulkanDevice::init(Window *window) {
     initContext(window);
 
     initDescriptorSetLayout();
@@ -63,15 +65,6 @@ void SYN::VK::VulkanBackend::init(Window *window) {
 
     vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_DefaultSampler);
 
-    m_SwapchainAttachmentHandle = m_Attachments.insert(Attachment{
-        .size = AttachmentSize::fixed, // technically its relative, but relative
-                                       // triggers recreation when the swapchain
-                                       // goes out of date, when the images
-                                       // arent created but instead acquired
-                                       // from the swapchain. Hence we use fixed
-        .isSampleable = false,         // tis an output
-    });
-
     uint32_t textureDescriptorCount{
         std::min(c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
@@ -87,21 +80,10 @@ void SYN::VK::VulkanBackend::init(Window *window) {
     }
 }
 
-void SYN::VK::VulkanBackend::shutdown() {
+void SYN::VK::VulkanDevice::shutdown() {
     vkDeviceWaitIdle(m_Device.logical);
 
     vkDestroySampler(m_Device.logical, m_DefaultSampler, nullptr);
-
-    for (const auto &[handle, attachment] : m_Attachments) {
-        if (handle == m_SwapchainAttachmentHandle) {
-            continue;
-        }
-        for (auto image : attachment.images) {
-            spdlog::warn("Texture {} may have been leaked", handle.id);
-            destroyImage(m_Device, m_Allocator, image);
-        }
-    }
-    m_Attachments.clear();
 
     for (auto [handle, texture] : m_Textures) {
         spdlog::warn("Texture {} may have been leaked", handle.id);
@@ -119,6 +101,12 @@ void SYN::VK::VulkanBackend::shutdown() {
         spdlog::warn("Pipeline {} may have been leaked", handle.id);
         vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
     }
+    m_Pipelines.clear();
+
+    for (auto [handle, attachment] : m_Attachments) {
+        destroyImage(m_Device, m_Allocator, attachment.image);
+    }
+    m_Attachments.clear();
 
     for (auto &frame : m_FrameData) {
         frame.UBOBuffer.destroy(m_Allocator);
@@ -163,7 +151,7 @@ void SYN::VK::VulkanBackend::shutdown() {
     vkDestroyInstance(m_Instance, nullptr);
 }
 
-void SYN::VK::VulkanBackend::initContext(Window *window) {
+void SYN::VK::VulkanDevice::initContext(Window *window) {
     m_Instance = createInstance();
 
     m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
@@ -201,7 +189,7 @@ void SYN::VK::VulkanBackend::initContext(Window *window) {
                         &m_TransientCmdPool);
 }
 
-void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
+void SYN::VK::VulkanDevice::initDescriptorSetLayout() {
     uint32_t textureDescriptorCount{
         std::min(c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
@@ -286,7 +274,7 @@ void SYN::VK::VulkanBackend::initDescriptorSetLayout() {
     }
 }
 
-void SYN::VK::VulkanBackend::initPipelineLayout() {
+void SYN::VK::VulkanDevice::initPipelineLayout() {
     VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_ALL,
         .size = c_MinGuarenteedPushConstantSize,
@@ -311,7 +299,7 @@ void SYN::VK::VulkanBackend::initPipelineLayout() {
     }
 }
 
-void SYN::VK::VulkanBackend::initDescriptorSets() {
+void SYN::VK::VulkanDevice::initDescriptorSets() {
     uint32_t textureDescriptorCount{
         std::min(c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
@@ -372,7 +360,7 @@ void SYN::VK::VulkanBackend::initDescriptorSets() {
     }
 }
 
-void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
+void SYN::VK::VulkanDevice::initFrameData(const Swapchain &swapchain) {
     for (size_t i{}; i < c_MaxFramesInFlight; i++) {
         VkCommandPoolCreateInfo graphicsCmdPoolCI{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -430,7 +418,7 @@ void SYN::VK::VulkanBackend::initFrameData(const Swapchain &swapchain) {
     }
 }
 
-void VulkanBackend::initImGUI(Window *window) {
+void VK::VulkanDevice::initImGUI(Window *window) {
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
@@ -484,7 +472,7 @@ void VulkanBackend::initImGUI(Window *window) {
     ImGui_ImplVulkan_Init(&initInfo);
 }
 
-void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
+void SYN::VK::VulkanDevice::recreateSwapchain(Window &window) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Swapchain newSwapchain{
@@ -493,65 +481,57 @@ void SYN::VK::VulkanBackend::recreateSwapchain(Window &window) {
     m_Swapchain = newSwapchain;
 
     for (const auto &[handle, attachment] : m_Attachments) {
-        if (handle == m_SwapchainAttachmentHandle) {
-            continue;
-        }
         if (attachment.size != AttachmentSize::relative) {
             continue;
         }
 
-        for (size_t i{}; i < c_MaxFramesInFlight; i++) {
-            Image &image{attachment.images[i]};
+        Image &image{attachment.image};
 
-            VkFormat format{image.format};
-            VkImageUsageFlags usage{image.usage};
-            VkImageAspectFlags aspect{image.subresourceRange.aspectMask};
-            destroyImage(m_Device, m_Allocator, image);
-            if (image.mipLevels != 1) {
-                spdlog::warn(
-                    "Not recreating mip chain on swapchain recreation, "
-                    "attachments should have only 1 mip level");
-            }
-            image =
-                createImage(m_Device, m_Allocator, format, m_Swapchain.extent,
+        VkFormat format{image.format};
+        VkImageUsageFlags usage{image.usage};
+        VkImageAspectFlags aspect{image.subresourceRange.aspectMask};
+        destroyImage(m_Device, m_Allocator, image);
+        if (image.mipLevels != 1) {
+            spdlog::warn("Not recreating mip chain on swapchain recreation, "
+                         "attachments should have only 1 mip level");
+        }
+        image = createImage(m_Device, m_Allocator, format, m_Swapchain.extent,
                             usage, aspect, image.samples, image.mipLevels,
                             image.layerCount, image.isCubeMap);
 
-            if (!attachment.isSampleable) {
-                continue;
-            }
+        generateMipChain(m_TransientCmdPool, m_Device, image,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                         VK_ACCESS_2_SHADER_READ_BIT);
 
-            generateMipChain(m_TransientCmdPool, m_Device, image,
-                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-                             VK_ACCESS_2_SHADER_READ_BIT);
-
-            uint32_t descriptorElement{attachment.bindlessSamplerIndices[i]};
-            uint32_t descriptorBinding{};
-            if (!image.isCubeMap) {
-                descriptorBinding = c_TextureBinding;
-            } else {
-                descriptorBinding = c_CubeMapBinding;
-            }
-
-            VkDescriptorImageInfo imageInfo{
-                .sampler = m_DefaultSampler,
-                .imageView = image.view,
-                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            };
-
-            VkWriteDescriptorSet bindlessWrite{
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = m_BindlessDescriptorSet,
-                .dstBinding = descriptorBinding,
-                .dstArrayElement = descriptorElement,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &imageInfo,
-            };
-
-            vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0,
-                                   nullptr);
+        uint32_t descriptorElement{attachment.bindlessSamplerIndex};
+        uint32_t descriptorBinding{};
+        if (!image.isCubeMap) {
+            descriptorBinding = c_TextureBinding;
+        } else {
+            descriptorBinding = c_CubeMapBinding;
         }
+
+        VkDescriptorImageInfo imageInfo{
+            .sampler = m_DefaultSampler,
+            .imageView = image.view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+
+        VkWriteDescriptorSet bindlessWrite{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = m_BindlessDescriptorSet,
+            .dstBinding = descriptorBinding,
+            .dstArrayElement = descriptorElement,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &imageInfo,
+        };
+
+        vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
     }
+}
+
+std::unique_ptr<IGraphicsContext> SYN::VK::VulkanDevice::makeGraphicsContext() {
+    return std::make_unique<VulkanGraphicsContext>(this);
 }

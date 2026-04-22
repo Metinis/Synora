@@ -1,5 +1,6 @@
 #include "RenderGraph.h"
 #include "renderer/RenderTypes.h"
+#include "renderer/backends/IGraphicsContext.h"
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <queue>
@@ -12,13 +13,13 @@ std::vector<size_t>
 makeTopoSorted(const std::vector<std::unique_ptr<IRenderPass>> &renderPasses);
 }
 
-void RenderGraph::compile(IBackend &backend) {
+void RenderGraph::compile(IDevice &device) {
     m_PipelineHandles.resize(m_Passes.size());
     for (size_t i{}; i < m_Passes.size(); i++) {
         IRenderPass *pass{m_Passes[i].get()};
         GraphicsPipelineDesc pipelineDesc{pass->getPipelineDesc()};
         if (!m_PipelineCache.contains(pipelineDesc)) {
-            PipelineHandle pipeline{backend.createPipeline(pipelineDesc)};
+            PipelineHandle pipeline{device.createPipeline(pipelineDesc)};
             m_PipelineCache[pipelineDesc] = pipeline;
             m_PipelineHandles[i] = pipeline;
         } else {
@@ -29,7 +30,7 @@ void RenderGraph::compile(IBackend &backend) {
     m_Compiled = true;
 }
 
-void RenderGraph::execute(IBackend &backend) {
+void RenderGraph::execute(IGraphicsContext &ctx) {
     if (m_Compiled == false) {
         spdlog::error("Render graph not compiled before executing, could not "
                       "render frame");
@@ -41,7 +42,7 @@ void RenderGraph::execute(IBackend &backend) {
     for (const auto &passIndex : sortedPassIndices) {
         IRenderPass *pass{m_Passes[passIndex].get()};
         PipelineHandle pipeline{m_PipelineHandles[passIndex]};
-        pass->execute(backend, pipeline);
+        pass->execute(ctx, pipeline);
     }
 
     m_Passes.clear();
@@ -49,9 +50,9 @@ void RenderGraph::execute(IBackend &backend) {
     m_Compiled = false;
 }
 
-void RenderGraph::shutdown(IBackend &backend) {
+void RenderGraph::shutdown(IDevice &device) {
     for (auto &[desc, pipeline] : m_PipelineCache) {
-        backend.destroyPipeline(pipeline);
+        device.destroyPipeline(pipeline);
     }
 }
 

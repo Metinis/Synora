@@ -1,6 +1,6 @@
 #pragma once
 #include "RenderTypes.h"
-#include "renderer/backends/IBackend.h"
+#include "renderer/backends/IGraphicsContext.h"
 
 namespace SYN {
 
@@ -14,7 +14,7 @@ class IRenderPass {
   public:
     IRenderPass() = default;
     virtual ~IRenderPass() = default;
-    virtual void execute(IBackend &backend, PipelineHandle pipeline) = 0;
+    virtual void execute(IGraphicsContext &ctx, PipelineHandle pipeline) = 0;
     virtual RenderPassDesc getPassDesc() = 0;
     virtual GraphicsPipelineDesc getPipelineDesc() const = 0;
 

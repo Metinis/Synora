@@ -7,12 +7,12 @@ SYN::ImGUIPass::ImGUIPass(AttachmentHandle colorAttachment) {
                                             .clearColor = {0.f, 0.f, 0.f, 1.f}};
 }
 
-void SYN::ImGUIPass::execute(IBackend &backend, PipelineHandle pipeline) {
-    backend.beginRenderPassCmd(getPassDesc(), pipeline);
+void SYN::ImGUIPass::execute(IGraphicsContext &ctx, PipelineHandle pipeline) {
+    ctx.beginRenderPassCmd(getPassDesc(), pipeline);
 
-    backend.drawImGUI();
+    ctx.drawImGUI();
 
-    backend.endRenderPassCmd();
+    ctx.endRenderPassCmd();
 }
 
 SYN::RenderPassDesc SYN::ImGUIPass::getPassDesc() {

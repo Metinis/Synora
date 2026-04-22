@@ -1,6 +1,8 @@
 #pragma once
 #include "IRenderPass.h"
 #include "renderer/RenderTypes.h"
+#include "renderer/backends/IDevice.h"
+#include "renderer/backends/IGraphicsContext.h"
 #include <memory>
 #include <typeindex>
 #include <typeinfo>
@@ -12,10 +14,10 @@ class RenderGraph {
         m_Passes.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
     }
 
-    void compile(IBackend &backend);
-    void execute(IBackend &backend);
+    void compile(IDevice &device);
+    void execute(IGraphicsContext &ctx);
 
-    void shutdown(IBackend &backend);
+    void shutdown(IDevice &device);
 
   private:
     std::vector<std::unique_ptr<IRenderPass>> m_Passes;

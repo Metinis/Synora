@@ -9,7 +9,6 @@
 #include "glm/ext.hpp"
 #include "imgui.h"
 #include "renderer/Renderer.h"
-#include "renderer/backends/vulkan/Backend.h"
 #include "spdlog/spdlog.h"
 
 using namespace SYN;

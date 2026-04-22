@@ -1,12 +1,15 @@
 #include "Renderer.h"
 #include "RenderGraph.h"
 #include "SynoraEngine/core/Window.h"
-#include "backends/vulkan/Backend.h"
 #include "glm/ext/quaternion_common.hpp"
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
 #include "renderer/RenderTypes.h"
+#include <memory>
+#include <vulkan/vulkan_core.h>
+
+#include "backends/vulkan/Device.h"
 
 using namespace SYN;
 
@@ -15,14 +18,17 @@ SYN::TextureData loadTexture(const std::string &path);
 }
 
 void SYN::Renderer::init(EngineContext *ctx) {
-    m_Backend = std::make_unique<VK::VulkanBackend>();
-    m_Backend->init(ctx->window.get());
+    m_Device = std::make_unique<VK::VulkanDevice>();
+    m_Device->init(ctx->window.get());
+
+    m_GraphicsCtx = m_Device->makeGraphicsContext();
+
     m_Window = ctx->window.get();
 
-    m_MSAADepthAttachment = m_Backend->createAttachment(
+    m_MSAADepthAttachment = m_Device->createAttachment(
         AttachmentDesc{.type = TextureType::depth, .msaaSamples = 4});
 
-    m_MSAAScreenColorAttachment = m_Backend->createAttachment(AttachmentDesc{
+    m_MSAAScreenColorAttachment = m_Device->createAttachment(AttachmentDesc{
         .type = TextureType::srgb,
         .msaaSamples = 4,
     });
@@ -37,17 +43,16 @@ void SYN::Renderer::init(EngineContext *ctx) {
     TextureDesc skyboxDesc{
         .width = right.width,
         .height = right.height,
-        .layerCount = 6,
         .type = TextureType::srgb,
         .hasMipChain = false,
         .isCubeMap = true,
     };
 
-    m_SkyBox = m_Backend->createTexture(skyboxDesc);
+    m_SkyBox = m_Device->createTexture(skyboxDesc);
     std::array<const void *, 6> faces{right.data, left.data,  up.data,
                                       down.data,  front.data, back.data};
 
-    m_Backend->uploadToTexture(m_SkyBox, faces, right.width, right.height);
+    m_GraphicsCtx->uploadToTexture(m_SkyBox, faces, right.width, right.height);
 
     stbi_image_free(right.data);
     stbi_image_free(left.data);
@@ -58,8 +63,10 @@ void SYN::Renderer::init(EngineContext *ctx) {
 }
 
 void SYN::Renderer::render(Window &window) {
+    m_GraphicsCtx->beginFrame(*m_Window);
+
     AttachmentHandle swapchainAttachment{
-        m_Backend->getSwapchainAttachmentCmd()};
+        m_GraphicsCtx->acquireSwapchainAttachmentCmd()};
 
     uint32_t msaaSamples{4};
     m_RenderGraph.addPass<LightingPass>(
@@ -73,11 +80,11 @@ void SYN::Renderer::render(Window &window) {
         swapchainAttachment);
 
     m_RenderGraph.addPass<ImGUIPass>(swapchainAttachment);
-    m_RenderGraph.compile(*m_Backend);
+    m_RenderGraph.compile(*m_Device);
 
-    m_Backend->beginFrame(*m_Window);
-    m_RenderGraph.execute(*m_Backend);
-    m_Backend->endFrame(*m_Window);
+    m_RenderGraph.execute(*m_GraphicsCtx);
+
+    m_GraphicsCtx->endFrame(*m_Window);
 
     m_DrawCalls.clear();
 }
@@ -89,29 +96,42 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         return;
     }
 
+    BufferHandle vertexBuffer{m_Device->createBuffer(
+        {.size = meshData.vertices.size() * sizeof(Vertex)})};
+
+    BufferHandle indexBuffer{m_Device->createBuffer(
+        {.size = meshData.indices.size() * sizeof(uint32_t)})};
+
+    m_GraphicsCtx->uploadToBuffer(vertexBuffer,
+                                  meshData.vertices.size() * sizeof(Vertex),
+                                  meshData.vertices.data());
+    m_GraphicsCtx->uploadToBuffer(indexBuffer,
+                                  meshData.indices.size() * sizeof(uint32_t),
+                                  meshData.indices.data());
+
     TextureHandle albedo{
-        m_Backend->uploadTexture({.width = meshData.albedo->width,
-                                  .height = meshData.albedo->height,
-                                  .type = TextureType::srgb},
-                                 meshData.albedo->data)};
+        m_Device->createTexture({.width = meshData.albedo->width,
+                                 .height = meshData.albedo->height,
+                                 .type = TextureType::srgb})};
+    m_GraphicsCtx->uploadToTexture(albedo, meshData.albedo->data,
+                                   meshData.albedo->width,
+                                   meshData.albedo->height);
+
     TextureHandle metallicRoughness{
-        m_Backend->uploadTexture({.width = meshData.metallicRoughness->width,
-                                  .height = meshData.metallicRoughness->height,
-                                  .type = TextureType::rgba},
-                                 meshData.metallicRoughness->data)};
+        m_Device->createTexture({.width = meshData.metallicRoughness->width,
+                                 .height = meshData.metallicRoughness->height,
+                                 .type = TextureType::rgba})};
+    m_GraphicsCtx->uploadToTexture(
+        metallicRoughness, meshData.metallicRoughness->data,
+        meshData.metallicRoughness->width, meshData.metallicRoughness->height);
+
     TextureHandle normalMap{
-        m_Backend->uploadTexture({.width = meshData.normalMap->width,
-                                  .height = meshData.normalMap->height,
-                                  .type = TextureType::rgba},
-                                 meshData.normalMap->data)};
-
-    BufferHandle vertexBuffer{m_Backend->uploadBuffer(
-        {.size = meshData.vertices.size() * sizeof(Vertex)},
-        meshData.vertices.data())};
-
-    BufferHandle indexBuffer{m_Backend->uploadBuffer(
-        {.size = meshData.indices.size() * sizeof(uint32_t)},
-        meshData.indices.data())};
+        m_Device->createTexture({.width = meshData.normalMap->width,
+                                 .height = meshData.normalMap->height,
+                                 .type = TextureType::rgba})};
+    m_GraphicsCtx->uploadToTexture(normalMap, meshData.normalMap->data,
+                                   meshData.normalMap->width,
+                                   meshData.normalMap->height);
 
     auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,
                              .indexBuffer = indexBuffer,
@@ -127,11 +147,11 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
 void Renderer::removeMesh(UUID meshID) {
     if (m_UploadedMeshes.contains(meshID)) {
         auto &mesh = m_UploadedMeshes[meshID];
-        m_Backend->destroyTexture(mesh.albedo);
-        m_Backend->destroyTexture(mesh.metallicRoughness);
-        m_Backend->destroyTexture(mesh.normalMap);
-        m_Backend->destroyBuffer(mesh.vertexBuffer);
-        m_Backend->destroyBuffer(mesh.indexBuffer);
+        m_Device->destroyTexture(mesh.albedo);
+        m_Device->destroyTexture(mesh.metallicRoughness);
+        m_Device->destroyTexture(mesh.normalMap);
+        m_Device->destroyBuffer(mesh.vertexBuffer);
+        m_Device->destroyBuffer(mesh.indexBuffer);
         m_UploadedMeshes.erase(meshID);
         spdlog::debug("Removed model from renderer {}", meshID);
     } else {
@@ -169,19 +189,19 @@ void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
 }
 
 void SYN::Renderer::shutdown() {
-    m_RenderGraph.shutdown(*m_Backend);
+    m_RenderGraph.shutdown(*m_Device);
     for (auto &[uuid, mesh] : m_UploadedMeshes) {
-        m_Backend->destroyTexture(mesh.albedo);
-        m_Backend->destroyTexture(mesh.metallicRoughness);
-        m_Backend->destroyTexture(mesh.normalMap);
-        m_Backend->destroyBuffer(mesh.vertexBuffer);
-        m_Backend->destroyBuffer(mesh.indexBuffer);
+        m_Device->destroyTexture(mesh.albedo);
+        m_Device->destroyTexture(mesh.metallicRoughness);
+        m_Device->destroyTexture(mesh.normalMap);
+        m_Device->destroyBuffer(mesh.vertexBuffer);
+        m_Device->destroyBuffer(mesh.indexBuffer);
     }
-    m_Backend->destroyAttachment(m_MSAAScreenColorAttachment);
-    m_Backend->destroyAttachment(m_MSAADepthAttachment);
-    m_Backend->destroyTexture(m_SkyBox);
+    m_Device->destroyAttachment(m_MSAAScreenColorAttachment);
+    m_Device->destroyAttachment(m_MSAADepthAttachment);
+    m_Device->destroyTexture(m_SkyBox);
 
-    m_Backend->shutdown();
+    m_Device->shutdown();
 }
 
 namespace {

@@ -57,7 +57,8 @@ SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
     };
 }
 
-void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
+void SYN::LightingPass::execute(IGraphicsContext &ctx,
+                                PipelineHandle pipeline) {
     LightCaster sun{.pos = glm::vec3(0.f, 1.f, -1.f),
                     .color = glm::vec3(1.f, 1.f, 1.f),
                     .dir = glm::vec3(1.f, -1.f, 0.f)};
@@ -80,7 +81,7 @@ void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
     };
     uniform.lights = lights;
 
-    backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
+    ctx.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
     for (const auto &drawCall : m_DrawCalls) {
         if (drawCall.mesh.numIndices == 0) {
@@ -89,23 +90,20 @@ void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
 
         PushConstants pushConstants{
             .modelMat = drawCall.modelMatrix,
-            .vertexBuffer =
-                backend.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
-            .indexBuffer =
-                backend.getBufferAddressCmd(drawCall.mesh.indexBuffer),
-            .albedoIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.mesh.albedo),
-            .metallicRoughnessIndex = backend.getShaderSamplerIndexCmd(
-                drawCall.mesh.metallicRoughness),
+            .vertexBuffer = ctx.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
+            .indexBuffer = ctx.getBufferAddressCmd(drawCall.mesh.indexBuffer),
+            .albedoIndex = ctx.getShaderSamplerIndexCmd(drawCall.mesh.albedo),
+            .metallicRoughnessIndex =
+                ctx.getShaderSamplerIndexCmd(drawCall.mesh.metallicRoughness),
             .normalMapIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.mesh.normalMap),
+                ctx.getShaderSamplerIndexCmd(drawCall.mesh.normalMap),
         };
 
-        backend.setPushConstantsCmd(pushConstants);
+        ctx.setPushConstantsCmd(pushConstants);
 
-        backend.drawCmd(drawCall.mesh.numIndices);
+        ctx.drawCmd(drawCall.mesh.numIndices);
     }
-    backend.endRenderPassCmd();
+    ctx.endRenderPassCmd();
 }
 
 RenderPassDesc SYN::LightingPass::getPassDesc() {

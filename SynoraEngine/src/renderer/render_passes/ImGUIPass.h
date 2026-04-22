@@ -7,7 +7,7 @@ class ImGUIPass : public IRenderPass {
   public:
     ImGUIPass(AttachmentHandle colorAttachment);
 
-    void execute(IBackend &backend, PipelineHandle pipeline) override;
+    void execute(IGraphicsContext &ctx, PipelineHandle pipeline) override;
     RenderPassDesc getPassDesc() override;
     GraphicsPipelineDesc getPipelineDesc() const override;
 

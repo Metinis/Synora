@@ -26,8 +26,6 @@ struct TextureDesc {
     uint32_t width;
     uint32_t height;
 
-    uint32_t layerCount{1};
-
     TextureType type;
     bool hasMipChain{true};
     bool isCubeMap{false}; // layer count must be 6 if this is true
@@ -40,10 +38,7 @@ struct AttachmentDesc {
     uint32_t height{}; // ignored if size is relative
     AttachmentSize size{AttachmentSize::relative};
 
-    uint32_t layerCount{1};
-
     TextureType type;
-    bool isSampleable;
     uint32_t msaaSamples{1}; // 1 is no multisampling
     bool isCubeMap{false};   // layer count must be 6 if this is true
 };

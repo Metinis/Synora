@@ -1,4 +1,6 @@
-#include "Backend.h"
+#include "GraphicsContext.h"
+#include "Device.h"
+
 #include "core/Buffer.h"
 #include "core/Commands.h"
 #include "core/Device.h"
@@ -35,21 +37,52 @@ VkAttachmentStoreOp toVkStoreOp(StoreOp loadOp);
 
 } // namespace
 
-void SYN::VK::VulkanBackend::beginFrame(Window &window) {
-    m_StagingBuffer.stallOnPendingUploads(m_Device);
-    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+SYN::VK::VulkanGraphicsContext::VulkanGraphicsContext(
+    SYN::VK::VulkanDevice *device)
+    : m_Device(device) {}
 
-    vkWaitForFences(m_Device.logical, 1, &frame.renderFinishedFence, VK_TRUE,
-                    UINT64_MAX);
+void SYN::VK::VulkanGraphicsContext::uploadToBuffer(BufferHandle handle,
+                                                    size_t size,
+                                                    const void *data) {
+    const Buffer &buffer{m_Device->m_Buffers[handle]};
+    m_Device->m_StagingBuffer.uploadToBuffer(m_Device->m_Device, data, size,
+                                             buffer);
+}
 
-    VkResult res{
-        vkAcquireNextImageKHR(m_Device.logical, m_Swapchain.handle, UINT64_MAX,
-                              frame.imageAvailableSemaphore, VK_NULL_HANDLE,
-                              &frame.swapchainImageIndex)};
+void SYN::VK::VulkanGraphicsContext::uploadToTexture(
+    TextureHandle handle, std::span<const void *> data, uint32_t width,
+    uint32_t height) {
+    Texture &texture{m_Device->m_Textures[handle]};
+
+    transitionImage(m_Device->m_TransientCmdPool, m_Device->m_Device,
+                    texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+    m_Device->m_StagingBuffer.uploadToImage(m_Device->m_Device, data, width,
+                                            height, texture.image);
+    generateMipChain(m_Device->m_TransientCmdPool, m_Device->m_Device,
+                     texture.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                     VK_ACCESS_2_SHADER_READ_BIT);
+}
+
+void SYN::VK::VulkanGraphicsContext::beginFrame(Window &window) {
+    m_Device->m_StagingBuffer.stallOnPendingUploads(m_Device->m_Device);
+
+    FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
+
+    vkWaitForFences(m_Device->m_Device.logical, 1, &frame.renderFinishedFence,
+                    VK_TRUE, UINT64_MAX);
+
+    VkResult res{vkAcquireNextImageKHR(
+        m_Device->m_Device.logical, m_Device->m_Swapchain.handle, UINT64_MAX,
+        frame.imageAvailableSemaphore, VK_NULL_HANDLE,
+        &frame.swapchainImageIndex)};
 
     if (res == VK_ERROR_OUT_OF_DATE_KHR) {
         spdlog::info("Recreating swapchain");
-        recreateSwapchain(window);
+        m_Device->recreateSwapchain(window);
         return;
     }
 
@@ -58,23 +91,10 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
                       static_cast<int>(res));
     }
 
-    for (auto &image : frame.imagesToFree) {
-        destroyImage(m_Device, m_Allocator, image);
-    }
-    for (auto &buffer : frame.buffersToFree) {
-        VK::destroyBuffer(m_Allocator, buffer);
-    }
-    for (auto &index : frame.bindlessTexturesToFree) {
-        m_BindlessTextureIndexFreelist.emplace_back(index);
-    }
-    for (auto &pipeline : frame.pipelinesToFree) {
-        vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
-    }
-
     Image swapchainImage{
-        .handle = m_Swapchain.images[frame.swapchainImageIndex],
-        .view = m_Swapchain.imageViews[frame.swapchainImageIndex],
-        .extent = m_Swapchain.extent,
+        .handle = m_Device->m_Swapchain.images[frame.swapchainImageIndex],
+        .view = m_Device->m_Swapchain.imageViews[frame.swapchainImageIndex],
+        .extent = m_Device->m_Swapchain.extent,
         .subresourceRange =
             VkImageSubresourceRange{
                 .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -82,21 +102,20 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
                 .layerCount = 1,
             },
     };
-    if (!m_Attachments.contains(m_SwapchainAttachmentHandle)) {
-        spdlog::warn("Swapchain was not properly added to list of attachments");
-        m_SwapchainAttachmentHandle = m_Attachments.insert({});
-    }
-    m_Attachments[m_SwapchainAttachmentHandle].images[m_CurrentFrameIndex] =
-        swapchainImage;
 
-    for (const auto &[handle, attachment] : m_Attachments) {
-        m_Attachments[handle].images[m_CurrentFrameIndex].syncState = {};
-    }
+    // TODO: add swapchain attachment to bindless descriptors and abstract
+    // bindless descriptor system into its own thingy
+    Attachment swapchainAttachment{
+        .image = swapchainImage,
+        .size = AttachmentSize::fixed,
+    };
+
+    frame.swapchainHandle = m_Device->m_Attachments.insert(swapchainAttachment);
 
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-    vkResetCommandPool(m_Device.logical, frame.graphicsCmdPool, 0);
+    vkResetCommandPool(m_Device->m_Device.logical, frame.graphicsCmdPool, 0);
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
 
     VkDescriptorBufferInfo bufferInfo{
@@ -106,28 +125,28 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
 
     VkWriteDescriptorSet writeDescriptorSet{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_UBODescriptorSet,
+        .dstSet = m_Device->m_UBODescriptorSet,
         .dstBinding = 0,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
         .pBufferInfo = &bufferInfo,
     };
-    vkUpdateDescriptorSets(m_Device.logical, 1, &writeDescriptorSet, 0,
-                           nullptr);
+    vkUpdateDescriptorSets(m_Device->m_Device.logical, 1, &writeDescriptorSet,
+                           0, nullptr);
 
-    vkCmdBindDescriptorSets(
-        frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        m_GraphicsPipelineLayout, 0, 1, &m_BindlessDescriptorSet, 0, nullptr);
+    vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_Device->m_GraphicsPipelineLayout, 0, 1,
+                            &m_Device->m_BindlessDescriptorSet, 0, nullptr);
 }
 
-void SYN::VK::VulkanBackend::endFrame(Window &window) {
-    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void SYN::VK::VulkanGraphicsContext::endFrame(Window &window) {
+    FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
 
-    transitionImageCmd(
-        frame.graphicsCmdBuffer,
-        m_Attachments[m_SwapchainAttachmentHandle].images[m_CurrentFrameIndex],
-        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_NONE);
+    transitionImageCmd(frame.graphicsCmdBuffer,
+                       m_Device->m_Attachments[frame.swapchainHandle].image,
+                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
     vkEndCommandBuffer(frame.graphicsCmdBuffer);
 
@@ -143,43 +162,46 @@ void SYN::VK::VulkanBackend::endFrame(Window &window) {
         .pCommandBuffers = &frame.graphicsCmdBuffer,
         .signalSemaphoreCount = 1,
         .pSignalSemaphores =
-            &m_RenderFinishedSemaphores[frame.swapchainImageIndex],
+            &m_Device->m_RenderFinishedSemaphores[frame.swapchainImageIndex],
     };
 
-    vkResetFences(m_Device.logical, 1, &frame.renderFinishedFence);
-    vkQueueSubmit(m_Device.queues[QueueFamily::graphics].handle, 1,
+    vkResetFences(m_Device->m_Device.logical, 1, &frame.renderFinishedFence);
+    vkQueueSubmit(m_Device->m_Device.queues[QueueFamily::graphics].handle, 1,
                   &queueSubmitInfo, frame.renderFinishedFence);
 
     VkPresentInfoKHR presentInfo{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores =
-            &m_RenderFinishedSemaphores[frame.swapchainImageIndex],
+            &m_Device->m_RenderFinishedSemaphores[frame.swapchainImageIndex],
         .swapchainCount = 1,
-        .pSwapchains = &m_Swapchain.handle,
+        .pSwapchains = &m_Device->m_Swapchain.handle,
         .pImageIndices = &frame.swapchainImageIndex,
     };
 
-    VkResult res{vkQueuePresentKHR(m_Device.queues[QueueFamily::present].handle,
-                                   &presentInfo)};
+    VkResult res{vkQueuePresentKHR(
+        m_Device->m_Device.queues[QueueFamily::present].handle, &presentInfo)};
 
     if ((res == VK_SUBOPTIMAL_KHR) || (res == VK_ERROR_OUT_OF_DATE_KHR)) {
         spdlog::info("Recreating swapchain");
-        recreateSwapchain(window);
+        m_Device->recreateSwapchain(window);
     } else if (res != VK_SUCCESS) {
         spdlog::error("Could not present image. VkResult = {}",
                       static_cast<int>(res));
     }
 
+    m_Device->m_Attachments.remove(frame.swapchainHandle);
+
     frame.UBOBuffer.reset();
-    m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % c_MaxFramesInFlight;
+    m_CurrentFrameIndex =
+        (m_CurrentFrameIndex + 1) % m_Device->c_MaxFramesInFlight;
 }
 
-void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
-                                                PipelineHandle pipelineHandle) {
-    VkPipeline pipeline{m_Pipelines[pipelineHandle]};
+void SYN::VK::VulkanGraphicsContext::beginRenderPassCmd(
+    const RenderPassDesc &desc, PipelineHandle pipelineHandle) {
+    VkPipeline pipeline{m_Device->m_Pipelines[pipelineHandle]};
 
-    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+    FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
 
     std::vector<VkRenderingAttachmentInfo> colorAttachmentInfos;
     colorAttachmentInfos.reserve(desc.colorAttachments.size());
@@ -187,14 +209,13 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
 
     VkExtent2D viewportExtent{.width = UINT32_MAX, .height = UINT32_MAX};
     for (const auto &attachment : desc.colorAttachments) {
-        Image &image{
-            m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
-
+        Image &image{m_Device->m_Attachments[attachment.handle].image};
         std::optional<Image *> resolveImage{};
 
         if (attachment.resolveHandle.has_value()) {
-            resolveImage = &m_Attachments[attachment.resolveHandle.value()]
-                                .images[m_CurrentFrameIndex];
+            resolveImage =
+                &m_Device->m_Attachments[attachment.resolveHandle.value()]
+                     .image;
         }
 
         if (viewportExtent.width == UINT32_MAX &&
@@ -228,13 +249,13 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
     }
     if (desc.depthAttachment.has_value()) {
         WriteAttachmentInfo attachment{desc.depthAttachment.value()};
-        Image &image{
-            m_Attachments[attachment.handle].images[m_CurrentFrameIndex]};
-
+        Image &image{m_Device->m_Attachments[attachment.handle].image};
         std::optional<Image *> resolveImage{};
+
         if (attachment.resolveHandle.has_value()) {
-            resolveImage = &m_Attachments[attachment.resolveHandle.value()]
-                                .images[m_CurrentFrameIndex];
+            resolveImage =
+                &m_Device->m_Attachments[attachment.resolveHandle.value()]
+                     .image;
         }
 
         if (viewportExtent.width == UINT32_MAX &&
@@ -268,13 +289,8 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
     }
 
     for (const auto &handle : desc.readAttachments) {
-        Attachment &attachment{m_Attachments[handle]};
-        if (!attachment.isSampleable) {
-            spdlog::warn("Trying to sample non-sampleable image");
-            assert(false);
-            continue;
-        }
-        Image &image{attachment.images[m_CurrentFrameIndex]};
+        Attachment &attachment{m_Device->m_Attachments[handle]};
+        Image &image{attachment.image};
         VkImageLayout targetLayout{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
         transitionImageCmd(frame.graphicsCmdBuffer, image, targetLayout,
@@ -315,79 +331,80 @@ void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
     vkCmdSetScissor(frame.graphicsCmdBuffer, 0, 1, &scissor);
 }
 
-void SYN::VK::VulkanBackend::beginRenderPassCmd(const RenderPassDesc &desc,
-                                                PipelineHandle pipelineHandle,
-                                                const void *uniformData,
-                                                size_t uniformSize) {
-    FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void SYN::VK::VulkanGraphicsContext::beginRenderPassCmd(
+    const RenderPassDesc &desc, PipelineHandle pipelineHandle,
+    const void *uniformData, size_t uniformSize) {
+    FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
 
     beginRenderPassCmd(desc, pipelineHandle);
 
     uint32_t dynamicOffset{frame.UBOBuffer.write(uniformData, uniformSize)};
 
-    vkCmdBindDescriptorSets(
-        frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-        m_GraphicsPipelineLayout, 1, 1, &m_UBODescriptorSet, 1, &dynamicOffset);
+    vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_Device->m_GraphicsPipelineLayout, 1, 1,
+                            &m_Device->m_UBODescriptorSet, 1, &dynamicOffset);
 }
-void SYN::VK::VulkanBackend::endRenderPassCmd() {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void SYN::VK::VulkanGraphicsContext::endRenderPassCmd() {
+    const FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
     vkCmdEndRendering(frame.graphicsCmdBuffer);
 }
 
-void SYN::VK::VulkanBackend::setPushConstantsCmd(const void *data,
-                                                 size_t size) {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
-    if (size > c_MinGuarenteedPushConstantSize) {
+void SYN::VK::VulkanGraphicsContext::setPushConstantsCmd(const void *data,
+                                                         size_t size) {
+    const FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
+    if (size > m_Device->c_MinGuarenteedPushConstantSize) {
         spdlog::warn(
             "Push constant size is {} when the max size is {}, clamping", size,
-            c_MinGuarenteedPushConstantSize);
-        size = c_MinGuarenteedPushConstantSize;
+            m_Device->c_MinGuarenteedPushConstantSize);
+        size = m_Device->c_MinGuarenteedPushConstantSize;
     }
 
-    vkCmdPushConstants(frame.graphicsCmdBuffer, m_GraphicsPipelineLayout,
-                       VK_SHADER_STAGE_ALL, 0, size, data);
+    vkCmdPushConstants(frame.graphicsCmdBuffer,
+                       m_Device->m_GraphicsPipelineLayout, VK_SHADER_STAGE_ALL,
+                       0, size, data);
 }
 
-void SYN::VK::VulkanBackend::drawCmd(size_t nVertices) {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void SYN::VK::VulkanGraphicsContext::drawCmd(size_t nVertices) {
+    const FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
 
     vkCmdDraw(frame.graphicsCmdBuffer, nVertices, 1, 0, 0);
 }
 
-void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices) {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void SYN::VK::VulkanGraphicsContext::drawIndexedCmd(size_t nIndices) {
+    const FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
 
     vkCmdDrawIndexed(frame.graphicsCmdBuffer, nIndices, 1, 0, 0, 0);
 }
 
-void VulkanBackend::drawImGUI() {
-    const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
+void VulkanGraphicsContext::drawImGUI() {
+    const FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
 
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),
                                     frame.graphicsCmdBuffer);
 }
 
-AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
-    return m_SwapchainAttachmentHandle;
+AttachmentHandle
+SYN::VK::VulkanGraphicsContext::acquireSwapchainAttachmentCmd() {
+    const FrameData &frame{m_Device->m_FrameData[m_CurrentFrameIndex]};
+    return frame.swapchainHandle;
 }
 
 uint32_t
-SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(TextureHandle handle) {
-    return m_Textures[handle].bindlessSamplerIndex;
-}
-uint32_t
-SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(AttachmentHandle handle) {
-    const Attachment &attachment{m_Attachments[handle]};
-    if (!attachment.isSampleable) {
-        spdlog::warn("Trying to get the sampler index for non-sampled "
-                     "attachment, returning a default instead");
-        return 0; // TODO: make this a default texture
-    }
-    return attachment.bindlessSamplerIndices[m_CurrentFrameIndex];
+SYN::VK::VulkanGraphicsContext::getShaderSamplerIndexCmd(TextureHandle handle) {
+    return m_Device->m_Textures[handle].bindlessSamplerIndex;
 }
 
-uint64_t SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
-    return m_Buffers[handle].deviceAddress;
+uint32_t SYN::VK::VulkanGraphicsContext::getShaderSamplerIndexCmd(
+    AttachmentHandle handle) {
+    const Attachment &attachment{m_Device->m_Attachments[handle]};
+
+    return attachment.bindlessSamplerIndex;
+}
+
+uint64_t
+SYN::VK::VulkanGraphicsContext::getBufferAddressCmd(BufferHandle handle) {
+    return m_Device->m_Buffers[handle].deviceAddress;
 }
 
 namespace {

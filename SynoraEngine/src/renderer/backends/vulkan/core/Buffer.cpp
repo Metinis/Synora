@@ -1,5 +1,6 @@
 #include "Buffer.h"
 #include "Device.h"
+#include "Image.h"
 #include <spdlog/spdlog.h>
 #include <vulkan/vulkan_core.h>
 
@@ -50,4 +51,23 @@ Buffer SYN::VK::createBuffer(const Device &device, VmaAllocator allocator,
 void SYN::VK::destroyBuffer(VmaAllocator allocator, Buffer &buffer) {
     vmaDestroyBuffer(allocator, buffer.handle, buffer.allocation);
     buffer = {};
+}
+
+void SYN::VK::copyImageToBufferCmd(VkCommandBuffer cmdBuffer, Buffer &buffer,
+                                   const Image &image, uint32_t mipLevel) {
+    assert(image.layerCount == 1);
+    VkBufferImageCopy region{
+        .imageSubresource =
+            {
+                .aspectMask = image.subresourceRange.aspectMask,
+                .mipLevel = mipLevel,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        .imageExtent = {.width = image.extent.width,
+                        .height = image.extent.height,
+                        .depth = 1},
+    };
+    vkCmdCopyBufferToImage(cmdBuffer, buffer.handle, image.handle,
+                           image.syncState.currentLayout, 1, &region);
 }

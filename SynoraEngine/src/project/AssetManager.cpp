@@ -24,7 +24,6 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
     if (m_LoadedUUIDMap.contains(path)) {
         return m_LoadedUUIDMap[path];
     }
-    spdlog::debug("Loading {}", path);
 
     int imageWidth{};
     int imageHeight{};
@@ -54,7 +53,6 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
 
 void SYN::AssetManager::addRef(UUID id) {
     if (m_AssetMap.contains(id)) {
-        spdlog::debug("Asset Manager: {} Ref increased", id);
         if (m_AssetMap[id].ref == 0) {
             // add to renderer if an entity uses it
             auto asset = m_AssetMap[id].data;
@@ -89,10 +87,8 @@ SYN::UUID SYN::AssetManager::loadRawTexture(stbi_uc *data, uint32_t width,
                                             uint32_t height,
                                             const std::string &name) {
     if (m_LoadedUUIDMap.contains(name)) {
-        spdlog::debug("{} was already loaded, cache hit", name);
         return m_LoadedUUIDMap[name];
     }
-    spdlog::debug("Loading {}", name);
 
     TextureData textureData{
         .width = width,
@@ -111,7 +107,6 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     if (m_LoadedUUIDMap.contains(name)) {
         return m_LoadedUUIDMap[name];
     }
-    spdlog::debug("Loading {}", name);
 
     int imageWidth{};
     int imageHeight{};

@@ -37,21 +37,21 @@ SYN::SkyBoxPass::SkyBoxPass(uint32_t msaaSampleCount,
                                             .loadOp = LoadOp::load};
 }
 
-void SYN::SkyBoxPass::execute(IBackend &backend, PipelineHandle pipeline) {
+void SYN::SkyBoxPass::execute(IGraphicsContext &ctx, PipelineHandle pipeline) {
     Uniforms uniform{.invProjectionViewMat =
                          glm::inverse(m_CameraProjection *
                                       glm::mat4(glm::mat3(m_CameraView)))};
 
-    backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
+    ctx.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
     PushConstants pushConstants{
-        .cubeMapIndex = backend.getShaderSamplerIndexCmd(m_SkyBox),
+        .cubeMapIndex = ctx.getShaderSamplerIndexCmd(m_SkyBox),
     };
 
-    backend.setPushConstantsCmd(pushConstants);
+    ctx.setPushConstantsCmd(pushConstants);
 
-    backend.drawCmd(6); // 6 vertices in 2 triangles for full screen pass
-    backend.endRenderPassCmd();
+    ctx.drawCmd(6); // 6 vertices in 2 triangles for full screen pass
+    ctx.endRenderPassCmd();
 }
 
 RenderPassDesc SYN::SkyBoxPass::getPassDesc() {

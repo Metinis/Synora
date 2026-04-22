@@ -1,4 +1,4 @@
-#include "Backend.h"
+#include "Device.h"
 #include "core/Buffer.h"
 #include "core/Commands.h"
 #include "core/Device.h"
@@ -20,7 +20,7 @@
 using namespace SYN;
 using namespace SYN::VK;
 
-BufferHandle SYN::VK::VulkanBackend::createBuffer(const BufferDesc &desc) {
+BufferHandle SYN::VK::VulkanDevice::createBuffer(const BufferDesc &desc) {
     Buffer buffer{
         VK::createBuffer(m_Device, m_Allocator, desc.size,
                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
@@ -33,27 +33,19 @@ BufferHandle SYN::VK::VulkanBackend::createBuffer(const BufferDesc &desc) {
     return handle;
 }
 
-void SYN::VK::VulkanBackend::uploadToBuffer(BufferHandle handle, size_t size,
-                                            const void *data) {
-    const Buffer &buffer{m_Buffers[handle]};
-    m_StagingBuffer.uploadToBuffer(m_Device, data, size, buffer);
-}
+void SYN::VK::VulkanDevice::destroyBuffer(BufferHandle handle) {
+    vkDeviceWaitIdle(m_Device.logical);
 
-void SYN::VK::VulkanBackend::destroyBuffer(BufferHandle handle) {
     Buffer buffer{m_Buffers[handle]};
 
-    // the frame where all references to this texture will have completed
-    size_t lastFrameInFlightIndex{
-        (m_CurrentFrameIndex + (c_MaxFramesInFlight - 1)) %
-        c_MaxFramesInFlight};
-    m_FrameData[lastFrameInFlightIndex].buffersToFree.emplace_back(buffer);
+    VK::destroyBuffer(m_Allocator, buffer);
 
     m_Buffers.remove(handle);
 
     handle.id = UINT32_MAX;
 }
 
-TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
+TextureHandle SYN::VK::VulkanDevice::createTexture(const TextureDesc &desc) {
     VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -86,10 +78,15 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
             std::floor(std::log2(std::max(desc.height, desc.width))) + 1);
     }
 
+    uint32_t layerCount{1};
+    if (desc.isCubeMap) {
+        layerCount = 6;
+    }
+
     Image image{createImage(m_Device, m_Allocator, format,
                             {.width = desc.width, .height = desc.height}, usage,
                             aspect, VK_SAMPLE_COUNT_1_BIT, mipLevels,
-                            desc.layerCount, desc.isCubeMap)};
+                            layerCount, desc.isCubeMap)};
 
     if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
         spdlog::warn("Could not create attachment, bindless array is full");
@@ -139,45 +136,29 @@ TextureHandle SYN::VK::VulkanBackend::createTexture(const TextureDesc &desc) {
     return handle;
 }
 
-void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
-                                             std::span<const void *> data,
-                                             uint32_t width, uint32_t height) {
-    Texture &texture{m_Textures[handle]};
+void SYN::VK::VulkanDevice::destroyTexture(TextureHandle handle) {
+    vkDeviceWaitIdle(m_Device.logical);
 
-    transitionImage(m_TransientCmdPool, m_Device, texture.image,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                    VK_ACCESS_2_TRANSFER_WRITE_BIT);
-
-    m_StagingBuffer.uploadToImage(m_Device, data, width, height, texture.image);
-    generateMipChain(m_TransientCmdPool, m_Device, texture.image,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-                     VK_ACCESS_2_SHADER_READ_BIT);
-}
-
-void SYN::VK::VulkanBackend::destroyTexture(TextureHandle handle) {
     Texture texture{m_Textures[handle]};
 
-    // the frame where all references to this texture will have completed
-    size_t lastFrameInFlightIndex{
-        (m_CurrentFrameIndex + (c_MaxFramesInFlight - 1)) %
-        c_MaxFramesInFlight};
+    destroyImage(m_Device, m_Allocator, texture.image);
 
-    m_FrameData[lastFrameInFlightIndex].imagesToFree.emplace_back(
-        texture.image);
-    m_FrameData[lastFrameInFlightIndex].bindlessTexturesToFree.emplace_back(
-        texture.bindlessSamplerIndex);
+    if (texture.image.isCubeMap) {
+        m_BindlessCubeMapFreeList.emplace_back(texture.bindlessSamplerIndex);
+    } else {
+        m_BindlessTextureIndexFreelist.emplace_back(
+            texture.bindlessSamplerIndex);
+    }
 
     m_Textures.remove(handle);
     handle.id = UINT32_MAX;
 }
 
 AttachmentHandle
-SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
+SYN::VK::VulkanDevice::createAttachment(const AttachmentDesc &desc) {
     VkFormat format{};
     VkImageAspectFlags aspect{};
-    VkImageUsageFlags usage{};
+    VkImageUsageFlags usage{VK_IMAGE_USAGE_SAMPLED_BIT};
     switch (desc.type) {
     case TextureType::srgb:
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -202,10 +183,6 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
         break;
     }
 
-    if (desc.isSampleable) {
-        usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-    }
-
     uint32_t width{desc.width};
     uint32_t height{desc.height};
     if (desc.size == AttachmentSize::relative) {
@@ -213,103 +190,84 @@ SYN::VK::VulkanBackend::createAttachment(const AttachmentDesc &desc) {
         height = m_Swapchain.extent.height;
     }
 
-    std::array<Image, c_MaxFramesInFlight> images{};
-    std::array<uint32_t, c_MaxFramesInFlight> bindlessSamplerIndices{};
+    Image image{};
+    uint32_t bindlessSamplerIndex{};
     VkSampleCountFlagBits samples{getSamples(m_Device, desc.msaaSamples)};
 
-    for (size_t i{}; i < images.size(); i++) {
-        images[i] = createImage(m_Device, m_Allocator, format,
-                                {.width = width, .height = height}, usage,
-                                aspect, samples, desc.layerCount,
-                                desc.layerCount, desc.isCubeMap);
-
-        if (!desc.isSampleable) {
-            continue;
-        }
-
-        if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
-            spdlog::warn("Could not create attachment, bindless array is full");
-
-            destroyImage(m_Device, m_Allocator, images[i]);
-            for (size_t j{}; j < i; j++) {
-                destroyImage(m_Device, m_Allocator, images[j]);
-                m_BindlessTextureIndexFreelist.emplace_back(
-                    bindlessSamplerIndices[j]);
-            }
-
-            return {};
-        }
-        if (m_BindlessCubeMapFreeList.empty() && desc.isCubeMap) {
-            spdlog::warn("Could not create attachment, bindless array is full");
-
-            destroyImage(m_Device, m_Allocator, images[i]);
-            for (size_t j{}; j < i; j++) {
-                destroyImage(m_Device, m_Allocator, images[j]);
-                m_BindlessCubeMapFreeList.emplace_back(
-                    bindlessSamplerIndices[j]);
-            }
-
-            return {};
-        }
-
-        VkDescriptorImageInfo imageInfo{
-            .sampler = m_DefaultSampler,
-            .imageView = images[i].view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        };
-
-        uint32_t descriptorElement{};
-        uint32_t descriptorBinding{};
-        if (!desc.isCubeMap) {
-            descriptorElement = m_BindlessTextureIndexFreelist.back();
-            m_BindlessTextureIndexFreelist.pop_back();
-
-        } else {
-            descriptorElement = m_BindlessCubeMapFreeList.back();
-            m_BindlessCubeMapFreeList.pop_back();
-            descriptorBinding = c_CubeMapBinding;
-        }
-
-        VkWriteDescriptorSet bindlessWrite{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = m_BindlessDescriptorSet,
-            .dstBinding = descriptorBinding,
-            .dstArrayElement = descriptorElement,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .pImageInfo = &imageInfo,
-        };
-
-        vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
-        bindlessSamplerIndices[i] = descriptorElement;
+    uint32_t layerCount{1};
+    if (desc.isCubeMap) {
+        layerCount = 6;
     }
 
-    Attachment attachment{
-        .images = std::move(images),
-        .bindlessSamplerIndices = std::move(bindlessSamplerIndices),
-        .size = desc.size,
-        .isSampleable = desc.isSampleable,
+    image = createImage(m_Device, m_Allocator, format,
+                        {.width = width, .height = height}, usage, aspect,
+                        samples, 1, layerCount, desc.isCubeMap);
+
+    if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
+        spdlog::warn("Could not create attachment, bindless array is full");
+
+        destroyImage(m_Device, m_Allocator, image);
+
+        return {};
+    }
+    if (m_BindlessCubeMapFreeList.empty() && desc.isCubeMap) {
+        spdlog::warn("Could not create attachment, bindless array is full");
+
+        destroyImage(m_Device, m_Allocator, image);
+
+        return {};
+    }
+
+    VkDescriptorImageInfo imageInfo{
+        .sampler = m_DefaultSampler,
+        .imageView = image.view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
 
-    AttachmentHandle handle{m_Attachments.insert(std::move(attachment))};
-    return handle;
-}
-void SYN::VK::VulkanBackend::destroyAttachment(AttachmentHandle &handle) {
-    Attachment &attachment{m_Attachments[handle]};
-
-    // the frame where all references to this texture will have completed
-    size_t lastFrameInFlightIndex{
-        (m_CurrentFrameIndex + (c_MaxFramesInFlight - 1)) %
-        c_MaxFramesInFlight};
-    for (auto &image : attachment.images) {
-        m_FrameData[lastFrameInFlightIndex].imagesToFree.emplace_back(image);
+    uint32_t descriptorElement{};
+    uint32_t descriptorBinding{};
+    if (!desc.isCubeMap) {
+        descriptorElement = m_BindlessTextureIndexFreelist.back();
+        m_BindlessTextureIndexFreelist.pop_back();
+    } else {
+        descriptorElement = m_BindlessCubeMapFreeList.back();
+        m_BindlessCubeMapFreeList.pop_back();
+        descriptorBinding = c_CubeMapBinding;
     }
 
-    if (attachment.isSampleable) {
-        for (auto &index : attachment.bindlessSamplerIndices) {
-            m_FrameData[lastFrameInFlightIndex]
-                .bindlessTexturesToFree.emplace_back(index);
-        }
+    VkWriteDescriptorSet bindlessWrite{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = m_BindlessDescriptorSet,
+        .dstBinding = descriptorBinding,
+        .dstArrayElement = descriptorElement,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &imageInfo,
+    };
+
+    vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
+    bindlessSamplerIndex = descriptorElement;
+
+    Attachment attachment{
+        .image = image,
+        .size = desc.size,
+        .bindlessSamplerIndex = bindlessSamplerIndex,
+    };
+
+    return m_Attachments.insert(attachment);
+}
+
+void SYN::VK::VulkanDevice::destroyAttachment(AttachmentHandle &handle) {
+    vkDeviceWaitIdle(m_Device.logical);
+
+    Attachment &attachment{m_Attachments[handle]};
+    destroyImage(m_Device, m_Allocator, attachment.image);
+
+    if (attachment.image.isCubeMap) {
+        m_BindlessCubeMapFreeList.emplace_back(attachment.bindlessSamplerIndex);
+    } else {
+        m_BindlessTextureIndexFreelist.emplace_back(
+            attachment.bindlessSamplerIndex);
     }
 
     m_Attachments.remove(handle);
@@ -317,7 +275,7 @@ void SYN::VK::VulkanBackend::destroyAttachment(AttachmentHandle &handle) {
 }
 
 PipelineHandle
-SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
+SYN::VK::VulkanDevice::createPipeline(const GraphicsPipelineDesc &desc) {
     GraphicsPipelineBuilder pipelineBuilder{};
     pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
@@ -375,15 +333,12 @@ SYN::VK::VulkanBackend::createPipeline(const GraphicsPipelineDesc &desc) {
     return m_Pipelines.insert(pipeline);
 }
 
-void SYN::VK::VulkanBackend::destroyPipeline(PipelineHandle &handle) {
+void SYN::VK::VulkanDevice::destroyPipeline(PipelineHandle &handle) {
+    vkDeviceWaitIdle(m_Device.logical);
+
     VkPipeline pipeline{m_Pipelines[handle]};
 
-    // the frame where all references to this texture will have completed
-    size_t lastFrameInFlightIndex{
-        (m_CurrentFrameIndex + (c_MaxFramesInFlight - 1)) %
-        c_MaxFramesInFlight};
-
-    m_FrameData[lastFrameInFlightIndex].pipelinesToFree.emplace_back(pipeline);
+    vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
 
     m_Pipelines.remove(handle);
     handle.id = UINT32_MAX;
