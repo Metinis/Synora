@@ -1,10 +1,10 @@
 #include "CameraSystem.h"
+#include "../../include/SynoraEngine/renderer/Renderer.h"
 #include "SynoraEngine/core/Input.h"
 #include "SynoraEngine/core/InputContext.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/core/Window.h"
 #include "SynoraEngine/scene/Scene.h"
-#include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"
 
 namespace {

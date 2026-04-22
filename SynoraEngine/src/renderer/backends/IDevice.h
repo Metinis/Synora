@@ -3,7 +3,6 @@
 #include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/project/Assets.h"
 #include "SynoraEngine/project/UUID.h"
-#include "renderer/RenderTypes.h"
 
 struct MeshData;
 

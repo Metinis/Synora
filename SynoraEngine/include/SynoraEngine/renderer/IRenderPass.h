@@ -1,8 +1,9 @@
 #pragma once
 #include "RenderTypes.h"
-#include "renderer/backends/IGraphicsContext.h"
 
 namespace SYN {
+
+class IGraphicsContext;
 
 struct RenderPassNode {
     std::string debugName;

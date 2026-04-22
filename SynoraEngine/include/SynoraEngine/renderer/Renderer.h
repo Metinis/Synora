@@ -1,8 +1,8 @@
 #pragma once
-#include "RenderGraph.h"
+
+#include "RenderTypes.h"
 #include "SynoraEngine/core/Application.h"
-#include "backends/IDevice.h"
-#include "renderer/RenderTypes.h"
+#include "SynoraEngine/project/Assets.h"
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 
@@ -10,6 +10,10 @@
 
 namespace SYN {
 class Window;
+class IDevice;
+class IGraphicsContext;
+class IGraphicsContext;
+class RenderGraph;
 
 struct Camera {
     TransformComp transform;
@@ -21,8 +25,8 @@ struct Camera {
 
 class Renderer {
   public:
-    Renderer() = default;
-    ~Renderer() = default;
+    Renderer();
+    ~Renderer();
 
     void init(EngineContext *ctx);
     void render(Window &window);
@@ -61,7 +65,7 @@ class Renderer {
     std::unique_ptr<IGraphicsContext> m_GraphicsCtx;
 
     Window *m_Window;
-    RenderGraph m_RenderGraph;
+    std::unique_ptr<RenderGraph> m_RenderGraph;
 
     AttachmentHandle m_MSAADepthAttachment;
     AttachmentHandle m_MSAAScreenColorAttachment;

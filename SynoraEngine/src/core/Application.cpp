@@ -1,20 +1,21 @@
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/project/Project.h"
+#include "SynoraEngine/renderer/Renderer.h"
 #include "SynoraEngine/scene/Scene.h"
-#include "renderer/Renderer.h"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
+#include "scene/CameraSystem.h"
 #include <GLFW/glfw3.h>
 #include <SynoraEngine/core/Application.h>
 #include <SynoraEngine/core/Input.h>
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
-#include "scene/CameraSystem.h"
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_vulkan.h"
 
 using namespace SYN;
 
 Application *Application::s_Instance = nullptr;
+
 Application::Application() {
     s_Instance = this;
 
@@ -75,7 +76,6 @@ void Application::run() {
         for (auto &l : m_Layers) {
             l->onRender();
         }
-
     }
 }
 

@@ -1,6 +1,5 @@
 #include "Device.h"
 #include "GraphicsContext.h"
-
 #include "core/Buffer.h"
 #include "core/Commands.h"
 #include "core/DebugMessenger.h"
@@ -10,7 +9,6 @@
 #include "core/Pipeline.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
-#include "renderer/RenderTypes.h"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -65,17 +63,20 @@ void SYN::VK::VulkanDevice::init(Window *window) {
 
     vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_DefaultSampler);
 
-    uint32_t textureDescriptorCount{
+    uint32_t descriptorCount{
         std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
 
-    m_BindlessTextureIndexFreelist.reserve(textureDescriptorCount);
-    for (uint32_t i = 0; i < textureDescriptorCount; i++) {
+    auto textureDesCount = (uint32_t)((float)descriptorCount * 0.75f);
+    auto cubemapDesCount = (uint32_t)((float)descriptorCount * 0.25f);
+
+    m_BindlessTextureIndexFreelist.reserve(textureDesCount);
+    for (uint32_t i = 0; i < textureDesCount; i++) {
         m_BindlessTextureIndexFreelist.emplace_back(i);
     }
 
-    m_BindlessCubeMapFreeList.reserve(textureDescriptorCount);
-    for (size_t i{}; i < textureDescriptorCount; i++) {
+    m_BindlessCubeMapFreeList.reserve(cubemapDesCount);
+    for (size_t i{}; i < cubemapDesCount; i++) {
         m_BindlessCubeMapFreeList.emplace_back(i);
     }
 }
@@ -190,12 +191,11 @@ void SYN::VK::VulkanDevice::initContext(Window *window) {
 }
 
 void SYN::VK::VulkanDevice::initDescriptorSetLayout() {
-    uint32_t textureDescriptorCount{
+    uint32_t descriptorCount{
         std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
-    uint32_t cubeMapDescriptorCount{
-        std::min(c_MaxBindlessCubeMaps,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+    auto textureDescriptorCount = (uint32_t)((float)descriptorCount * 0.75f);
+    auto cubeMapDescriptorCount = (uint32_t)((float)descriptorCount * 0.25f);
 
     VkDescriptorBindingFlags bindlessBindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};

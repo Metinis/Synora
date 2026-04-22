@@ -1,4 +1,5 @@
 #include "ImGUIPass.h"
+#include "renderer/backends/IGraphicsContext.h"
 
 SYN::ImGUIPass::ImGUIPass(AttachmentHandle colorAttachment) {
     m_ColorAttachment = WriteAttachmentInfo{.handle = colorAttachment,

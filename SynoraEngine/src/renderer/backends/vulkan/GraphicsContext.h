@@ -1,3 +1,6 @@
+#pragma once
+
+#include "SynoraEngine/renderer/RenderTypes.h"
 #include "core/Buffer.h"
 #include "core/Device.h"
 #include "core/DynamicUBO.h"
@@ -5,7 +8,6 @@
 #include "core/SlotMap.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
-#include "renderer/RenderTypes.h"
 #include "renderer/backends/IGraphicsContext.h"
 
 #include <stb_image.h>

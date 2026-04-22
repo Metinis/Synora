@@ -1,10 +1,10 @@
 #pragma once
 
+#include "SynoraEngine/renderer/Renderer.h"
 #include "Assets.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/scene/Components.h"
 #include "UUID.h"
-#include "renderer/Renderer.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
 

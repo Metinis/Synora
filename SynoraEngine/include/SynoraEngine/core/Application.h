@@ -24,7 +24,7 @@ struct EngineContext {
 class Application {
   public:
     Application();
-    void init();
+    virtual void init();
     void run();
     void shutdown();
     static Application &get() { return *s_Instance; }
@@ -32,7 +32,7 @@ class Application {
 
     std::unique_ptr<Input> &GetInput();
 
-  private:
+  protected:
     static Application *s_Instance;
 
     EngineContext m_EngineContext;

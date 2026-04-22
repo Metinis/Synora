@@ -1,11 +1,11 @@
-#include "Renderer.h"
+#include "SynoraEngine/renderer/Renderer.h"
 #include "RenderGraph.h"
 #include "SynoraEngine/core/Window.h"
+#include "SynoraEngine/renderer/RenderTypes.h"
 #include "glm/ext/quaternion_common.hpp"
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
-#include "renderer/RenderTypes.h"
 #include <memory>
 #include <vulkan/vulkan_core.h>
 
@@ -17,11 +17,16 @@ namespace {
 SYN::TextureData loadTexture(const std::string &path);
 }
 
+SYN::Renderer::Renderer() = default;
+SYN::Renderer::~Renderer() = default;
+
 void SYN::Renderer::init(EngineContext *ctx) {
     m_Device = std::make_unique<VK::VulkanDevice>();
     m_Device->init(ctx->window.get());
 
     m_GraphicsCtx = m_Device->makeGraphicsContext();
+
+    m_RenderGraph = std::make_unique<RenderGraph>();
 
     m_Window = ctx->window.get();
 
@@ -69,20 +74,20 @@ void SYN::Renderer::render(Window &window) {
         m_GraphicsCtx->acquireSwapchainAttachmentCmd()};
 
     uint32_t msaaSamples{4};
-    m_RenderGraph.addPass<LightingPass>(
+    m_RenderGraph->addPass<LightingPass>(
         msaaSamples, m_DrawCalls, m_CurrentCameraProjection,
         m_CurrentCameraView, m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
         swapchainAttachment);
 
-    m_RenderGraph.addPass<SkyBoxPass>(
+    m_RenderGraph->addPass<SkyBoxPass>(
         msaaSamples, m_CurrentCameraProjection, m_CurrentCameraView, m_SkyBox,
         m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
         swapchainAttachment);
 
-    m_RenderGraph.addPass<ImGUIPass>(swapchainAttachment);
-    m_RenderGraph.compile(*m_Device);
+    m_RenderGraph->addPass<ImGUIPass>(swapchainAttachment);
+    m_RenderGraph->compile(*m_Device);
 
-    m_RenderGraph.execute(*m_GraphicsCtx);
+    m_RenderGraph->execute(*m_GraphicsCtx);
 
     m_GraphicsCtx->endFrame(*m_Window);
 
@@ -189,7 +194,7 @@ void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
 }
 
 void SYN::Renderer::shutdown() {
-    m_RenderGraph.shutdown(*m_Device);
+    m_RenderGraph->shutdown(*m_Device);
     for (auto &[uuid, mesh] : m_UploadedMeshes) {
         m_Device->destroyTexture(mesh.albedo);
         m_Device->destroyTexture(mesh.metallicRoughness);

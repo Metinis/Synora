@@ -1,6 +1,6 @@
 #pragma once
-#include "IRenderPass.h"
-#include "renderer/RenderTypes.h"
+#include "SynoraEngine/renderer/IRenderPass.h"
+#include "SynoraEngine/renderer/RenderTypes.h"
 #include "renderer/backends/IDevice.h"
 #include "renderer/backends/IGraphicsContext.h"
 #include <memory>

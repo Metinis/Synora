@@ -12,8 +12,16 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # For me and my Neovim buddy
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_executable(SynoraEditor
-        src/main.cpp
+file(GLOB_RECURSE EDITOR_SOURCES
+        CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+)
+add_executable(SynoraEditor ${EDITOR_SOURCES})
+
+target_include_directories(
+        SynoraEditor
+        PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 if(NOT TARGET SynoraEngine)
