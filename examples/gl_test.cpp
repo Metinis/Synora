@@ -22,8 +22,12 @@ int main(void) {
     std::string vertexSource = R"(
         #version 450 core
         layout (location = 0) in vec3 aPos;
+        layout (location = 1) in vec3 aColor;
+
+        out vec4 vertexColor;
 
         void main() {
+            vertexColor = vec4(aColor, 1.0);
             gl_Position = vec4(aPos, 1.0);
         }
     )";
@@ -32,15 +36,21 @@ int main(void) {
         #version 450 core
         out vec4 fragColor;
 
+        in vec4 vertexColor;
+
         void main() {
-            fragColor = vec4(0.3, 0.8, 0.4, 1.0);
+            fragColor = vertexColor;
         }
     )";
+
+    float vertices[] = {0.5, 0.5, 0.0,  1.0, 0.0, 0.0,  -0.5, -0.5,
+                        0.0, 0.0, 1.0,  0.0, 0.5, -0.5, 0.0,  0.0,
+                        0.0, 1.0, -0.5, 0.5, 0.0, 1.0,  1.0,  0.0};
 
     gl::Handle<gl::Shader> mainShader =
         glContext.createShader(vertexSource, fragmentSource).value();
 
-    float vertices[] = {0.5, 0.5, 0.0, -0.5, -0.5, 0.0, 0.5, -0.5, 0.0};
+    unsigned int indices[] = {3, 0, 2, 3, 1, 2};
 
     gl::Handle<gl::Buffer> vertexBuffer =
         glContext
@@ -49,18 +59,27 @@ int main(void) {
                           vertices)
             .value();
 
+    gl::Handle<gl::Buffer> indexBuffer =
+        glContext
+            .createBuffer({gl::BufferType::Index, gl::BufferUsage::Static,
+                           sizeof(indices)},
+                          indices)
+            .value();
+
     gl::VertexArrayDesc basicVertexDesc;
+    basicVertexDesc.indexBufferHandle = indexBuffer;
     basicVertexDesc.vertexBufferHandle = vertexBuffer;
-    basicVertexDesc.vertexBufferStride = sizeof(float) * 3;
+    basicVertexDesc.vertexBufferStride = sizeof(float) * 6;
     basicVertexDesc.attributes[0] = {0, gl::VertexFormat::Float3, 0, false};
-    basicVertexDesc.attributeCount = 1;
+    basicVertexDesc.attributes[1] = {1, gl::VertexFormat::Float3,
+                                     sizeof(float) * 3, false};
+    basicVertexDesc.attributeCount = 2;
 
     gl::Handle<gl::VertexArray> vertexArray =
         glContext.createVertexArray(basicVertexDesc).value();
 
     gl::PipelineState defaultPipeline;
     defaultPipeline.shader = mainShader;
-    defaultPipeline.polygonMode = gl::PolygonMode::Line;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -68,15 +87,15 @@ int main(void) {
         {
             gl::Viewport vp;
             int w, h;
-            glfwGetFramebufferSize(window, &w, &h);
+            glfwGetWindowSize(window, &w, &h);
             vp.width = w;
             vp.height = h;
             gl::Pass pass = glContext.beginPass(
-                {std::nullopt, glm::vec4(1.0, 0.0, 0.0, 1.0), false, false, vp,
-                 std::nullopt});
+                {std::nullopt, glm::vec4(0.74, 0.32, 0.24, 1.0), false, false,
+                 vp, std::nullopt});
             pass.usePipeline(defaultPipeline);
             pass.bindVertexArray(vertexArray);
-            pass.draw(3);
+            pass.drawIndexed(6);
         }
 
         glContext.present();

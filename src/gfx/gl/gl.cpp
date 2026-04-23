@@ -260,11 +260,13 @@ SYN::gfx::gl::Context::createVertexArray(const VertexArrayDesc &desc) {
                               desc.vertexBufferStride);
     std::optional<Buffer> indexBuffer =
         m_BufferRegistry.getResource(desc.indexBufferHandle);
+    std::optional<IndexType> indexType = std::nullopt;
     if (indexBuffer.has_value()) {
+        indexType = desc.indexType;
         glVertexArrayElementBuffer(vaoId, indexBuffer.value().id);
     }
 
-    return m_VertexArrayRegistry.createHandle(VertexArray{vaoId});
+    return m_VertexArrayRegistry.createHandle(VertexArray{vaoId, indexType});
 }
 
 void SYN::gfx::gl::Context::deleteVertexArray(
@@ -373,6 +375,11 @@ void SYN::gfx::gl::Pass::bindVertexArray(
     assert(currentVaoOpt.has_value() && "Vertex Array handle is invalid.");
     VertexArray vertexArray = currentVaoOpt.value();
     glBindVertexArray(vertexArray.id);
+    if (vertexArray.indexType.has_value()) {
+        m_CurrentIndexType = vertexArray.indexType.value();
+    } else {
+        m_CurrentIndexType = IndexType::Unsigned32;
+    }
 }
 
 void SYN::gfx::gl::Pass::draw(uint32_t vertexCount, uint32_t firstVertex) {
@@ -389,4 +396,31 @@ void SYN::gfx::gl::Pass::draw(uint32_t vertexCount, uint32_t firstVertex) {
         break;
     }
     glDrawArrays(drawMode, firstVertex, vertexCount);
+}
+
+void SYN::gfx::gl::Pass::drawIndexed(uint32_t indexCount) {
+    GLenum drawMode;
+    switch (m_CurrentDrawTopology) {
+    case PrimitiveTopology::Triangles:
+        drawMode = GL_TRIANGLES;
+        break;
+    case PrimitiveTopology::Lines:
+        drawMode = GL_LINES;
+        break;
+    case PrimitiveTopology::Points:
+        drawMode = GL_POINTS;
+        break;
+    }
+
+    GLenum indexType;
+    switch (m_CurrentIndexType) {
+    case IndexType::Unsigned16:
+        indexType = GL_UNSIGNED_SHORT;
+        break;
+    case IndexType::Unsigned32:
+        indexType = GL_UNSIGNED_INT;
+        break;
+    }
+
+    glDrawElements(drawMode, indexCount, indexType, nullptr);
 }

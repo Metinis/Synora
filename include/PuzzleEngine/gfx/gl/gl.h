@@ -150,6 +150,7 @@ struct Framebuffer {
 
 struct VertexArray {
     uint32_t id = 0;
+    std::optional<IndexType> indexType = std::nullopt;
 };
 
 struct ContextInitDesc {
@@ -159,11 +160,11 @@ struct ContextInitDesc {
 };
 
 struct Viewport {
-    uint32_t x, y, width, height;
+    uint32_t x = 0, y = 0, width, height;
 };
 
 struct ScissorRect {
-    uint32_t x, y, width, height;
+    uint32_t x = 0, y = 0, width, height;
 };
 
 struct BufferDesc {
@@ -297,7 +298,7 @@ class Pass {
     void bindTexture(uint32_t binding, Texture texture, Sampler sampler);
 
     void draw(uint32_t vertexCount, uint32_t firstVertex = 0);
-    void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0);
+    void drawIndexed(uint32_t indexCount);
 
   private:
     friend class Context;
@@ -305,6 +306,7 @@ class Pass {
     Context *m_ContextPtr;
 
     PrimitiveTopology m_CurrentDrawTopology = PrimitiveTopology::Triangles;
+    IndexType m_CurrentIndexType = IndexType::Unsigned32;
 };
 
 class Context {
