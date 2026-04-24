@@ -20,12 +20,12 @@ struct VmaAllocator_T;
 
 namespace SYN::VK {
 
-class VulkanDevice;
+class VulkanRenderDevice;
 
 class VulkanGraphicsContext : public IGraphicsContext {
   public:
-    VulkanGraphicsContext(VulkanDevice *device);
-    ~VulkanGraphicsContext() = default;
+    VulkanGraphicsContext(VulkanRenderDevice *renderDevice);
+    ~VulkanGraphicsContext();
 
     void uploadToBuffer(BufferHandle handle, size_t size,
                         const void *data) override;
@@ -33,8 +33,8 @@ class VulkanGraphicsContext : public IGraphicsContext {
     void uploadToTexture(TextureHandle handle, std::span<const void *> data,
                          uint32_t width, uint32_t height) override;
 
-    void beginFrame(Window &window) override;
-    void endFrame(Window &window) override;
+    [[nodiscard]] bool beginFrame(Window &window) override;
+    ReceiptHandle endFrame(Window &window) override;
 
     void beginRenderPassCmd(const RenderPassDesc &desc,
                             PipelineHandle pipeline) override;
@@ -56,8 +56,35 @@ class VulkanGraphicsContext : public IGraphicsContext {
 
     uint64_t getBufferAddressCmd(BufferHandle buffer) override;
 
+    void destroy();
+
   private:
-    VulkanDevice *m_Device;
+    static constexpr uint32_t c_MaxFramesInFlight{2};
+
+    struct FrameData {
+        VkCommandPool graphicsCmdPool{};
+        VkCommandBuffer graphicsCmdBuffer{};
+
+        VkFence renderFinishedFence{};
+        VkSemaphore imageAvailableSemaphore{};
+
+        DynamicUBO UBOBuffer;
+
+        std::vector<Image> imagesToFree;
+        std::vector<Buffer> buffersToFree;
+        std::vector<uint32_t> bindlessTexturesToFree;
+        std::vector<uint32_t> bindlessCubeMapsToFree;
+        std::vector<VkPipeline> pipelinesToFree;
+
+        uint32_t swapchainImageIndex{};
+    };
+
+    VulkanRenderDevice *m_RenderDevice;
+    VkCommandPool m_TransientCmdPool;
+
+    std::array<FrameData, c_MaxFramesInFlight> m_FrameData{};
+    std::vector<VkSemaphore> m_RenderFinishedSemaphores{};
+
     uint32_t m_CurrentFrameIndex{};
 };
 

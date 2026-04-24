@@ -9,9 +9,6 @@
 #include "SynoraEngine/scene/Components.h"
 #include "glm/ext.hpp"
 #include "imgui.h"
-#include "renderer/RenderGraph.h"
-#include "renderer/backends/IDevice.h"
-#include "renderer/backends/IGraphicsContext.h"
 #include "spdlog/spdlog.h"
 
 using namespace SYN;

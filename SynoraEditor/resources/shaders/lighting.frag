@@ -1,9 +1,5 @@
 #version 450
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_nonuniform_qualifier : require
-
-layout(set = 0, binding = 0) uniform sampler2D textures[];
-layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
+#include "Bindless.glsl"
 
 layout(location = 0) in vec2 uv;
 layout(location = 1) in vec3 fragPos;
@@ -88,13 +84,13 @@ void main() {
 
     mat3 tbn = mat3(tangent, bitangent, faceNormal);
 
-    vec3 mapNormal = texture(textures[normalMap], uv).xyz;
+    vec3 mapNormal = sample2DLinear(normalMap, uv).xyz;
     mapNormal = (mapNormal * 2.f) - 1.f;
 
     vec3 norm = normalize(tbn * mapNormal);
 
-    vec4 fragAlbedo = vec4(texture(textures[albedoIndex], uv));
-    vec4 fragMetallicRoughness = vec4(texture(textures[metallicRoughnessIndex], uv));
+    vec4 fragAlbedo = sample2DLinear(albedoIndex, uv);
+    vec4 fragMetallicRoughness = sample2DLinear(metallicRoughnessIndex, uv);
 
     vec3 albedo = fragAlbedo.xyz;
     float roughness = fragMetallicRoughness.g;

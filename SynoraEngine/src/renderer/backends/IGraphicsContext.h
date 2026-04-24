@@ -25,9 +25,10 @@ class IGraphicsContext {
         uploadToTexture(handle, std::span(&data, 1), width, height);
     }
 
-    virtual void beginFrame(Window &window) = 0;
+    // returns true if begin frame succeeded, false if otherwise
+    virtual bool beginFrame(Window &window) = 0;
     // submits and presents frame
-    virtual void endFrame(Window &window) = 0;
+    virtual ReceiptHandle endFrame(Window &window) = 0;
 
     virtual void beginRenderPassCmd(const RenderPassDesc &desc,
                                     PipelineHandle pipeline) = 0;

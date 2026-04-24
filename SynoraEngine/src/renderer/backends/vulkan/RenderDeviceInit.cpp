@@ -1,5 +1,6 @@
-#include "Device.h"
 #include "GraphicsContext.h"
+#include "Limits.h"
+#include "RenderDevice.h"
 #include "core/Buffer.h"
 #include "core/Commands.h"
 #include "core/DebugMessenger.h"
@@ -25,6 +26,8 @@
 
 #include "imgui_impl_glfw.h"
 #include "imgui_internal.h"
+#include "renderer/backends/IGraphicsContext.h"
+#include "renderer/backends/vulkan/CreateInfos.h"
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -34,57 +37,44 @@ constexpr uint32_t c_MB{1024 * 1024};
 
 } // namespace
 
-void SYN::VK::VulkanDevice::init(Window *window) {
+void SYN::VK::VulkanRenderDevice::init(Window *window) {
     initContext(window);
 
     initDescriptorSetLayout();
-    initPipelineLayout();
     initDescriptorSets();
+    initPipelineLayout();
 
-    initFrameData(m_Swapchain);
+    initSamplers();
 
     initImGUI(window);
 
     m_StagingBuffer =
-        StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 8);
-
-    VkSamplerCreateInfo samplerCI{
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .anisotropyEnable = VK_TRUE,
-        .maxAnisotropy =
-            std::min(4.f, m_Device.properties.limits.maxSamplerAnisotropy),
-        .maxLod = VK_LOD_CLAMP_NONE};
-
-    vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_DefaultSampler);
+        StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 4);
 
     uint32_t descriptorCount{
-        std::min(c_MaxBindlessTextures,
+        std::min(Limits::c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages)};
 
-    auto textureDesCount = (uint32_t)((float)descriptorCount * 0.75f);
-    auto cubemapDesCount = (uint32_t)((float)descriptorCount * 0.25f);
-
-    m_BindlessTextureIndexFreelist.reserve(textureDesCount);
-    for (uint32_t i = 0; i < textureDesCount; i++) {
+    m_BindlessTextureIndexFreelist.reserve(descriptorCount);
+    for (uint32_t i = 0; i < descriptorCount; i++) {
         m_BindlessTextureIndexFreelist.emplace_back(i);
-    }
-
-    m_BindlessCubeMapFreeList.reserve(cubemapDesCount);
-    for (size_t i{}; i < cubemapDesCount; i++) {
-        m_BindlessCubeMapFreeList.emplace_back(i);
     }
 }
 
-void SYN::VK::VulkanDevice::shutdown() {
+void SYN::VK::VulkanRenderDevice::shutdown() {
     vkDeviceWaitIdle(m_Device.logical);
 
-    vkDestroySampler(m_Device.logical, m_DefaultSampler, nullptr);
+    for (auto handle : m_SwapchainAttachmentHandles) {
+        m_Attachments.remove(handle);
+    }
+
+    for (auto &graphicsCtx : m_GraphicsContexts) {
+        graphicsCtx->destroy();
+    }
+
+    for (auto sampler : m_Samplers) {
+        vkDestroySampler(m_Device.logical, sampler, nullptr);
+    }
 
     for (auto [handle, texture] : m_Textures) {
         spdlog::warn("Texture {} may have been leaked", handle.id);
@@ -109,27 +99,6 @@ void SYN::VK::VulkanDevice::shutdown() {
     }
     m_Attachments.clear();
 
-    for (auto &frame : m_FrameData) {
-        frame.UBOBuffer.destroy(m_Allocator);
-        vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
-        vkDestroySemaphore(m_Device.logical, frame.imageAvailableSemaphore,
-                           nullptr);
-        vkDestroyCommandPool(m_Device.logical, frame.graphicsCmdPool, nullptr);
-        for (auto &buffer : frame.buffersToFree) {
-            VK::destroyBuffer(m_Allocator, buffer);
-        }
-        for (auto &image : frame.imagesToFree) {
-            destroyImage(m_Device, m_Allocator, image);
-        }
-        for (auto &pipeline : frame.pipelinesToFree) {
-            vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
-        }
-    }
-
-    for (const auto &semaphore : m_RenderFinishedSemaphores) {
-        vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
-    }
-
     vkDestroyDescriptorSetLayout(m_Device.logical,
                                  m_BindlessDescriptorSetLayout, nullptr);
     vkDestroyDescriptorSetLayout(m_Device.logical, m_UBODescriptorSetLayout,
@@ -152,7 +121,7 @@ void SYN::VK::VulkanDevice::shutdown() {
     vkDestroyInstance(m_Instance, nullptr);
 }
 
-void SYN::VK::VulkanDevice::initContext(Window *window) {
+void SYN::VK::VulkanRenderDevice::initContext(Window *window) {
     m_Instance = createInstance();
 
     m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
@@ -179,6 +148,30 @@ void SYN::VK::VulkanDevice::initContext(Window *window) {
     }
 
     m_Swapchain = createSwapchain(m_Device, m_Surface, *window);
+    m_SwapchainAttachmentHandles.resize(m_Swapchain.images.size());
+
+    for (size_t i{}; i < m_Swapchain.images.size(); i++) {
+        Image swapchainImage{
+            .handle = m_Swapchain.images[i],
+            .view = m_Swapchain.imageViews[i],
+            .extent = m_Swapchain.extent,
+            .subresourceRange =
+                VkImageSubresourceRange{
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .levelCount = 1,
+                    .layerCount = 1,
+                },
+        };
+
+        // TODO: add swapchain attachment to bindless descriptors and abstract
+        // bindless descriptor system into its own thingy
+        Attachment swapchainAttachment{
+            .image = swapchainImage,
+            .size = AttachmentSize::fixed,
+        };
+        AttachmentHandle handle{m_Attachments.insert(swapchainAttachment)};
+        m_SwapchainAttachmentHandles[i] = handle;
+    }
 
     VkCommandPoolCreateInfo transientCmdPoolCI{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -190,20 +183,21 @@ void SYN::VK::VulkanDevice::initContext(Window *window) {
                         &m_TransientCmdPool);
 }
 
-void SYN::VK::VulkanDevice::initDescriptorSetLayout() {
-    uint32_t descriptorCount{
-        std::min(c_MaxBindlessTextures,
+void SYN::VK::VulkanRenderDevice::initDescriptorSetLayout() {
+    uint32_t textureDescriptorCount{
+        std::min(Limits::c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages)};
-    auto textureDescriptorCount = (uint32_t)((float)descriptorCount * 0.75f);
-    auto cubeMapDescriptorCount = (uint32_t)((float)descriptorCount * 0.25f);
+    uint32_t samplerDescriptorCount{
+        std::min(Limits::c_SamplerCount,
+                 m_Device.properties.limits.maxDescriptorSetSamplers)};
 
-    VkDescriptorBindingFlags bindlessBindingFlags{
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
-    VkDescriptorBindingFlags uboBindingFlags{
+    VkDescriptorBindingFlags uboFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
 
-    std::array<VkDescriptorBindingFlags, 2> bindlessFlags{bindlessBindingFlags,
-                                                          bindlessBindingFlags};
+    std::array<VkDescriptorBindingFlags, 2> bindlessFlags{
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindlessBindingFlagsCI{
         .sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
@@ -215,23 +209,23 @@ void SYN::VK::VulkanDevice::initDescriptorSetLayout() {
         .sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
         .bindingCount = 1,
-        .pBindingFlags = &uboBindingFlags,
+        .pBindingFlags = &uboFlags,
     };
 
     VkDescriptorSetLayoutBinding textureBinding{
-        .binding = c_TextureBinding,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .binding = Limits::c_TextureBinding,
+        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         .descriptorCount = textureDescriptorCount,
         .stageFlags = VK_SHADER_STAGE_ALL};
 
-    VkDescriptorSetLayoutBinding cubeMapBinding{
-        .binding = c_CubeMapBinding,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = cubeMapDescriptorCount,
+    VkDescriptorSetLayoutBinding samplerBinding{
+        .binding = Limits::c_SamplerBinding,
+        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+        .descriptorCount = samplerDescriptorCount,
         .stageFlags = VK_SHADER_STAGE_ALL};
 
     std::array<VkDescriptorSetLayoutBinding, 2> bindlessBindings{
-        textureBinding, cubeMapBinding};
+        textureBinding, samplerBinding};
 
     VkDescriptorSetLayoutBinding uboBinding{
         .binding = 0,
@@ -274,10 +268,10 @@ void SYN::VK::VulkanDevice::initDescriptorSetLayout() {
     }
 }
 
-void SYN::VK::VulkanDevice::initPipelineLayout() {
+void SYN::VK::VulkanRenderDevice::initPipelineLayout() {
     VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_ALL,
-        .size = c_MinGuarenteedPushConstantSize,
+        .size = Limits::c_MinGuarenteedPushConstantSize,
     };
     std::array<VkDescriptorSetLayout, 2> layouts{m_BindlessDescriptorSetLayout,
                                                  m_UBODescriptorSetLayout};
@@ -299,22 +293,22 @@ void SYN::VK::VulkanDevice::initPipelineLayout() {
     }
 }
 
-void SYN::VK::VulkanDevice::initDescriptorSets() {
+void SYN::VK::VulkanRenderDevice::initDescriptorSets() {
     uint32_t textureDescriptorCount{
-        std::min(c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
-    uint32_t cubeMapDescriptorCount{
-        std::min(c_MaxBindlessCubeMaps,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages / 2)};
+        std::min(Limits::c_MaxBindlessTextures,
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+    uint32_t samplerDescriptorCount{
+        std::min(Limits::c_SamplerCount,
+                 m_Device.properties.limits.maxDescriptorSetSamplers)};
 
     std::array<VkDescriptorPoolSize, 3> poolSizes{
         VkDescriptorPoolSize{
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             .descriptorCount = textureDescriptorCount,
         },
         VkDescriptorPoolSize{
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = cubeMapDescriptorCount,
+            .type = VK_DESCRIPTOR_TYPE_SAMPLER,
+            .descriptorCount = static_cast<uint32_t>(samplerDescriptorCount),
         },
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -360,65 +354,7 @@ void SYN::VK::VulkanDevice::initDescriptorSets() {
     }
 }
 
-void SYN::VK::VulkanDevice::initFrameData(const Swapchain &swapchain) {
-    for (size_t i{}; i < c_MaxFramesInFlight; i++) {
-        VkCommandPoolCreateInfo graphicsCmdPoolCI{
-            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .queueFamilyIndex =
-                m_Device.queues[QueueFamily::graphics].familyIndex};
-        VkCommandPool graphicsCmdPool{};
-        vkCreateCommandPool(m_Device.logical, &graphicsCmdPoolCI, nullptr,
-                            &graphicsCmdPool);
-
-        VkCommandBufferAllocateInfo cmdBufferAllocInfo{
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = graphicsCmdPool,
-            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1,
-        };
-        VkCommandBuffer graphicsCmdBuffer{};
-        VkResult res{vkAllocateCommandBuffers(
-            m_Device.logical, &cmdBufferAllocInfo, &graphicsCmdBuffer)};
-        if (res != VK_SUCCESS) {
-            spdlog::error("Could not allocate command buffers, VkResult = {}",
-                          static_cast<int>(res));
-        }
-
-        VkFenceCreateInfo fenceCI{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-                                  .flags = VK_FENCE_CREATE_SIGNALED_BIT};
-        VkFence renderFinishedFence{};
-        vkCreateFence(m_Device.logical, &fenceCI, nullptr,
-                      &renderFinishedFence);
-
-        VkSemaphoreCreateInfo semaphoreCI{
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        };
-        VkSemaphore imageAvailableSemaphore{};
-        vkCreateSemaphore(m_Device.logical, &semaphoreCI, nullptr,
-                          &imageAvailableSemaphore);
-
-        DynamicUBO uboBuffer{};
-        uboBuffer.create(m_Device, m_Allocator, 1 * c_MB);
-
-        m_FrameData[i] =
-            FrameData{.graphicsCmdPool = graphicsCmdPool,
-                      .graphicsCmdBuffer = graphicsCmdBuffer,
-                      .renderFinishedFence = renderFinishedFence,
-                      .imageAvailableSemaphore = imageAvailableSemaphore,
-                      .UBOBuffer = std::move(uboBuffer)};
-    }
-    for (const auto &_ : swapchain.images) {
-        VkSemaphoreCreateInfo semaphoreCI{
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        };
-        VkSemaphore renderFinishedSemaphore{};
-        vkCreateSemaphore(m_Device.logical, &semaphoreCI, nullptr,
-                          &renderFinishedSemaphore);
-        m_RenderFinishedSemaphores.emplace_back(renderFinishedSemaphore);
-    }
-}
-
-void VK::VulkanDevice::initImGUI(Window *window) {
+void VK::VulkanRenderDevice::initImGUI(Window *window) {
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
@@ -472,7 +408,7 @@ void VK::VulkanDevice::initImGUI(Window *window) {
     ImGui_ImplVulkan_Init(&initInfo);
 }
 
-void SYN::VK::VulkanDevice::recreateSwapchain(Window &window) {
+void SYN::VK::VulkanRenderDevice::recreateSwapchain(Window &window) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Swapchain newSwapchain{
@@ -480,51 +416,69 @@ void SYN::VK::VulkanDevice::recreateSwapchain(Window &window) {
     destroySwapchain(m_Swapchain, m_Device);
     m_Swapchain = newSwapchain;
 
+    for (auto handle : m_SwapchainAttachmentHandles) {
+        m_Attachments.remove(handle);
+    }
+
+    m_SwapchainAttachmentHandles.clear();
+    m_SwapchainAttachmentHandles.resize(m_Swapchain.images.size());
+
+    for (size_t i{}; i < m_Swapchain.images.size(); i++) {
+        Image swapchainImage{
+            .handle = m_Swapchain.images[i],
+            .view = m_Swapchain.imageViews[i],
+            .extent = m_Swapchain.extent,
+            .subresourceRange =
+                VkImageSubresourceRange{
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .levelCount = 1,
+                    .layerCount = 1,
+                },
+        };
+
+        Attachment swapchainAttachment{
+            .image = swapchainImage,
+            .size = AttachmentSize::fixed,
+        };
+        AttachmentHandle handle{m_Attachments.insert(swapchainAttachment)};
+        m_SwapchainAttachmentHandles[i] = handle;
+    }
+
     for (const auto &[handle, attachment] : m_Attachments) {
         if (attachment.size != AttachmentSize::relative) {
             continue;
         }
 
-        Image &image{attachment.image};
+        {
+            Image prevImage{attachment.image};
+            attachment.image = createImage(
+                m_Device, m_Allocator, prevImage.format, m_Swapchain.extent,
+                prevImage.usage, prevImage.subresourceRange.aspectMask,
+                prevImage.samples, prevImage.mipLevels, prevImage.layerCount,
+                prevImage.isCubeMap);
 
-        VkFormat format{image.format};
-        VkImageUsageFlags usage{image.usage};
-        VkImageAspectFlags aspect{image.subresourceRange.aspectMask};
-        destroyImage(m_Device, m_Allocator, image);
-        if (image.mipLevels != 1) {
-            spdlog::warn("Not recreating mip chain on swapchain recreation, "
-                         "attachments should have only 1 mip level");
+            destroyImage(m_Device, m_Allocator, prevImage);
         }
-        image = createImage(m_Device, m_Allocator, format, m_Swapchain.extent,
-                            usage, aspect, image.samples, image.mipLevels,
-                            image.layerCount, image.isCubeMap);
 
-        generateMipChain(m_TransientCmdPool, m_Device, image,
+        generateMipChain(m_TransientCmdPool, m_Device, attachment.image,
                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                          VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
                          VK_ACCESS_2_SHADER_READ_BIT);
 
         uint32_t descriptorElement{attachment.bindlessSamplerIndex};
-        uint32_t descriptorBinding{};
-        if (!image.isCubeMap) {
-            descriptorBinding = c_TextureBinding;
-        } else {
-            descriptorBinding = c_CubeMapBinding;
-        }
 
         VkDescriptorImageInfo imageInfo{
-            .sampler = m_DefaultSampler,
-            .imageView = image.view,
+            .imageView = attachment.image.view,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
 
         VkWriteDescriptorSet bindlessWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = m_BindlessDescriptorSet,
-            .dstBinding = descriptorBinding,
+            .dstBinding = Limits::c_TextureBinding,
             .dstArrayElement = descriptorElement,
             .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             .pImageInfo = &imageInfo,
         };
 
@@ -532,6 +486,31 @@ void SYN::VK::VulkanDevice::recreateSwapchain(Window &window) {
     }
 }
 
-std::unique_ptr<IGraphicsContext> SYN::VK::VulkanDevice::makeGraphicsContext() {
-    return std::make_unique<VulkanGraphicsContext>(this);
+IGraphicsContext *SYN::VK::VulkanRenderDevice::makeGraphicsContext() {
+    m_GraphicsContexts.emplace_back(
+        std::make_unique<VulkanGraphicsContext>(this));
+
+    return static_cast<IGraphicsContext *>(m_GraphicsContexts.back().get());
+}
+
+void SYN::VK::VulkanRenderDevice::initSamplers() {
+    for (uint32_t i{}; i < Limits::c_SamplerCount; i++) {
+        VkSamplerCreateInfo samplerCI{CI::c_SamplerCIs.at(i)};
+        samplerCI.maxAnisotropy =
+            std::min(4.f, m_Device.properties.limits.maxSamplerAnisotropy);
+
+        vkCreateSampler(m_Device.logical, &samplerCI, nullptr, &m_Samplers[i]);
+
+        VkDescriptorImageInfo imageInfo{.sampler = m_Samplers[i]};
+        VkWriteDescriptorSet bindlessWrite{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = m_BindlessDescriptorSet,
+            .dstBinding = Limits::c_SamplerBinding,
+            .dstArrayElement = i,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+            .pImageInfo = &imageInfo};
+
+        vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
+    }
 }

@@ -1,9 +1,5 @@
 #version 450
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_nonuniform_qualifier : require
-
-layout(set = 0, binding = 0) uniform sampler2D textures[];
-layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
+#include "Bindless.glsl"
 
 layout(location = 0) in vec3 lookDir;
 
@@ -18,5 +14,5 @@ layout(set = 1, binding = 0) uniform Uniform {
 };
 
 void main() {
-    outColor = vec4(texture(cubeMaps[cubeMapIndex], normalize(lookDir)));
+    outColor = sampleCubeLinear(cubeMapIndex, normalize(lookDir));
 }

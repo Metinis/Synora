@@ -1,9 +1,5 @@
 #version 450
-#extension GL_EXT_buffer_reference : require // needed for vertex pulling
-#extension GL_EXT_nonuniform_qualifier : require
-
-layout(set = 0, binding = 0) uniform sampler2D textures[];
-layout(set = 0, binding = 1) uniform samplerCube cubeMaps[];
+#include "Bindless.glsl"
 
 layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec3 outWorldPos;

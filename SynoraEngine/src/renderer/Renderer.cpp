@@ -9,7 +9,7 @@
 #include <memory>
 #include <vulkan/vulkan_core.h>
 
-#include "backends/vulkan/Device.h"
+#include "backends/vulkan/RenderDevice.h"
 
 using namespace SYN;
 
@@ -21,7 +21,7 @@ SYN::Renderer::Renderer() = default;
 SYN::Renderer::~Renderer() = default;
 
 void SYN::Renderer::init(EngineContext *ctx) {
-    m_Device = std::make_unique<VK::VulkanDevice>();
+    m_Device = std::make_unique<VK::VulkanRenderDevice>();
     m_Device->init(ctx->window.get());
 
     m_GraphicsCtx = m_Device->makeGraphicsContext();
@@ -68,7 +68,10 @@ void SYN::Renderer::init(EngineContext *ctx) {
 }
 
 void SYN::Renderer::render(Window &window) {
-    m_GraphicsCtx->beginFrame(*m_Window);
+    if (!m_GraphicsCtx->beginFrame(*m_Window)) {
+        m_DrawCalls.clear();
+        return;
+    }
 
     AttachmentHandle swapchainAttachment{
         m_GraphicsCtx->acquireSwapchainAttachmentCmd()};
@@ -114,26 +117,29 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
                                   meshData.indices.size() * sizeof(uint32_t),
                                   meshData.indices.data());
 
-    TextureHandle albedo{
-        m_Device->createTexture({.width = meshData.albedo->width,
-                                 .height = meshData.albedo->height,
-                                 .type = TextureType::srgb})};
+    TextureHandle albedo{m_Device->createTexture({
+        .width = meshData.albedo->width,
+        .height = meshData.albedo->height,
+        .type = TextureType::srgb,
+    })};
     m_GraphicsCtx->uploadToTexture(albedo, meshData.albedo->data,
                                    meshData.albedo->width,
                                    meshData.albedo->height);
 
-    TextureHandle metallicRoughness{
-        m_Device->createTexture({.width = meshData.metallicRoughness->width,
-                                 .height = meshData.metallicRoughness->height,
-                                 .type = TextureType::rgba})};
+    TextureHandle metallicRoughness{m_Device->createTexture({
+        .width = meshData.metallicRoughness->width,
+        .height = meshData.metallicRoughness->height,
+        .type = TextureType::rgba,
+    })};
     m_GraphicsCtx->uploadToTexture(
         metallicRoughness, meshData.metallicRoughness->data,
         meshData.metallicRoughness->width, meshData.metallicRoughness->height);
 
-    TextureHandle normalMap{
-        m_Device->createTexture({.width = meshData.normalMap->width,
-                                 .height = meshData.normalMap->height,
-                                 .type = TextureType::rgba})};
+    TextureHandle normalMap{m_Device->createTexture({
+        .width = meshData.normalMap->width,
+        .height = meshData.normalMap->height,
+        .type = TextureType::rgba,
+    })};
     m_GraphicsCtx->uploadToTexture(normalMap, meshData.normalMap->data,
                                    meshData.normalMap->width,
                                    meshData.normalMap->height);

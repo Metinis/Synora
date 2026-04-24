@@ -12,7 +12,7 @@ namespace SYN {
 class Window;
 class IDevice;
 class IGraphicsContext;
-class IGraphicsContext;
+class IRenderDevice;
 class RenderGraph;
 
 struct Camera {
@@ -61,8 +61,8 @@ class Renderer {
     glm::mat4 m_CurrentCameraProjection;
     glm::mat4 m_CurrentCameraView;
 
-    std::unique_ptr<IDevice> m_Device;
-    std::unique_ptr<IGraphicsContext> m_GraphicsCtx;
+    std::unique_ptr<IRenderDevice> m_Device;
+    IGraphicsContext *m_GraphicsCtx;
 
     Window *m_Window;
     std::unique_ptr<RenderGraph> m_RenderGraph;

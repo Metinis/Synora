@@ -9,10 +9,10 @@ struct MeshData;
 namespace SYN {
 class Window;
 
-class IDevice {
+class IRenderDevice {
   public:
-    IDevice() = default;
-    virtual ~IDevice() = default;
+    IRenderDevice() = default;
+    virtual ~IRenderDevice() = default;
 
     virtual void init(Window *window) = 0;
 
@@ -28,7 +28,7 @@ class IDevice {
     virtual PipelineHandle createPipeline(const GraphicsPipelineDesc &desc) = 0;
     virtual void destroyPipeline(PipelineHandle &pipeline) = 0;
 
-    virtual std::unique_ptr<IGraphicsContext> makeGraphicsContext() = 0;
+    virtual IGraphicsContext *makeGraphicsContext() = 0;
 
     virtual void shutdown() = 0;
 };

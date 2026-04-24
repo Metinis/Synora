@@ -27,8 +27,8 @@ SYN::GraphicsPipelineDesc SYN::ImGUIPass::getPipelineDesc() const {
     constexpr GraphicsPipelineDesc c_PipelineDesc{
         .cullMode = CullMode::backFace,
         .nColorAttachments = 1,
-        .vertexShaderPath = "generated/shaders/first.vert.spv",
-        .fragmentShaderPath = "generated/shaders/first.frag.spv",
+        .vertexShaderPath = "generated/shaders/lighting.vert.spv",
+        .fragmentShaderPath = "generated/shaders/lighting.frag.spv",
     };
     return c_PipelineDesc;
 }

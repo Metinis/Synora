@@ -13,13 +13,13 @@ std::vector<size_t>
 makeTopoSorted(const std::vector<std::unique_ptr<IRenderPass>> &renderPasses);
 }
 
-void RenderGraph::compile(IDevice &device) {
+void RenderGraph::compile(IRenderDevice &renderDevice) {
     m_PipelineHandles.resize(m_Passes.size());
     for (size_t i{}; i < m_Passes.size(); i++) {
         IRenderPass *pass{m_Passes[i].get()};
         GraphicsPipelineDesc pipelineDesc{pass->getPipelineDesc()};
         if (!m_PipelineCache.contains(pipelineDesc)) {
-            PipelineHandle pipeline{device.createPipeline(pipelineDesc)};
+            PipelineHandle pipeline{renderDevice.createPipeline(pipelineDesc)};
             m_PipelineCache[pipelineDesc] = pipeline;
             m_PipelineHandles[i] = pipeline;
         } else {
@@ -50,9 +50,9 @@ void RenderGraph::execute(IGraphicsContext &ctx) {
     m_Compiled = false;
 }
 
-void RenderGraph::shutdown(IDevice &device) {
+void RenderGraph::shutdown(IRenderDevice &renderDevice) {
     for (auto &[desc, pipeline] : m_PipelineCache) {
-        device.destroyPipeline(pipeline);
+        renderDevice.destroyPipeline(pipeline);
     }
 }
 

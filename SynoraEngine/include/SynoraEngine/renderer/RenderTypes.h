@@ -17,6 +17,8 @@ template <typename T> struct GPUResourceHandle {
     bool operator==(const GPUResourceHandle<T> &other) const {
         return id == other.id;
     }
+
+    bool isValid() const { return id != UINT32_MAX; }
 };
 
 enum class TextureType { invalid, srgb, depth, rgba };
@@ -70,11 +72,14 @@ struct GraphicsPipelineDesc {
     bool operator==(const GraphicsPipelineDesc &other) const = default;
 };
 
+struct ReceiptDesc {};
+
 // we use the descriptions to keep the handle types different
 using TextureHandle = GPUResourceHandle<TextureDesc>;
 using AttachmentHandle = GPUResourceHandle<AttachmentDesc>;
 using BufferHandle = GPUResourceHandle<BufferDesc>;
 using PipelineHandle = GPUResourceHandle<GraphicsPipelineDesc>;
+using ReceiptHandle = GPUResourceHandle<ReceiptDesc>;
 
 struct Viewport {
     uint32_t width;
