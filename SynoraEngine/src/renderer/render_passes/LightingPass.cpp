@@ -1,6 +1,5 @@
 #include "LightingPass.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "renderer/backends/IGraphicsContext.h"
 #include <glm/ext.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
@@ -58,7 +57,7 @@ SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
     };
 }
 
-void SYN::LightingPass::execute(IGraphicsContext &ctx,
+void SYN::LightingPass::execute(GraphicsCommandBuffer &cmdBuffer,
                                 PipelineHandle pipeline) {
     LightCaster sun{.pos = glm::vec3(0.f, 1.f, -1.f),
                     .color = glm::vec3(1.f, 1.f, 1.f),
@@ -82,7 +81,7 @@ void SYN::LightingPass::execute(IGraphicsContext &ctx,
     };
     uniform.lights = lights;
 
-    ctx.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
+    cmdBuffer.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
     for (const auto &drawCall : m_DrawCalls) {
         if (drawCall.mesh.numIndices == 0) {
@@ -91,20 +90,23 @@ void SYN::LightingPass::execute(IGraphicsContext &ctx,
 
         PushConstants pushConstants{
             .modelMat = drawCall.modelMatrix,
-            .vertexBuffer = ctx.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
-            .indexBuffer = ctx.getBufferAddressCmd(drawCall.mesh.indexBuffer),
-            .albedoIndex = ctx.getShaderSamplerIndexCmd(drawCall.mesh.albedo),
-            .metallicRoughnessIndex =
-                ctx.getShaderSamplerIndexCmd(drawCall.mesh.metallicRoughness),
+            .vertexBuffer =
+                cmdBuffer.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
+            .indexBuffer =
+                cmdBuffer.getBufferAddressCmd(drawCall.mesh.indexBuffer),
+            .albedoIndex =
+                cmdBuffer.getShaderTextureIndexCmd(drawCall.mesh.albedo),
+            .metallicRoughnessIndex = cmdBuffer.getShaderTextureIndexCmd(
+                drawCall.mesh.metallicRoughness),
             .normalMapIndex =
-                ctx.getShaderSamplerIndexCmd(drawCall.mesh.normalMap),
+                cmdBuffer.getShaderTextureIndexCmd(drawCall.mesh.normalMap),
         };
 
-        ctx.setPushConstantsCmd(pushConstants);
+        cmdBuffer.setPushConstantsCmd(pushConstants);
 
-        ctx.drawCmd(drawCall.mesh.numIndices);
+        cmdBuffer.drawCmd(drawCall.mesh.numIndices);
     }
-    ctx.endRenderPassCmd();
+    cmdBuffer.endRenderPassCmd();
 }
 
 RenderPassDesc SYN::LightingPass::getPassDesc() {

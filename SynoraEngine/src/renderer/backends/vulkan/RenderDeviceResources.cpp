@@ -21,7 +21,7 @@
 using namespace SYN;
 using namespace SYN::VK;
 
-BufferHandle SYN::VK::VulkanRenderDevice::createBuffer(const BufferDesc &desc) {
+BufferHandle SYN::RenderDevice::createBuffer(const BufferDesc &desc) {
     Buffer buffer{
         VK::createBuffer(m_Device, m_Allocator, desc.size,
                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
@@ -34,7 +34,7 @@ BufferHandle SYN::VK::VulkanRenderDevice::createBuffer(const BufferDesc &desc) {
     return handle;
 }
 
-void SYN::VK::VulkanRenderDevice::destroyBuffer(BufferHandle handle) {
+void SYN::RenderDevice::destroyBuffer(BufferHandle handle) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Buffer buffer{m_Buffers[handle]};
@@ -46,8 +46,7 @@ void SYN::VK::VulkanRenderDevice::destroyBuffer(BufferHandle handle) {
     handle.id = UINT32_MAX;
 }
 
-TextureHandle
-SYN::VK::VulkanRenderDevice::createTexture(const TextureDesc &desc) {
+TextureHandle SYN::RenderDevice::createTexture(const TextureDesc &desc) {
     VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -123,7 +122,7 @@ SYN::VK::VulkanRenderDevice::createTexture(const TextureDesc &desc) {
     return handle;
 }
 
-void SYN::VK::VulkanRenderDevice::destroyTexture(TextureHandle handle) {
+void SYN::RenderDevice::destroyTexture(TextureHandle handle) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Texture texture{m_Textures[handle]};
@@ -137,7 +136,7 @@ void SYN::VK::VulkanRenderDevice::destroyTexture(TextureHandle handle) {
 }
 
 AttachmentHandle
-SYN::VK::VulkanRenderDevice::createAttachment(const AttachmentDesc &desc) {
+SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
     VkFormat format{};
     VkImageAspectFlags aspect{};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_SAMPLED_BIT};
@@ -223,7 +222,7 @@ SYN::VK::VulkanRenderDevice::createAttachment(const AttachmentDesc &desc) {
     return m_Attachments.insert(attachment);
 }
 
-void SYN::VK::VulkanRenderDevice::destroyAttachment(AttachmentHandle &handle) {
+void SYN::RenderDevice::destroyAttachment(AttachmentHandle &handle) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Attachment &attachment{m_Attachments[handle]};
@@ -237,7 +236,7 @@ void SYN::VK::VulkanRenderDevice::destroyAttachment(AttachmentHandle &handle) {
 }
 
 PipelineHandle
-SYN::VK::VulkanRenderDevice::createPipeline(const GraphicsPipelineDesc &desc) {
+SYN::RenderDevice::createPipeline(const GraphicsPipelineDesc &desc) {
     GraphicsPipelineBuilder pipelineBuilder{};
     pipelineBuilder.setInputAssembly(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
@@ -295,7 +294,7 @@ SYN::VK::VulkanRenderDevice::createPipeline(const GraphicsPipelineDesc &desc) {
     return m_Pipelines.insert(pipeline);
 }
 
-void SYN::VK::VulkanRenderDevice::destroyPipeline(PipelineHandle &handle) {
+void SYN::RenderDevice::destroyPipeline(PipelineHandle &handle) {
     vkDeviceWaitIdle(m_Device.logical);
 
     VkPipeline pipeline{m_Pipelines[handle]};

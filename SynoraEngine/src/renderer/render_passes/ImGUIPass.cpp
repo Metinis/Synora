@@ -1,5 +1,4 @@
 #include "ImGUIPass.h"
-#include "renderer/backends/IGraphicsContext.h"
 
 SYN::ImGUIPass::ImGUIPass(AttachmentHandle colorAttachment) {
     m_ColorAttachment = WriteAttachmentInfo{.handle = colorAttachment,
@@ -8,12 +7,13 @@ SYN::ImGUIPass::ImGUIPass(AttachmentHandle colorAttachment) {
                                             .clearColor = {0.f, 0.f, 0.f, 1.f}};
 }
 
-void SYN::ImGUIPass::execute(IGraphicsContext &ctx, PipelineHandle pipeline) {
-    ctx.beginRenderPassCmd(getPassDesc(), pipeline);
+void SYN::ImGUIPass::execute(GraphicsCommandBuffer &cmdBuffer,
+                             PipelineHandle pipeline) {
+    cmdBuffer.beginRenderPassCmd(getPassDesc(), pipeline);
 
-    ctx.drawImGUI();
+    cmdBuffer.drawImGUI();
 
-    ctx.endRenderPassCmd();
+    cmdBuffer.endRenderPassCmd();
 }
 
 SYN::RenderPassDesc SYN::ImGUIPass::getPassDesc() {

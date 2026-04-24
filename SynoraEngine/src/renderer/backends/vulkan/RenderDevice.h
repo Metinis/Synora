@@ -8,9 +8,9 @@
 #include "core/SlotMap.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
-#include "renderer/backends/IRenderDevice.h"
-#include "renderer/backends/vulkan/GraphicsContext.h"
+#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 #include "renderer/backends/vulkan/Limits.h"
+#include "renderer/backends/vulkan/UploadCommandBuffer.h"
 
 #include <stb_image.h>
 #include <vulkan/vulkan.h>
@@ -38,82 +38,85 @@ struct Receipt {
     uint64_t waitValue;
 };
 
-class VulkanRenderDevice : public IRenderDevice {
+struct FrameData {
+    VkCommandPool graphicsCmdPool{};
+    VkCommandBuffer graphicsCmdBuffer{};
+
+    VkFence renderFinishedFence{};
+    VkSemaphore imageAvailableSemaphore{};
+
+    DynamicUBO UBOBuffer;
+};
+} // namespace SYN::VK
+
+namespace SYN {
+
+class RenderDevice {
   public:
-    VulkanRenderDevice() = default;
-    ~VulkanRenderDevice() = default;
+    RenderDevice() = default;
+    ~RenderDevice() = default;
 
-    void init(Window *window) override;
+    void init(Window &window);
 
-    BufferHandle createBuffer(const BufferDesc &desc) override;
-    void destroyBuffer(BufferHandle handle) override;
+    BufferHandle createBuffer(const BufferDesc &desc);
+    void destroyBuffer(BufferHandle handle);
 
-    TextureHandle createTexture(const TextureDesc &desc) override;
+    TextureHandle createTexture(const TextureDesc &desc);
+    void destroyTexture(TextureHandle handle);
 
-    void destroyTexture(TextureHandle handle) override;
+    AttachmentHandle createAttachment(const AttachmentDesc &desc);
+    void destroyAttachment(AttachmentHandle &attachment);
 
-    AttachmentHandle createAttachment(const AttachmentDesc &desc) override;
-    void destroyAttachment(AttachmentHandle &attachment) override;
+    PipelineHandle createPipeline(const GraphicsPipelineDesc &desc);
+    void destroyPipeline(PipelineHandle &pipeline);
 
-    PipelineHandle createPipeline(const GraphicsPipelineDesc &desc) override;
-    void destroyPipeline(PipelineHandle &pipeline) override;
+    GraphicsCommandBuffer acquireGraphicsCmdBuffer();
+    UploadCommandBuffer acquireUploadCmdBuffer();
+
+    AttachmentHandle acquireSwapchainAttachment();
+
+    bool beginFrame(Window &window);
+    void submitWork(GraphicsCommandBuffer &cmdBuffer);
+    void submitWork(UploadCommandBuffer &cmdBuffer);
+    // ends frame
+    void present(Window &window);
+
+    void shutdown();
+
+  private:
+    friend class GraphicsCommandBuffer;
+    friend class UploadCommandBuffer;
+
+    void initContext(Window *window);
+    void initDescriptorSetLayout();
+    void initPipelineLayout();
+    void initDescriptorSets();
+    void initFrameData(const VK::Swapchain &swapchain);
+    void initImGUI(Window *window);
+    void initSamplers();
 
     void recreateSwapchain(Window &window);
-
-    IGraphicsContext *makeGraphicsContext() override;
-
-    inline const Device &getDevice() const { return m_Device; }
-    inline const VmaAllocator &getAllocator() const { return m_Allocator; }
-    inline const Swapchain &getSwapchain() const { return m_Swapchain; }
 
     inline AttachmentHandle
     getSwapchainAttachmentHandle(uint32_t imageIndex) const {
         return m_SwapchainAttachmentHandles.at(imageIndex);
     }
 
-    inline Buffer &getBuffer(BufferHandle handle) { return m_Buffers[handle]; }
-    inline Texture &getTexture(TextureHandle handle) {
-        return m_Textures[handle];
+    inline VK::FrameData &getCurrentFrame() {
+        return m_FrameData[m_CurrentFrameIndex];
     }
-    inline VkPipeline &getPipeline(PipelineHandle handle) {
-        return m_Pipelines[handle];
-    }
-    inline Attachment &getAttachment(AttachmentHandle handle) {
-        return m_Attachments[handle];
-    }
-
-    inline StagingBuffer &getStagingBuffer() { return m_StagingBuffer; }
-
-    inline VkDescriptorSet getUBODescriptorSet() const {
-        return m_UBODescriptorSet;
-    }
-    inline VkPipelineLayout getGraphicsPipelineLayout() const {
-        return m_GraphicsPipelineLayout;
-    }
-    inline VkDescriptorSet getBindlessDescriptorSet() const {
-        return m_BindlessDescriptorSet;
-    }
-
-    void shutdown() override;
-
-  private:
-    void initContext(Window *window);
-    void initDescriptorSetLayout();
-    void initPipelineLayout();
-    void initDescriptorSets();
-    void initFrameData(const Swapchain &swapchain);
-    void initImGUI(Window *window);
-    void initSamplers();
 
     // context
     VkInstance m_Instance{};
     VkSurfaceKHR m_Surface{};
     VkDebugUtilsMessengerEXT m_DebugUtilsMessenger{};
-    Device m_Device{};
+    VK::Device m_Device{};
 
     VmaAllocator_T *m_Allocator{};
 
-    Swapchain m_Swapchain{};
+    VK::Swapchain m_Swapchain{};
+    std::vector<VkSemaphore> m_RenderFinishedSemaphores{};
+    uint32_t m_CurrentSwapchainImageIndex{};
 
     // global
     VkCommandPool m_TransientCmdPool{};
@@ -130,24 +133,26 @@ class VulkanRenderDevice : public IRenderDevice {
 
     std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
 
-    std::array<VkSampler, Limits::c_SamplerCount> m_Samplers{};
+    std::array<VkSampler, VK::Limits::c_SamplerCount> m_Samplers{};
 
-    StagingBuffer m_StagingBuffer{};
+    VK::StagingBuffer m_StagingBuffer{};
+
+    // per frame
+    std::array<VK::FrameData, VK::Limits::c_MaxFramesInFlight> m_FrameData{};
+    uint32_t m_CurrentFrameIndex{};
 
     // imgui
     VkDescriptorPool m_ImGUIDescriptorPool{};
 
     // resources
-    SlotMap<BufferHandle, Buffer> m_Buffers{};
-    SlotMap<TextureHandle, Texture> m_Textures{};
-    SlotMap<PipelineHandle, VkPipeline> m_Pipelines{};
+    VK::SlotMap<BufferHandle, VK::Buffer> m_Buffers{};
+    VK::SlotMap<TextureHandle, VK::Texture> m_Textures{};
+    VK::SlotMap<PipelineHandle, VkPipeline> m_Pipelines{};
 
-    SlotMap<AttachmentHandle, Attachment> m_Attachments{};
+    VK::SlotMap<AttachmentHandle, VK::Attachment> m_Attachments{};
     std::vector<AttachmentHandle> m_SwapchainAttachmentHandles{};
 
-    SlotMap<ReceiptHandle, Receipt> m_Receipts{};
-
-    std::vector<std::unique_ptr<VulkanGraphicsContext>> m_GraphicsContexts;
+    VK::SlotMap<ReceiptHandle, VK::Receipt> m_Receipts{};
 };
 
-} // namespace SYN::VK
+} // namespace SYN

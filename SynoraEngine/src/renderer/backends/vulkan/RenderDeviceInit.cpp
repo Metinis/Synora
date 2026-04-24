@@ -1,4 +1,3 @@
-#include "GraphicsContext.h"
 #include "Limits.h"
 #include "RenderDevice.h"
 #include "core/Buffer.h"
@@ -26,7 +25,6 @@
 
 #include "imgui_impl_glfw.h"
 #include "imgui_internal.h"
-#include "renderer/backends/IGraphicsContext.h"
 #include "renderer/backends/vulkan/CreateInfos.h"
 
 using namespace SYN;
@@ -37,16 +35,17 @@ constexpr uint32_t c_MB{1024 * 1024};
 
 } // namespace
 
-void SYN::VK::VulkanRenderDevice::init(Window *window) {
-    initContext(window);
+void SYN::RenderDevice::init(Window &window) {
+    initContext(&window);
 
+    initFrameData(m_Swapchain);
     initDescriptorSetLayout();
     initDescriptorSets();
     initPipelineLayout();
 
     initSamplers();
 
-    initImGUI(window);
+    initImGUI(&window);
 
     m_StagingBuffer =
         StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 4);
@@ -61,15 +60,24 @@ void SYN::VK::VulkanRenderDevice::init(Window *window) {
     }
 }
 
-void SYN::VK::VulkanRenderDevice::shutdown() {
+void SYN::RenderDevice::shutdown() {
     vkDeviceWaitIdle(m_Device.logical);
 
     for (auto handle : m_SwapchainAttachmentHandles) {
         m_Attachments.remove(handle);
     }
 
-    for (auto &graphicsCtx : m_GraphicsContexts) {
-        graphicsCtx->destroy();
+    for (auto &frame : m_FrameData) {
+        frame.UBOBuffer.destroy(m_Allocator);
+
+        vkDestroyFence(m_Device.logical, frame.renderFinishedFence, nullptr);
+        vkDestroySemaphore(m_Device.logical, frame.imageAvailableSemaphore,
+                           nullptr);
+        vkDestroyCommandPool(m_Device.logical, frame.graphicsCmdPool, nullptr);
+    }
+
+    for (const auto &semaphore : m_RenderFinishedSemaphores) {
+        vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
     }
 
     for (auto sampler : m_Samplers) {
@@ -121,7 +129,7 @@ void SYN::VK::VulkanRenderDevice::shutdown() {
     vkDestroyInstance(m_Instance, nullptr);
 }
 
-void SYN::VK::VulkanRenderDevice::initContext(Window *window) {
+void SYN::RenderDevice::initContext(Window *window) {
     m_Instance = createInstance();
 
     m_DebugUtilsMessenger = createDebugMessenger(m_Instance);
@@ -183,7 +191,7 @@ void SYN::VK::VulkanRenderDevice::initContext(Window *window) {
                         &m_TransientCmdPool);
 }
 
-void SYN::VK::VulkanRenderDevice::initDescriptorSetLayout() {
+void SYN::RenderDevice::initDescriptorSetLayout() {
     uint32_t textureDescriptorCount{
         std::min(Limits::c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages)};
@@ -268,7 +276,7 @@ void SYN::VK::VulkanRenderDevice::initDescriptorSetLayout() {
     }
 }
 
-void SYN::VK::VulkanRenderDevice::initPipelineLayout() {
+void SYN::RenderDevice::initPipelineLayout() {
     VkPushConstantRange pushConstantRange{
         .stageFlags = VK_SHADER_STAGE_ALL,
         .size = Limits::c_MinGuarenteedPushConstantSize,
@@ -293,7 +301,7 @@ void SYN::VK::VulkanRenderDevice::initPipelineLayout() {
     }
 }
 
-void SYN::VK::VulkanRenderDevice::initDescriptorSets() {
+void SYN::RenderDevice::initDescriptorSets() {
     uint32_t textureDescriptorCount{
         std::min(Limits::c_MaxBindlessTextures,
                  m_Device.properties.limits.maxDescriptorSetSampledImages)};
@@ -354,7 +362,7 @@ void SYN::VK::VulkanRenderDevice::initDescriptorSets() {
     }
 }
 
-void VK::VulkanRenderDevice::initImGUI(Window *window) {
+void SYN::RenderDevice::initImGUI(Window *window) {
     VkDescriptorPoolSize poolSizes[] = {
         {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
@@ -408,7 +416,65 @@ void VK::VulkanRenderDevice::initImGUI(Window *window) {
     ImGui_ImplVulkan_Init(&initInfo);
 }
 
-void SYN::VK::VulkanRenderDevice::recreateSwapchain(Window &window) {
+void SYN::RenderDevice::initFrameData(const Swapchain &swapchain) {
+    for (size_t i{}; i < Limits::c_MaxFramesInFlight; i++) {
+        VkCommandPoolCreateInfo graphicsCmdPoolCI{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .queueFamilyIndex =
+                m_Device.queues.at(QueueFamily::graphics).familyIndex};
+        VkCommandPool graphicsCmdPool{};
+        vkCreateCommandPool(m_Device.logical, &graphicsCmdPoolCI, nullptr,
+                            &graphicsCmdPool);
+
+        VkCommandBufferAllocateInfo cmdBufferAllocInfo{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = graphicsCmdPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+        VkCommandBuffer graphicsCmdBuffer{};
+        VkResult res{vkAllocateCommandBuffers(
+            m_Device.logical, &cmdBufferAllocInfo, &graphicsCmdBuffer)};
+        if (res != VK_SUCCESS) {
+            spdlog::error("Could not allocate command buffers, VkResult = {}",
+                          static_cast<int>(res));
+        }
+
+        VkFenceCreateInfo fenceCI{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                                  .flags = VK_FENCE_CREATE_SIGNALED_BIT};
+        VkFence renderFinishedFence{};
+        vkCreateFence(m_Device.logical, &fenceCI, nullptr,
+                      &renderFinishedFence);
+
+        VkSemaphoreCreateInfo semaphoreCI{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+        VkSemaphore imageAvailableSemaphore{};
+        vkCreateSemaphore(m_Device.logical, &semaphoreCI, nullptr,
+                          &imageAvailableSemaphore);
+
+        DynamicUBO uboBuffer{};
+        uboBuffer.create(m_Device, m_Allocator, 1 * c_MB);
+
+        m_FrameData[i] =
+            FrameData{.graphicsCmdPool = graphicsCmdPool,
+                      .graphicsCmdBuffer = graphicsCmdBuffer,
+                      .renderFinishedFence = renderFinishedFence,
+                      .imageAvailableSemaphore = imageAvailableSemaphore,
+                      .UBOBuffer = std::move(uboBuffer)};
+    }
+    for (const auto &_ : swapchain.images) {
+        VkSemaphoreCreateInfo semaphoreCI{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+        VkSemaphore renderFinishedSemaphore{};
+        vkCreateSemaphore(m_Device.logical, &semaphoreCI, nullptr,
+                          &renderFinishedSemaphore);
+        m_RenderFinishedSemaphores.emplace_back(renderFinishedSemaphore);
+    }
+}
+
+void SYN::RenderDevice::recreateSwapchain(Window &window) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Swapchain newSwapchain{
@@ -486,14 +552,7 @@ void SYN::VK::VulkanRenderDevice::recreateSwapchain(Window &window) {
     }
 }
 
-IGraphicsContext *SYN::VK::VulkanRenderDevice::makeGraphicsContext() {
-    m_GraphicsContexts.emplace_back(
-        std::make_unique<VulkanGraphicsContext>(this));
-
-    return static_cast<IGraphicsContext *>(m_GraphicsContexts.back().get());
-}
-
-void SYN::VK::VulkanRenderDevice::initSamplers() {
+void SYN::RenderDevice::initSamplers() {
     for (uint32_t i{}; i < Limits::c_SamplerCount; i++) {
         VkSamplerCreateInfo samplerCI{CI::c_SamplerCIs.at(i)};
         samplerCI.maxAnisotropy =

@@ -1,6 +1,5 @@
 #include "SkyBoxPass.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "renderer/backends/IGraphicsContext.h"
 #include <glm/ext.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
@@ -38,21 +37,22 @@ SYN::SkyBoxPass::SkyBoxPass(uint32_t msaaSampleCount,
                                             .loadOp = LoadOp::load};
 }
 
-void SYN::SkyBoxPass::execute(IGraphicsContext &ctx, PipelineHandle pipeline) {
+void SYN::SkyBoxPass::execute(GraphicsCommandBuffer &cmdBuffer,
+                              PipelineHandle pipeline) {
     Uniforms uniform{.invProjectionViewMat =
                          glm::inverse(m_CameraProjection *
                                       glm::mat4(glm::mat3(m_CameraView)))};
 
-    ctx.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
+    cmdBuffer.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
     PushConstants pushConstants{
-        .cubeMapIndex = ctx.getShaderSamplerIndexCmd(m_SkyBox),
+        .cubeMapIndex = cmdBuffer.getShaderTextureIndexCmd(m_SkyBox),
     };
 
-    ctx.setPushConstantsCmd(pushConstants);
+    cmdBuffer.setPushConstantsCmd(pushConstants);
 
-    ctx.drawCmd(6); // 6 vertices in 2 triangles for full screen pass
-    ctx.endRenderPassCmd();
+    cmdBuffer.drawCmd(6); // 6 vertices in 2 triangles for full screen pass
+    cmdBuffer.endRenderPassCmd();
 }
 
 RenderPassDesc SYN::SkyBoxPass::getPassDesc() {

@@ -1,9 +1,10 @@
 #pragma once
 #include "RenderTypes.h"
+#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 
 namespace SYN {
 
-class IGraphicsContext;
+class GraphicsCommandBuffer;
 
 struct RenderPassNode {
     std::string debugName;
@@ -15,7 +16,8 @@ class IRenderPass {
   public:
     IRenderPass() = default;
     virtual ~IRenderPass() = default;
-    virtual void execute(IGraphicsContext &ctx, PipelineHandle pipeline) = 0;
+    virtual void execute(GraphicsCommandBuffer &cmdBuffer,
+                         PipelineHandle pipeline) = 0;
     virtual RenderPassDesc getPassDesc() = 0;
     virtual GraphicsPipelineDesc getPipelineDesc() const = 0;
 

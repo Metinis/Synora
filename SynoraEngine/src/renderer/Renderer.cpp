@@ -6,10 +6,10 @@
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
+#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
+#include "renderer/backends/vulkan/UploadCommandBuffer.h"
 #include <memory>
 #include <vulkan/vulkan_core.h>
-
-#include "backends/vulkan/RenderDevice.h"
 
 using namespace SYN;
 
@@ -21,10 +21,9 @@ SYN::Renderer::Renderer() = default;
 SYN::Renderer::~Renderer() = default;
 
 void SYN::Renderer::init(EngineContext *ctx) {
-    m_Device = std::make_unique<VK::VulkanRenderDevice>();
-    m_Device->init(ctx->window.get());
+    m_Device = std::make_unique<RenderDevice>();
 
-    m_GraphicsCtx = m_Device->makeGraphicsContext();
+    m_Device->init(*ctx->window.get());
 
     m_RenderGraph = std::make_unique<RenderGraph>();
 
@@ -57,7 +56,12 @@ void SYN::Renderer::init(EngineContext *ctx) {
     std::array<const void *, 6> faces{right.data, left.data,  up.data,
                                       down.data,  front.data, back.data};
 
-    m_GraphicsCtx->uploadToTexture(m_SkyBox, faces, right.width, right.height);
+    UploadCommandBuffer cmdBuf{m_Device->acquireUploadCmdBuffer()};
+
+    cmdBuf.beginRecording();
+    cmdBuf.uploadToTexture(m_SkyBox, faces, right.width, right.height);
+    cmdBuf.endRecording();
+    m_Device->submitWork(cmdBuf);
 
     stbi_image_free(right.data);
     stbi_image_free(left.data);
@@ -65,16 +69,17 @@ void SYN::Renderer::init(EngineContext *ctx) {
     stbi_image_free(down.data);
     stbi_image_free(front.data);
     stbi_image_free(back.data);
+    spdlog::info("here");
 }
 
 void SYN::Renderer::render(Window &window) {
-    if (!m_GraphicsCtx->beginFrame(*m_Window)) {
+    if (!m_Device->beginFrame(*m_Window)) {
         m_DrawCalls.clear();
         return;
     }
 
     AttachmentHandle swapchainAttachment{
-        m_GraphicsCtx->acquireSwapchainAttachmentCmd()};
+        m_Device->acquireSwapchainAttachment()};
 
     uint32_t msaaSamples{4};
     m_RenderGraph->addPass<LightingPass>(
@@ -90,9 +95,15 @@ void SYN::Renderer::render(Window &window) {
     m_RenderGraph->addPass<ImGUIPass>(swapchainAttachment);
     m_RenderGraph->compile(*m_Device);
 
-    m_RenderGraph->execute(*m_GraphicsCtx);
+    GraphicsCommandBuffer cmdBuf{m_Device->acquireGraphicsCmdBuffer()};
 
-    m_GraphicsCtx->endFrame(*m_Window);
+    cmdBuf.beginRecording();
+    m_RenderGraph->execute(cmdBuf);
+    cmdBuf.endRecording();
+
+    m_Device->submitWork(cmdBuf);
+
+    m_Device->present(*m_Window);
 
     m_DrawCalls.clear();
 }
@@ -110,39 +121,44 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
     BufferHandle indexBuffer{m_Device->createBuffer(
         {.size = meshData.indices.size() * sizeof(uint32_t)})};
 
-    m_GraphicsCtx->uploadToBuffer(vertexBuffer,
-                                  meshData.vertices.size() * sizeof(Vertex),
-                                  meshData.vertices.data());
-    m_GraphicsCtx->uploadToBuffer(indexBuffer,
-                                  meshData.indices.size() * sizeof(uint32_t),
-                                  meshData.indices.data());
+    UploadCommandBuffer cmdBuf{m_Device->acquireUploadCmdBuffer()};
+    cmdBuf.beginRecording();
+
+    cmdBuf.uploadToBuffer(vertexBuffer,
+                          meshData.vertices.size() * sizeof(Vertex),
+                          meshData.vertices.data());
+    cmdBuf.uploadToBuffer(indexBuffer,
+                          meshData.indices.size() * sizeof(uint32_t),
+                          meshData.indices.data());
 
     TextureHandle albedo{m_Device->createTexture({
         .width = meshData.albedo->width,
         .height = meshData.albedo->height,
         .type = TextureType::srgb,
     })};
-    m_GraphicsCtx->uploadToTexture(albedo, meshData.albedo->data,
-                                   meshData.albedo->width,
-                                   meshData.albedo->height);
+    cmdBuf.uploadToTexture(albedo, meshData.albedo->data,
+                           meshData.albedo->width, meshData.albedo->height);
 
     TextureHandle metallicRoughness{m_Device->createTexture({
         .width = meshData.metallicRoughness->width,
         .height = meshData.metallicRoughness->height,
         .type = TextureType::rgba,
     })};
-    m_GraphicsCtx->uploadToTexture(
-        metallicRoughness, meshData.metallicRoughness->data,
-        meshData.metallicRoughness->width, meshData.metallicRoughness->height);
+    cmdBuf.uploadToTexture(metallicRoughness, meshData.metallicRoughness->data,
+                           meshData.metallicRoughness->width,
+                           meshData.metallicRoughness->height);
 
     TextureHandle normalMap{m_Device->createTexture({
         .width = meshData.normalMap->width,
         .height = meshData.normalMap->height,
         .type = TextureType::rgba,
     })};
-    m_GraphicsCtx->uploadToTexture(normalMap, meshData.normalMap->data,
-                                   meshData.normalMap->width,
-                                   meshData.normalMap->height);
+    cmdBuf.uploadToTexture(normalMap, meshData.normalMap->data,
+                           meshData.normalMap->width,
+                           meshData.normalMap->height);
+
+    cmdBuf.endRecording();
+    m_Device->submitWork(cmdBuf);
 
     auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,
                              .indexBuffer = indexBuffer,
@@ -186,9 +202,9 @@ void Renderer::setCamera(const Camera &camera) {
 void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
     auto it{m_UploadedMeshes.find(modelID)};
     if (it == m_UploadedMeshes.end()) {
-        spdlog::warn(
-            "Trying to draw model (uuid = {}) that was not added to renderer",
-            modelID);
+        spdlog::warn("Trying to draw model (uuid = {}) that was not added "
+                     "to renderer",
+                     modelID);
         return;
     }
 

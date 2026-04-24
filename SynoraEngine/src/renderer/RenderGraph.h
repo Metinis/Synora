@@ -1,8 +1,9 @@
 #pragma once
 #include "SynoraEngine/renderer/IRenderPass.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "renderer/backends/IGraphicsContext.h"
-#include "renderer/backends/IRenderDevice.h"
+#include "renderer/backends/CommandBuffers.h"
+#include "renderer/backends/RenderDevice.h"
+#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 #include <memory>
 #include <typeindex>
 #include <typeinfo>
@@ -14,10 +15,10 @@ class RenderGraph {
         m_Passes.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
     }
 
-    void compile(IRenderDevice &renderDevice);
-    void execute(IGraphicsContext &ctx);
+    void compile(RenderDevice &renderDevice);
+    void execute(GraphicsCommandBuffer &cmdBuffer);
 
-    void shutdown(IRenderDevice &renderDevice);
+    void shutdown(RenderDevice &renderDevice);
 
   private:
     std::vector<std::unique_ptr<IRenderPass>> m_Passes;

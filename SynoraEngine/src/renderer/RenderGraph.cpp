@@ -1,6 +1,6 @@
 #include "RenderGraph.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "renderer/backends/IGraphicsContext.h"
+#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <queue>
@@ -13,7 +13,7 @@ std::vector<size_t>
 makeTopoSorted(const std::vector<std::unique_ptr<IRenderPass>> &renderPasses);
 }
 
-void RenderGraph::compile(IRenderDevice &renderDevice) {
+void RenderGraph::compile(RenderDevice &renderDevice) {
     m_PipelineHandles.resize(m_Passes.size());
     for (size_t i{}; i < m_Passes.size(); i++) {
         IRenderPass *pass{m_Passes[i].get()};
@@ -30,7 +30,7 @@ void RenderGraph::compile(IRenderDevice &renderDevice) {
     m_Compiled = true;
 }
 
-void RenderGraph::execute(IGraphicsContext &ctx) {
+void RenderGraph::execute(GraphicsCommandBuffer &cmdBuffer) {
     if (m_Compiled == false) {
         spdlog::error("Render graph not compiled before executing, could not "
                       "render frame");
@@ -42,7 +42,7 @@ void RenderGraph::execute(IGraphicsContext &ctx) {
     for (const auto &passIndex : sortedPassIndices) {
         IRenderPass *pass{m_Passes[passIndex].get()};
         PipelineHandle pipeline{m_PipelineHandles[passIndex]};
-        pass->execute(ctx, pipeline);
+        pass->execute(cmdBuffer, pipeline);
     }
 
     m_Passes.clear();
@@ -50,7 +50,7 @@ void RenderGraph::execute(IGraphicsContext &ctx) {
     m_Compiled = false;
 }
 
-void RenderGraph::shutdown(IRenderDevice &renderDevice) {
+void RenderGraph::shutdown(RenderDevice &renderDevice) {
     for (auto &[desc, pipeline] : m_PipelineCache) {
         renderDevice.destroyPipeline(pipeline);
     }
