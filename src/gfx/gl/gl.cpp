@@ -182,6 +182,14 @@ SYN::gfx::gl::Context::~Context() {
         if (shader.fragment != 0)
             glDeleteShader(shader.fragment);
     }
+
+    std::vector<Texture> textures = m_TextureRegistry.getAllResources();
+    for (Texture texture : textures)
+        glDeleteTextures(1, &texture.id);
+
+    std::vector<Sampler> samplers = m_SamplerRegistry.getAllResources();
+    for (Sampler sampler : samplers)
+        glDeleteSamplers(1, &sampler.id);
 }
 
 void SYN::gfx::gl::Context::present() { glfwSwapBuffers(m_Window); }
@@ -475,10 +483,20 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
                         &m_PendingDeleteBuffers[0]);
     }
 
+    if (!m_PendingDeleteTextures.empty()) {
+        glDeleteTextures(1, &m_PendingDeleteTextures[0]);
+    }
+
+    if (!m_PendingDeleteSamplers.empty()) {
+        glDeleteSamplers(1, &m_PendingDeleteSamplers[0]);
+    }
+
     m_PendingDeleteShaders.clear();
     m_PendingDeletePrograms.clear();
     m_PendingDeleteVertexArrays.clear();
     m_PendingDeleteBuffers.clear();
+    m_PendingDeleteTextures.clear();
+    m_PendingDeleteSamplers.clear();
 }
 
 std::optional<SYN::gfx::gl::VertexArray>
@@ -490,6 +508,15 @@ SYN::gfx::gl::Context::getBuffer(Handle<Buffer> bufferHandle) {
     return m_BufferRegistry.getResource(bufferHandle);
 }
 
+std::optional<SYN::gfx::gl::Texture>
+SYN::gfx::gl::Context::getTexture(Handle<Texture> textureHandle) {
+    return m_TextureRegistry.getResource(textureHandle);
+}
+std::optional<SYN::gfx::gl::Sampler>
+SYN::gfx::gl::Context::getSampler(Handle<Sampler> samplerHandle) {
+    return m_SamplerRegistry.getResource(samplerHandle);
+}
+
 std::optional<SYN::gfx::gl::Shader>
 SYN::gfx::gl::Context::getShader(Handle<Shader> shaderHandle) {
     return m_ShaderRegistry.getResource(shaderHandle);
@@ -499,6 +526,10 @@ SYN::gfx::gl::Pass::~Pass() {
     glUseProgram(0);
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    for (uint32_t slot : m_TextureSlotsBound) {
+        glBindTextureUnit(slot, 0);
+        glBindSampler(slot, 0);
+    }
 }
 
 void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
@@ -601,4 +632,135 @@ void SYN::gfx::gl::Pass::drawIndexed(uint32_t indexCount) {
     }
 
     glDrawElements(drawMode, indexCount, indexType, nullptr);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
+                                     const void *initialData) {
+    Texture texture{};
+    glCreateTextures(GL_TEXTURE_2D, 1, &texture.id);
+
+    GLenum internalFormat;
+    GLenum format;
+    GLenum dataType = GL_UNSIGNED_BYTE;
+    switch (desc.format) {
+    case TextureFormat::RGBA8:
+        internalFormat = GL_RGBA8;
+        format = GL_RGBA;
+        break;
+    case TextureFormat::RGB8:
+        internalFormat = GL_RGB8;
+        format = GL_RGB;
+        break;
+    case TextureFormat::RG8:
+        internalFormat = GL_RG8;
+        format = GL_RG;
+        break;
+    case TextureFormat::R8:
+        internalFormat = GL_R8;
+        format = GL_RED;
+        break;
+    case TextureFormat::Depth24:
+        internalFormat = GL_DEPTH_COMPONENT24;
+        format = GL_DEPTH_COMPONENT;
+        dataType = GL_FLOAT;
+        break;
+    case TextureFormat::Depth24Stencil8:
+        internalFormat = GL_DEPTH_STENCIL;
+        dataType = GL_UNSIGNED_INT_24_8;
+        break;
+    }
+
+    glTextureStorage2D(texture.id, desc.mipLevel, internalFormat, desc.width,
+                       desc.height);
+    glTextureSubImage2D(texture.id, 0, 0, 0, desc.width, desc.height, format,
+                        dataType, initialData);
+    glGenerateTextureMipmap(texture.id);
+
+    return m_TextureRegistry.createHandle(texture);
+}
+
+void SYN::gfx::gl::Context::deleteTexture(Handle<Texture> textureHandle) {
+    std::optional<Texture> textureOpt =
+        m_TextureRegistry.getResource(textureHandle);
+
+    if (!textureOpt.has_value())
+        return;
+
+    Texture texture = textureOpt.value();
+
+    m_PendingDeleteTextures.push_back(texture.id);
+    m_TextureRegistry.releaseHandle(textureHandle);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Sampler>>
+SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
+    Sampler sampler;
+
+    auto getFilterFormat = [](SampleFilter filter) {
+        switch (filter) {
+        case SampleFilter::Nearest:
+            return GL_NEAREST;
+        case SampleFilter::Linear:
+            return GL_LINEAR;
+        case SampleFilter::Nearest_Mipmap_Nearest:
+            return GL_NEAREST_MIPMAP_NEAREST;
+        default:
+            return GL_LINEAR_MIPMAP_LINEAR;
+        }
+    };
+
+    auto getWrapFormat = [](WrapMode wrap) {
+        switch (wrap) {
+        case WrapMode::ClampToEdge:
+            return GL_CLAMP_TO_EDGE;
+        case WrapMode::Repeat:
+            return GL_REPEAT;
+        default:
+            return GL_MIRRORED_REPEAT;
+        }
+    };
+
+    glCreateSamplers(1, &sampler.id);
+    glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER,
+                        getFilterFormat(desc.minFilter));
+    glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER,
+                        getFilterFormat(desc.magFilter));
+    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_S,
+                        getWrapFormat(desc.wrapU));
+    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T,
+                        getWrapFormat(desc.wrapV));
+
+    return m_SamplerRegistry.createHandle(sampler);
+}
+
+void SYN::gfx::gl::Context::deleteSampler(Handle<Sampler> samplerHandle) {
+    std::optional<Sampler> samplerOpt =
+        m_SamplerRegistry.getResource(samplerHandle);
+
+    if (!samplerOpt.has_value())
+        return;
+
+    Sampler sampler = samplerOpt.value();
+    m_PendingDeleteSamplers.push_back(sampler.id);
+
+    m_SamplerRegistry.releaseHandle(samplerHandle);
+}
+
+void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
+                                     Handle<Texture> textureHandle,
+                                     Handle<Sampler> samplerHandle) {
+    std::optional<Texture> textureOpt = m_ContextPtr->getTexture(textureHandle);
+    std::optional<Sampler> samplerOpt = m_ContextPtr->getSampler(samplerHandle);
+
+    assert(textureOpt.has_value() && "Texture handle is invalid");
+    assert(samplerOpt.has_value() && "Sampler handle is invalid");
+
+    Texture texture = textureOpt.value();
+    Sampler sampler = samplerOpt.value();
+
+    glBindTextureUnit(binding, texture.id);
+    glBindSampler(binding, sampler.id);
+
+    m_TextureSlotsBound.insert(binding);
 }

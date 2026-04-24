@@ -127,6 +127,12 @@ template <typename ResourceType> class GLResourceRegistry {
         m_FreeSlots.push_back(handle.index);
     }
 
+    std::optional<ResourceType> getResourceMutable(HandleType handle) {
+        if (!isValidHandle(handle))
+            return std::nullopt;
+        return &m_Slots.at(handle.index).payload;
+    }
+
     std::optional<ResourceType> getResource(HandleType handle) const {
         if (!isValidHandle(handle))
             return std::nullopt;
@@ -310,7 +316,8 @@ class Pass {
     // Matrix uniforms
     void bindUniform(std::string_view name, const glm::mat4 &v);
 
-    void bindTexture(uint32_t binding, Texture texture, Sampler sampler);
+    void bindTexture(uint32_t binding, Handle<Texture> textureHandle,
+                     Handle<Sampler> samplerHandle);
 
     void draw(uint32_t vertexCount, uint32_t firstVertex = 0);
     void drawIndexed(uint32_t indexCount);
@@ -326,6 +333,8 @@ class Pass {
     PrimitiveTopology m_CurrentDrawTopology = PrimitiveTopology::Triangles;
     IndexType m_CurrentIndexType = IndexType::Unsigned32;
     std::optional<Shader> m_CurrentShader = std::nullopt;
+
+    std::unordered_set<uint32_t> m_TextureSlotsBound;
 };
 
 class Context {
@@ -345,18 +354,18 @@ class Context {
                       uint32_t size, const void *data);
     void deleteBuffer(Handle<Buffer> bufferHandle);
 
-    Texture createTexture(const TextureDesc &desc,
-                          const void *initialData = nullptr);
+    std::optional<Handle<Texture>>
+    createTexture(const TextureDesc &desc, const void *initialData = nullptr);
     void updateTexture(Texture texture, uint32_t mipLevel, uint32_t x,
                        uint32_t y, uint32_t width, uint32_t height,
                        const void *data);
-    void deleteTexture(Texture texture);
+    void deleteTexture(Handle<Texture> textureHandle);
 
     Renderbuffer createRenderbuffer(const RenderbufferDesc &desc);
     void deleteRenderbuffer(Renderbuffer renderbuffer);
 
-    Sampler createSampler(const SamplerDesc &desc);
-    void deleteSampler(Sampler sampler);
+    std::optional<Handle<Sampler>> createSampler(const SamplerDesc &desc);
+    void deleteSampler(Handle<Sampler> samplerHandle);
 
     std::optional<Handle<Shader>> createShader(std::string_view vertexSource,
                                                std::string_view fragmentSource);
@@ -383,17 +392,23 @@ class Context {
     getVertexArray(Handle<VertexArray> vertexArrayHandle);
     std::optional<Buffer> getBuffer(Handle<Buffer> bufferHandle);
     std::optional<Shader> getShader(Handle<Shader> shaderHandle);
+    std::optional<Texture> getTexture(Handle<Texture> textureHandle);
+    std::optional<Sampler> getSampler(Handle<Sampler> samplerHandle);
 
   private:
     friend class Pass;
     GLResourceRegistry<VertexArray> m_VertexArrayRegistry;
     GLResourceRegistry<Buffer> m_BufferRegistry;
     GLResourceRegistry<Shader> m_ShaderRegistry;
+    GLResourceRegistry<Texture> m_TextureRegistry;
+    GLResourceRegistry<Sampler> m_SamplerRegistry;
 
     std::vector<uint32_t> m_PendingDeleteVertexArrays;
     std::vector<uint32_t> m_PendingDeleteBuffers;
     std::vector<uint32_t> m_PendingDeleteShaders;
     std::vector<uint32_t> m_PendingDeletePrograms;
+    std::vector<uint32_t> m_PendingDeleteTextures;
+    std::vector<uint32_t> m_PendingDeleteSamplers;
 
   private:
     GLFWwindow *m_Window;
