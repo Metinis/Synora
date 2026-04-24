@@ -58,9 +58,8 @@ void SYN::Renderer::init(EngineContext *ctx) {
 
     UploadCommandBuffer cmdBuf{m_Device->acquireUploadCmdBuffer()};
 
-    cmdBuf.beginRecording();
     cmdBuf.uploadToTexture(m_SkyBox, faces, right.width, right.height);
-    cmdBuf.endRecording();
+
     m_Device->submitWork(cmdBuf);
 
     stbi_image_free(right.data);
@@ -69,7 +68,6 @@ void SYN::Renderer::init(EngineContext *ctx) {
     stbi_image_free(down.data);
     stbi_image_free(front.data);
     stbi_image_free(back.data);
-    spdlog::info("here");
 }
 
 void SYN::Renderer::render(Window &window) {
@@ -96,11 +94,7 @@ void SYN::Renderer::render(Window &window) {
     m_RenderGraph->compile(*m_Device);
 
     GraphicsCommandBuffer cmdBuf{m_Device->acquireGraphicsCmdBuffer()};
-
-    cmdBuf.beginRecording();
     m_RenderGraph->execute(cmdBuf);
-    cmdBuf.endRecording();
-
     m_Device->submitWork(cmdBuf);
 
     m_Device->present(*m_Window);
@@ -122,7 +116,6 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         {.size = meshData.indices.size() * sizeof(uint32_t)})};
 
     UploadCommandBuffer cmdBuf{m_Device->acquireUploadCmdBuffer()};
-    cmdBuf.beginRecording();
 
     cmdBuf.uploadToBuffer(vertexBuffer,
                           meshData.vertices.size() * sizeof(Vertex),
@@ -157,7 +150,6 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
                            meshData.normalMap->width,
                            meshData.normalMap->height);
 
-    cmdBuf.endRecording();
     m_Device->submitWork(cmdBuf);
 
     auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,

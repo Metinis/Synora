@@ -68,6 +68,17 @@ bool SYN::RenderDevice::beginFrame(Window &window) {
 void SYN::RenderDevice::submitWork(GraphicsCommandBuffer &cmdBuffer) {
     FrameData &frame{getCurrentFrame()};
 
+    AttachmentHandle swapchainHandle{
+        m_SwapchainAttachmentHandles.at(m_CurrentSwapchainImageIndex)};
+
+    // move this into submitWork
+    transitionImageCmd(frame.graphicsCmdBuffer,
+                       m_Attachments[swapchainHandle].image,
+                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
+
+    vkEndCommandBuffer(frame.graphicsCmdBuffer);
+
     VkPipelineStageFlags waitStage{
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
@@ -91,11 +102,11 @@ void SYN::RenderDevice::submitWork(GraphicsCommandBuffer &cmdBuffer) {
     m_CurrentFrameIndex =
         (m_CurrentFrameIndex + 1) % Limits::c_MaxFramesInFlight;
 
-    cmdBuffer.m_RenderDevice = nullptr;
+    cmdBuffer.reset();
 }
 
 void SYN::RenderDevice::submitWork(UploadCommandBuffer &cmdBuffer) {
-    cmdBuffer.m_RenderDevice = nullptr;
+    cmdBuffer.reset();
 }
 
 void SYN::RenderDevice::present(Window &window) {

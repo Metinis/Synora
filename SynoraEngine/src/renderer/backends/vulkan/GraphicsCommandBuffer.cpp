@@ -40,17 +40,7 @@ VkAttachmentStoreOp toVkStoreOp(StoreOp loadOp);
 
 SYN::GraphicsCommandBuffer::GraphicsCommandBuffer(
     SYN::RenderDevice *renderDevice)
-    : m_RenderDevice(renderDevice) {}
-
-SYN::GraphicsCommandBuffer::~GraphicsCommandBuffer() {
-    if (m_RenderDevice != nullptr) {
-        spdlog::warn(
-            "Graphics Command Buffer leaked; delete wasnt called on this "
-            "before going out of scope");
-    }
-}
-
-void SYN::GraphicsCommandBuffer::beginRecording() {
+    : m_RenderDevice(renderDevice) {
     FrameData &frame{m_RenderDevice->getCurrentFrame()};
 
     VkCommandBufferBeginInfo cmdBufferBeginInfo{
@@ -68,20 +58,14 @@ void SYN::GraphicsCommandBuffer::beginRecording() {
                             &bindlessDescriptorSet, 0, nullptr);
 }
 
-void SYN::GraphicsCommandBuffer::endRecording() {
-    FrameData &frame{m_RenderDevice->getCurrentFrame()};
+void SYN::GraphicsCommandBuffer::reset() { m_RenderDevice = nullptr; }
 
-    AttachmentHandle swapchainHandle{
-        m_RenderDevice->m_SwapchainAttachmentHandles.at(
-            m_RenderDevice->m_CurrentSwapchainImageIndex)};
-
-    // move this into submitWork
-    transitionImageCmd(frame.graphicsCmdBuffer,
-                       m_RenderDevice->m_Attachments[swapchainHandle].image,
-                       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
-
-    vkEndCommandBuffer(frame.graphicsCmdBuffer);
+SYN::GraphicsCommandBuffer::~GraphicsCommandBuffer() {
+    if (m_RenderDevice != nullptr) {
+        spdlog::warn(
+            "Graphics Command Buffer leaked; delete wasnt called on this "
+            "before going out of scope");
+    }
 }
 
 void SYN::GraphicsCommandBuffer::beginRenderPassCmd(

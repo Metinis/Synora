@@ -21,14 +21,12 @@ class UploadCommandBuffer {
         uploadToTexture(handle, std::span(&data, 1), width, height);
     }
 
-    void beginRecording();
-    void endRecording();
-
   private:
     friend RenderDevice;
 
+    void reset();
+
     RenderDevice *m_RenderDevice;
-    VkCommandBuffer m_CmdBuf;
 };
 
 } // namespace SYN

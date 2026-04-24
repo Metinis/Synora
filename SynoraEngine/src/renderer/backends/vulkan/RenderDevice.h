@@ -76,6 +76,8 @@ class RenderDevice {
     AttachmentHandle acquireSwapchainAttachment();
 
     bool beginFrame(Window &window);
+
+    // ends cmd buffer recording
     void submitWork(GraphicsCommandBuffer &cmdBuffer);
     void submitWork(UploadCommandBuffer &cmdBuffer);
     // ends frame

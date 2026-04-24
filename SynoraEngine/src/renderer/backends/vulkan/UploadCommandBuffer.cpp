@@ -50,6 +50,8 @@ SYN::UploadCommandBuffer::~UploadCommandBuffer() {
     }
 }
 
+void SYN::UploadCommandBuffer::reset() { m_RenderDevice = nullptr; }
+
 // TODO: make this correctly batch stuff / defer actually uploading
 void SYN::UploadCommandBuffer::uploadToBuffer(BufferHandle handle, size_t size,
                                               const void *data) {
@@ -80,7 +82,3 @@ void SYN::UploadCommandBuffer::uploadToTexture(TextureHandle handle,
                      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
                      VK_ACCESS_2_SHADER_READ_BIT);
 }
-
-void SYN::UploadCommandBuffer::beginRecording() {}
-
-void SYN::UploadCommandBuffer::endRecording() {}

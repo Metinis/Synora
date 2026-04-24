@@ -16,13 +16,11 @@ class RenderDevice;
 
 class GraphicsCommandBuffer {
   private:
+    // begins recording the cmd buffer
     GraphicsCommandBuffer(RenderDevice *renderDevice);
 
   public:
     ~GraphicsCommandBuffer();
-
-    void beginRecording();
-    void endRecording();
 
     void beginRenderPassCmd(const RenderPassDesc &desc,
                             PipelineHandle pipeline);
@@ -53,6 +51,8 @@ class GraphicsCommandBuffer {
 
   private:
     friend RenderDevice;
+
+    void reset();
 
     RenderDevice *m_RenderDevice;
 };
