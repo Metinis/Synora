@@ -5,13 +5,184 @@
 #include <GLFW/glfw3.h>
 // clang-format on
 
+#include <glm/gtc/type_ptr.hpp>
 #include <spdlog/spdlog.h>
+
+struct {
+    using UniformLocations = std::unordered_map<std::string_view, int>;
+    std::unordered_map<uint32_t, UniformLocations> shaderUniformCache;
+} Globals;
+
+// Adds shader uniform to cache if it doesn't exist. Retrieves uniform
+// location which may be -1 if it doesn't exist in the shader.
+int SYN::gfx::gl::Pass::getShaderUniformLocation(std::string_view uniform) {
+    assert(m_CurrentShader.has_value() &&
+           "Shader not set. Are you binding a pipeline, and does it have its "
+           "shader set?");
+
+    Shader shader = m_CurrentShader.value();
+
+    if (Globals.shaderUniformCache[shader.program].find(uniform) ==
+        Globals.shaderUniformCache[shader.program].cend()) {
+        int uniformLoc = glGetUniformLocation(shader.program, uniform.data());
+        if (uniformLoc == -1)
+            return -1;
+        Globals.shaderUniformCache[shader.program][uniform] = uniformLoc;
+    }
+
+    return Globals.shaderUniformCache[shader.program].at(uniform);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform1f(loc, v0);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0,
+                                     float v1) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform2f(loc, v0, v1);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0, float v1,
+                                     float v2) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform3f(loc, v0, v1, v2);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0, float v1,
+                                     float v2, float v3) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform4f(loc, v0, v1, v2, v3);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, int32_t v0) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform1i(loc, v0);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, int32_t v0,
+                                     int32_t v1) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform2i(loc, v0, v1);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, int32_t v0,
+                                     int32_t v1, int32_t v2) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform3i(loc, v0, v1, v2);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, int32_t v0,
+                                     int32_t v1, int32_t v2, int32_t v3) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform4i(loc, v0, v1, v2, v3);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, uint32_t v0) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform1ui(loc, v0);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, uint32_t v0,
+                                     uint32_t v1) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform2ui(loc, v0, v1);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, uint32_t v0,
+                                     uint32_t v1, uint32_t v2) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform3ui(loc, v0, v1, v2);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name, uint32_t v0,
+                                     uint32_t v1, uint32_t v2, uint32_t v3) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniform4ui(loc, v0, v1, v2, v3);
+}
+
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
+                                     const glm::mat4 &v) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(v));
+}
 
 SYN::gfx::gl::Context::Context(const ContextInitDesc &desc) {
     m_Window = desc.windowHandle;
 }
 
-SYN::gfx::gl::Context::~Context() {}
+SYN::gfx::gl::Context::~Context() {
+    std::vector<VertexArray> vertexArrays =
+        m_VertexArrayRegistry.getAllResources();
+    for (VertexArray vao : vertexArrays)
+        glDeleteVertexArrays(1, &vao.id);
+
+    std::vector<Buffer> buffers = m_BufferRegistry.getAllResources();
+    for (Buffer buffer : buffers)
+        glDeleteBuffers(1, &buffer.id);
+
+    std::vector<Shader> shaders = m_ShaderRegistry.getAllResources();
+    for (Shader shader : shaders) {
+        glDeleteProgram(shader.program);
+        if (shader.vertex != 0)
+            glDeleteShader(shader.vertex);
+        if (shader.fragment != 0)
+            glDeleteShader(shader.fragment);
+    }
+}
 
 void SYN::gfx::gl::Context::present() { glfwSwapBuffers(m_Window); }
 
@@ -211,6 +382,11 @@ void SYN::gfx::gl::Context::deleteShader(Handle<Shader> shaderHandle) {
     uint32_t vertexId = shader.value().vertex;
     uint32_t fragmentId = shader.value().fragment;
 
+    if (Globals.shaderUniformCache.find(programId) !=
+        Globals.shaderUniformCache.cend()) {
+        Globals.shaderUniformCache.erase(programId);
+    }
+
     m_PendingDeletePrograms.push_back(programId);
     if (vertexId != 0)
         m_PendingDeleteShaders.push_back(vertexId);
@@ -331,6 +507,8 @@ void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
     assert(currentShaderOpt.has_value() &&
            "Shader handle is invalid. Cannot set pipeline.");
     Shader shader = currentShaderOpt.value();
+
+    m_CurrentShader = shader;
 
     switch (pipelineState.cullMode) {
     case CullMode::None:

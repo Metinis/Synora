@@ -73,18 +73,23 @@ template <typename ResourceType> class GLResourceRegistry {
     using HandleType = Handle<ResourceType>;
 
   public:
-    GLResourceRegistry() { m_Slots.emplace_back(Slot{{}, 0}); }
+    GLResourceRegistry() { m_Slots.emplace_back(Slot{{}, 0, false}); }
+    ~GLResourceRegistry() {
+        m_Slots.clear();
+        m_FreeSlots.clear();
+    }
 
     std::optional<HandleType> createHandle(ResourceType resource) {
         if (!m_FreeSlots.empty()) {
             uint32_t freeIndex = m_FreeSlots.back();
             m_FreeSlots.pop_back();
             m_Slots[freeIndex].payload = resource;
+            m_Slots[freeIndex].isFree = false;
             return HandleType{freeIndex, m_Slots[freeIndex].generation};
         }
         if (m_Slots.size() == std::numeric_limits<uint32_t>().max())
             return std::nullopt;
-        m_Slots.push_back({resource, 1});
+        m_Slots.push_back({resource, 1, false});
         return HandleType{(uint32_t)(m_Slots.size() - 1),
                           m_Slots.back().generation};
     }
@@ -100,6 +105,16 @@ template <typename ResourceType> class GLResourceRegistry {
         return slot.generation == handle.generation;
     }
 
+    std::vector<ResourceType> getAllResources() {
+        std::vector<ResourceType> resources;
+        for (Slot slot : m_Slots) {
+            if (slot.isFree)
+                continue;
+            resources.push_back(slot.payload);
+        }
+        return std::move(resources);
+    }
+
     void releaseHandle(HandleType handle) {
         if (!isValidHandle(handle))
             return;
@@ -108,6 +123,7 @@ template <typename ResourceType> class GLResourceRegistry {
         if (slot.generation == std::numeric_limits<uint32_t>().max())
             return;
         slot.generation += 1;
+        slot.isFree = true;
         m_FreeSlots.push_back(handle.index);
     }
 
@@ -121,6 +137,7 @@ template <typename ResourceType> class GLResourceRegistry {
     struct Slot {
         ResourceType payload;
         uint32_t generation = 0;
+        bool isFree = true;
     };
 
     std::vector<Slot> m_Slots;
@@ -267,13 +284,11 @@ class Pass {
     void bindVertexArray(Handle<VertexArray> vertexArrayHandle);
 
     void bindUniformBuffer(uint32_t binding, Buffer buffer);
+
     // Float uniforms
     void bindUniform(std::string_view name, float v0);
-    void bindUniform(std::string_view name, const glm::vec2 &v);
     void bindUniform(std::string_view name, float v0, float v1);
-    void bindUniform(std::string_view name, const glm::vec3 &v);
     void bindUniform(std::string_view name, float v0, float v1, float v2);
-    void bindUniform(std::string_view name, const glm::vec4 &v);
     void bindUniform(std::string_view name, float v0, float v1, float v2,
                      float v3);
 
@@ -301,19 +316,22 @@ class Pass {
     void drawIndexed(uint32_t indexCount);
 
   private:
+    int getShaderUniformLocation(std::string_view uniform);
+
+  private:
     friend class Context;
     Pass(class Context *context, const PassDesc &desc);
     Context *m_ContextPtr;
 
     PrimitiveTopology m_CurrentDrawTopology = PrimitiveTopology::Triangles;
     IndexType m_CurrentIndexType = IndexType::Unsigned32;
+    std::optional<Shader> m_CurrentShader = std::nullopt;
 };
 
 class Context {
   public:
     static std::optional<Context> createContext(const ContextInitDesc &desc);
 
-    // TODO: Delete any leftover resources
     ~Context();
 
     void present();
