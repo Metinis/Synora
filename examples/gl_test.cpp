@@ -26,9 +26,11 @@ int main(void) {
 
         out vec4 vertexColor;
 
+        uniform float scale;
+
         void main() {
             vertexColor = vec4(aColor, 1.0);
-            gl_Position = vec4(aPos, 1.0);
+            gl_Position = vec4(aPos * scale, 1.0);
         }
     )";
 
@@ -94,6 +96,11 @@ int main(void) {
                 {std::nullopt, glm::vec4(0.74, 0.32, 0.24, 1.0), false, false,
                  vp, std::nullopt});
             pass.usePipeline(defaultPipeline);
+
+            float scale = std::sin(glfwGetTime());
+
+            pass.bindUniform("scale", scale);
+
             pass.bindVertexArray(vertexArray);
             pass.drawIndexed(6);
         }
