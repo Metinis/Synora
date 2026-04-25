@@ -21,6 +21,7 @@ template <typename T> struct GPUResourceHandle {
     bool isValid() const { return id != UINT32_MAX; }
 };
 
+enum class TextureFormat { invalid, rgba8, rgba16f, rgba32f, r32f, r32ui };
 enum class TextureType { invalid, srgb, depth, rgba };
 enum class PipelineStage { invalid, compute, fragment };
 
@@ -28,7 +29,8 @@ struct TextureDesc {
     uint32_t width;
     uint32_t height;
 
-    TextureType type;
+    TextureType type{TextureType::invalid};
+    TextureFormat format{TextureFormat::invalid};
     bool hasMipChain{true};
     bool isCubeMap{false}; // layer count must be 6 if this is true
 };
@@ -40,9 +42,11 @@ struct AttachmentDesc {
     uint32_t height{}; // ignored if size is relative
     AttachmentSize size{AttachmentSize::relative};
 
-    TextureType type;
+    TextureType type{TextureType::invalid};
+    TextureFormat format{TextureFormat::invalid};
     uint32_t msaaSamples{1}; // 1 is no multisampling
     bool isCubeMap{false};   // layer count must be 6 if this is true
+    bool isStorageImage{false};
 };
 
 struct BufferDesc {
@@ -72,14 +76,20 @@ struct GraphicsPipelineDesc {
     bool operator==(const GraphicsPipelineDesc &other) const = default;
 };
 
-struct ReceiptDesc {};
+struct ComputePipelineDesc {
+    std::string_view shaderPath{};
+
+    bool operator==(const ComputePipelineDesc &other) const = default;
+};
+
+struct Receipt;
 
 // we use the descriptions to keep the handle types different
 using TextureHandle = GPUResourceHandle<TextureDesc>;
 using AttachmentHandle = GPUResourceHandle<AttachmentDesc>;
 using BufferHandle = GPUResourceHandle<BufferDesc>;
-using PipelineHandle = GPUResourceHandle<GraphicsPipelineDesc>;
-using ReceiptHandle = GPUResourceHandle<ReceiptDesc>;
+using PipelineHandle =
+    GPUResourceHandle<GraphicsPipelineDesc>; // used for graphics and compute
 
 struct Viewport {
     uint32_t width;
@@ -110,6 +120,18 @@ struct RenderPassDesc {
     std::span<AttachmentHandle> readAttachments;
     std::span<WriteAttachmentInfo> colorAttachments;
     std::optional<WriteAttachmentInfo> depthAttachment;
+};
+
+struct DispatchDesc {
+    std::string debugName{"Default Pass"};
+
+    std::span<AttachmentHandle> readonlyAttachments; // accessed in textures
+    std::span<AttachmentHandle>
+        readWriteAttachments; // accessed in storage images
+
+    uint32_t groupCountX;
+    uint32_t groupCountY;
+    uint32_t groupCountZ;
 };
 
 } // namespace SYN

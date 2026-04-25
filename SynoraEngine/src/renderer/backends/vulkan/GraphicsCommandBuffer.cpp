@@ -54,7 +54,7 @@ SYN::GraphicsCommandBuffer::GraphicsCommandBuffer(
 
     vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_RenderDevice->m_GraphicsPipelineLayout, 0, 1,
+                            m_RenderDevice->m_BindlessPipelineLayout, 0, 1,
                             &bindlessDescriptorSet, 0, nullptr);
 }
 
@@ -214,7 +214,7 @@ void SYN::GraphicsCommandBuffer::beginRenderPassCmd(
     VkDescriptorSet uboDescriptorSet{m_RenderDevice->m_UBODescriptorSet};
     vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_RenderDevice->m_GraphicsPipelineLayout, 1, 1,
+                            m_RenderDevice->m_BindlessPipelineLayout, 1, 1,
                             &uboDescriptorSet, 1, &dynamicOffset);
 }
 void SYN::GraphicsCommandBuffer::endRenderPassCmd() {
@@ -233,7 +233,7 @@ void SYN::GraphicsCommandBuffer::setPushConstantsCmd(const void *data,
     }
 
     vkCmdPushConstants(frame.graphicsCmdBuffer,
-                       m_RenderDevice->m_GraphicsPipelineLayout,
+                       m_RenderDevice->m_BindlessPipelineLayout,
                        VK_SHADER_STAGE_ALL, 0, size, data);
 }
 

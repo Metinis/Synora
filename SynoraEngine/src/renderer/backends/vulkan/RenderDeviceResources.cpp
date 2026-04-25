@@ -21,6 +21,11 @@
 using namespace SYN;
 using namespace SYN::VK;
 
+namespace {
+VkImageAspectFlags getVkAspect(TextureType type);
+VkFormat getVkFormat(TextureFormat format, TextureType type);
+} // namespace
+
 BufferHandle SYN::RenderDevice::createBuffer(const BufferDesc &desc) {
     Buffer buffer{
         VK::createBuffer(m_Device, m_Allocator, desc.size,
@@ -34,7 +39,7 @@ BufferHandle SYN::RenderDevice::createBuffer(const BufferDesc &desc) {
     return handle;
 }
 
-void SYN::RenderDevice::destroyBuffer(BufferHandle handle) {
+void SYN::RenderDevice::destroyBuffer(BufferHandle &handle) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Buffer buffer{m_Buffers[handle]};
@@ -47,30 +52,12 @@ void SYN::RenderDevice::destroyBuffer(BufferHandle handle) {
 }
 
 TextureHandle SYN::RenderDevice::createTexture(const TextureDesc &desc) {
-    VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};
-    VkImageAspectFlags aspect{};
+    VkFormat format{getVkFormat(desc.format, desc.type)};
+    VkImageAspectFlags aspect{getVkAspect(desc.type)};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                             VK_IMAGE_USAGE_SAMPLED_BIT};
     if (desc.hasMipChain) {
         usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    }
-
-    switch (desc.type) {
-    case TextureType::srgb:
-        format = VK_FORMAT_R8G8B8A8_SRGB;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        break;
-    case TextureType::depth:
-        format = VK_FORMAT_D32_SFLOAT;
-        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-        break;
-    case TextureType::rgba:
-        format = VK_FORMAT_R8G8B8A8_UNORM;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        break;
-    default:
-        spdlog::warn("Could not add texture, invalid format");
-        break;
     }
 
     uint32_t mipLevels{1};
@@ -122,7 +109,7 @@ TextureHandle SYN::RenderDevice::createTexture(const TextureDesc &desc) {
     return handle;
 }
 
-void SYN::RenderDevice::destroyTexture(TextureHandle handle) {
+void SYN::RenderDevice::destroyTexture(TextureHandle &handle) {
     vkDeviceWaitIdle(m_Device.logical);
 
     Texture texture{m_Textures[handle]};
@@ -137,31 +124,30 @@ void SYN::RenderDevice::destroyTexture(TextureHandle handle) {
 
 AttachmentHandle
 SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
-    VkFormat format{};
-    VkImageAspectFlags aspect{};
+    VkFormat format{getVkFormat(desc.format, desc.type)};
+    VkImageAspectFlags aspect{getVkAspect(desc.type)};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_SAMPLED_BIT};
-    switch (desc.type) {
-    case TextureType::srgb:
+
+    if (aspect == VK_IMAGE_ASPECT_COLOR_BIT) {
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        format = m_Swapchain.format;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        break;
-    case TextureType::depth:
+    } else {
         usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        format = VK_FORMAT_D32_SFLOAT;
-        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-        break;
-    case TextureType::rgba:
-        spdlog::warn("Trying to use rgba texture type for attachment, all "
-                     "attachments should be srgb");
-        format = m_Swapchain.format;
-        usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        break;
-    default:
-        spdlog::warn("Could not add texture, invalid format");
-        return {};
-        break;
+    }
+
+    if (desc.isStorageImage) {
+        assert(desc.isCubeMap == false);
+        assert(desc.msaaSamples == 1);
+        assert(!(usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT));
+
+        if (desc.msaaSamples != 1 || desc.isCubeMap != false ||
+            (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
+            spdlog::warn("Trying to create an attachment that is a storage "
+                         "image that conflicts with msaa samples, isCubemap, "
+                         "or image aspect; not enabling storage image for this "
+                         "attachment");
+        } else {
+            usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+        }
     }
 
     uint32_t width{desc.width};
@@ -289,7 +275,15 @@ SYN::RenderDevice::createPipeline(const GraphicsPipelineDesc &desc) {
     }
 
     VkPipeline pipeline{
-        pipelineBuilder.build(m_Device, m_GraphicsPipelineLayout, shaderPaths)};
+        pipelineBuilder.build(m_Device, m_BindlessPipelineLayout, shaderPaths)};
+
+    return m_Pipelines.insert(pipeline);
+}
+
+PipelineHandle
+SYN::RenderDevice::createPipeline(const ComputePipelineDesc &desc) {
+    VkPipeline pipeline{buildComputePipeline(m_Device, m_BindlessPipelineLayout,
+                                             std::string(desc.shaderPath))};
 
     return m_Pipelines.insert(pipeline);
 }
@@ -304,3 +298,109 @@ void SYN::RenderDevice::destroyPipeline(PipelineHandle &handle) {
     m_Pipelines.remove(handle);
     handle.id = UINT32_MAX;
 }
+
+VkCommandBuffer SYN::RenderDevice::acquireCommandBuffer() {
+    pollSubmissions();
+
+    VkCommandBuffer cmdBuffer{};
+    if (m_FreeCmdBuffers.empty()) {
+        VkCommandBufferAllocateInfo allocInfo{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = m_TransientCmdPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+
+        VkResult res{
+            vkAllocateCommandBuffers(m_Device.logical, &allocInfo, &cmdBuffer)};
+        if (res != VK_SUCCESS) {
+            spdlog::error(
+                "Could not create Vulkan Command Buffer. VkResult = {}",
+                static_cast<int>(res));
+        }
+    } else {
+        cmdBuffer = m_FreeCmdBuffers.back();
+        m_FreeCmdBuffers.pop_back();
+    }
+
+    return cmdBuffer;
+}
+
+bool SYN::RenderDevice::getReceiptStatus(Receipt receipt) {
+    uint64_t currentValue{};
+    vkGetSemaphoreCounterValue(m_Device.logical, m_CPUSubmissionSemaphore,
+                               &currentValue);
+    return currentValue >= receipt.waitValue;
+}
+
+namespace {
+VkImageAspectFlags getVkAspect(TextureType type) {
+    VkImageAspectFlags aspect{};
+    switch (type) {
+    case TextureType::srgb:
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+    case TextureType::depth:
+        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+        break;
+    case TextureType::rgba:
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        break;
+    default:
+        spdlog::warn("invalid texture type");
+        assert(false);
+        break;
+    }
+
+    return aspect;
+}
+
+VkFormat getVkFormat(TextureFormat format, TextureType type) {
+    if (type == TextureType::invalid || format == TextureFormat::invalid) {
+        spdlog::warn("invalid texture type or format");
+        assert(false);
+        return VK_FORMAT_R8G8B8A8_SRGB;
+    }
+
+    VkFormat vkFormat{};
+    if (type == TextureType::depth) {
+        if (format != TextureFormat::r32f) {
+            spdlog::warn("Using wrong format for depth texture type");
+            assert(false);
+        }
+        return VK_FORMAT_D32_SFLOAT;
+    }
+
+    if (type == TextureType::srgb) {
+        if (format != TextureFormat::rgba8) {
+            spdlog::warn("Using srgb texture type with invalid format ");
+            assert(false);
+        }
+        return VK_FORMAT_R8G8B8A8_SRGB;
+    }
+
+    switch (format) {
+    case TextureFormat::rgba8:
+        vkFormat = VK_FORMAT_R8G8B8A8_UNORM;
+        break;
+    case TextureFormat::rgba16f:
+        vkFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+        break;
+    case TextureFormat::rgba32f:
+        vkFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+        break;
+    case TextureFormat::r32f:
+        vkFormat = VK_FORMAT_R32_SFLOAT;
+        break;
+    case TextureFormat::r32ui:
+        vkFormat = VK_FORMAT_R32_UINT;
+        break;
+    default:
+        spdlog::warn("invalid texture format");
+        assert(false);
+        break;
+    }
+
+    return vkFormat;
+}
+} // namespace

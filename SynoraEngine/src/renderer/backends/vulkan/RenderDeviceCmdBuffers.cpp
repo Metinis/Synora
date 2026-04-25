@@ -2,6 +2,8 @@
 #include "SynoraEngine/renderer/RenderTypes.h"
 #include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 #include "renderer/backends/vulkan/UploadCommandBuffer.h"
+#include <cstdint>
+#include <vulkan/vulkan_core.h>
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -65,13 +67,14 @@ bool SYN::RenderDevice::beginFrame(Window &window) {
     return true;
 }
 
-void SYN::RenderDevice::submitWork(GraphicsCommandBuffer &cmdBuffer) {
+SYN::Receipt SYN::RenderDevice::submitWork(GraphicsCommandBuffer &cmdBuffer,
+                                           std::span<Receipt> waitReceipts) {
     FrameData &frame{getCurrentFrame()};
+    m_SubmissionCount++;
 
     AttachmentHandle swapchainHandle{
         m_SwapchainAttachmentHandles.at(m_CurrentSwapchainImageIndex)};
 
-    // move this into submitWork
     transitionImageCmd(frame.graphicsCmdBuffer,
                        m_Attachments[swapchainHandle].image,
                        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -79,34 +82,161 @@ void SYN::RenderDevice::submitWork(GraphicsCommandBuffer &cmdBuffer) {
 
     vkEndCommandBuffer(frame.graphicsCmdBuffer);
 
-    VkPipelineStageFlags waitStage{
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    std::vector<VkSemaphoreSubmitInfo> waitSemaphores{
+        VkSemaphoreSubmitInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = frame.imageAvailableSemaphore,
+            .stageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        },
+    };
+    waitSemaphores.reserve(waitReceipts.size());
+    for (const auto &receipt : waitReceipts) {
+        VkSemaphoreSubmitInfo submitInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = m_GPUSubmissionSemaphore,
+            .value = receipt.waitValue,
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        };
+        waitSemaphores.emplace_back(submitInfo);
+    }
+    std::vector<VkSemaphoreSubmitInfo> signalSemaphores{
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore =
+                m_RenderFinishedSemaphores[m_CurrentSwapchainImageIndex],
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = m_GPUSubmissionSemaphore,
+            .value = m_SubmissionCount,
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = m_CPUSubmissionSemaphore,
+            .value = m_SubmissionCount,
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        },
 
-    VkSubmitInfo queueSubmitInfo{
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &frame.imageAvailableSemaphore,
-        .pWaitDstStageMask = &waitStage,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &frame.graphicsCmdBuffer,
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores =
-            &m_RenderFinishedSemaphores[m_CurrentSwapchainImageIndex],
+    };
+
+    VkCommandBufferSubmitInfo cmdBufSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+        .commandBuffer = frame.graphicsCmdBuffer};
+
+    VkSubmitInfo2 queueSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+
+        .waitSemaphoreInfoCount = static_cast<uint32_t>(waitSemaphores.size()),
+        .pWaitSemaphoreInfos = waitSemaphores.data(),
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = &cmdBufSubmitInfo,
+        .signalSemaphoreInfoCount =
+            static_cast<uint32_t>(signalSemaphores.size()),
+        .pSignalSemaphoreInfos = signalSemaphores.data(),
     };
 
     vkResetFences(m_Device.logical, 1, &frame.renderFinishedFence);
-    vkQueueSubmit(m_Device.queues.at(QueueFamily::graphics).handle, 1,
-                  &queueSubmitInfo, frame.renderFinishedFence);
+    vkQueueSubmit2(m_Device.queues.at(QueueFamily::graphics).handle, 1,
+                   &queueSubmitInfo, frame.renderFinishedFence);
 
     frame.UBOBuffer.reset();
+
     m_CurrentFrameIndex =
         (m_CurrentFrameIndex + 1) % Limits::c_MaxFramesInFlight;
 
     cmdBuffer.reset();
+
+    return Receipt{.waitValue = m_SubmissionCount};
 }
 
-void SYN::RenderDevice::submitWork(UploadCommandBuffer &cmdBuffer) {
+SYN::Receipt SYN::RenderDevice::submitWork(UploadCommandBuffer &cmdBuffer,
+                                           std::span<Receipt> waitReceipts) {
+    if (waitReceipts.size() > 0) {
+        // TODO: make this use the gpu semaphore
+        std::vector<VkSemaphore> waitSemaphores{};
+        std::vector<uint64_t> waitValues{};
+        waitSemaphores.reserve(waitReceipts.size());
+        waitValues.reserve(waitReceipts.size());
+
+        for (const auto &receipt : waitReceipts) {
+            waitSemaphores.emplace_back(m_CPUSubmissionSemaphore);
+            waitValues.emplace_back(receipt.waitValue);
+        }
+        VkSemaphoreWaitInfo waitInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphoreCount = static_cast<uint32_t>(waitReceipts.size()),
+            .pSemaphores = waitSemaphores.data(),
+            .pValues = waitValues.data(),
+        };
+
+        vkWaitSemaphores(m_Device.logical, &waitInfo, UINT64_MAX);
+    }
+
     cmdBuffer.reset();
+    return {};
+}
+
+SYN::Receipt SYN::RenderDevice::submitWork(ComputeCommandBuffer &cmdBuffer,
+                                           std::span<Receipt> waitReceipts) {
+    m_SubmissionCount++;
+
+    vkEndCommandBuffer(cmdBuffer.m_CmdBuffer);
+
+    std::vector<VkSemaphoreSubmitInfo> waitSemaphores{};
+    waitSemaphores.reserve(waitReceipts.size());
+    for (const auto &receipt : waitReceipts) {
+        VkSemaphoreSubmitInfo submitInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = m_GPUSubmissionSemaphore,
+            .value = receipt.waitValue,
+            .stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        };
+        waitSemaphores.emplace_back(submitInfo);
+    }
+
+    std::vector<VkSemaphoreSubmitInfo> signalSemaphores{
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = m_GPUSubmissionSemaphore,
+            .value = m_SubmissionCount,
+            .stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = m_CPUSubmissionSemaphore,
+            .value = m_SubmissionCount,
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        },
+
+    };
+
+    VkCommandBufferSubmitInfo cmdBufSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+        .commandBuffer = cmdBuffer.m_CmdBuffer};
+
+    VkSubmitInfo2 queueSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .waitSemaphoreInfoCount = static_cast<uint32_t>(waitSemaphores.size()),
+        .pWaitSemaphoreInfos = waitSemaphores.data(),
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = &cmdBufSubmitInfo,
+        .signalSemaphoreInfoCount =
+            static_cast<uint32_t>(signalSemaphores.size()),
+        .pSignalSemaphoreInfos = signalSemaphores.data(),
+
+    };
+
+    vkQueueSubmit2(m_Device.queues.at(QueueFamily::graphics).handle, 1,
+                   &queueSubmitInfo, VK_NULL_HANDLE);
+
+    PendingSubmission submission{.cmdBuffer = cmdBuffer.m_CmdBuffer,
+                                 .waitValue = m_SubmissionCount};
+
+    cmdBuffer.reset();
+
+    return {};
 }
 
 void SYN::RenderDevice::present(Window &window) {
@@ -135,4 +265,22 @@ void SYN::RenderDevice::present(Window &window) {
 
 AttachmentHandle SYN::RenderDevice::acquireSwapchainAttachment() {
     return m_SwapchainAttachmentHandles.at(m_CurrentSwapchainImageIndex);
+}
+
+void SYN::RenderDevice::pollSubmissions() {
+    while (!m_PendingSubmissions.empty()) {
+        PendingSubmission submission{m_PendingSubmissions.front()};
+        uint64_t currentValue{};
+        vkGetSemaphoreCounterValue(m_Device.logical, m_CPUSubmissionSemaphore,
+                                   &currentValue);
+
+        if (currentValue >= submission.waitValue) {
+            m_PendingSubmissions.pop();
+            vkResetCommandBuffer(submission.cmdBuffer, 0);
+
+            m_FreeCmdBuffers.emplace_back(submission.cmdBuffer);
+        } else {
+            break;
+        }
+    }
 }

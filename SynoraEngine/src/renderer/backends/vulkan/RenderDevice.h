@@ -8,6 +8,7 @@
 #include "core/SlotMap.h"
 #include "core/StagingBuffer.h"
 #include "core/Swapchain.h"
+#include "renderer/backends/vulkan/ComputeCommandBuffer.h"
 #include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 #include "renderer/backends/vulkan/Limits.h"
 #include "renderer/backends/vulkan/UploadCommandBuffer.h"
@@ -19,6 +20,12 @@
 struct MeshData;
 struct MeshComp;
 struct VmaAllocator_T;
+
+namespace SYN {
+struct Receipt {
+    uint64_t waitValue;
+};
+}; // namespace SYN
 
 namespace SYN::VK {
 
@@ -33,11 +40,6 @@ struct Attachment {
     uint32_t bindlessSamplerIndex;
 };
 
-struct Receipt {
-    VkSemaphore semaphore;
-    uint64_t waitValue;
-};
-
 struct FrameData {
     VkCommandPool graphicsCmdPool{};
     VkCommandBuffer graphicsCmdBuffer{};
@@ -47,6 +49,12 @@ struct FrameData {
 
     DynamicUBO UBOBuffer;
 };
+
+struct PendingSubmission {
+    VkCommandBuffer cmdBuffer;
+    uint64_t waitValue;
+};
+
 } // namespace SYN::VK
 
 namespace SYN {
@@ -59,16 +67,21 @@ class RenderDevice {
     void init(Window &window);
 
     BufferHandle createBuffer(const BufferDesc &desc);
-    void destroyBuffer(BufferHandle handle);
+    void destroyBuffer(BufferHandle &handle);
 
     TextureHandle createTexture(const TextureDesc &desc);
-    void destroyTexture(TextureHandle handle);
+    void destroyTexture(TextureHandle &handle);
 
     AttachmentHandle createAttachment(const AttachmentDesc &desc);
     void destroyAttachment(AttachmentHandle &attachment);
 
     PipelineHandle createPipeline(const GraphicsPipelineDesc &desc);
+    PipelineHandle createPipeline(const ComputePipelineDesc &desc);
     void destroyPipeline(PipelineHandle &pipeline);
+
+    // if true, receipt resources are good to be cleaned up, if false, theyre
+    // still in use
+    bool getReceiptStatus(Receipt receipt);
 
     GraphicsCommandBuffer acquireGraphicsCmdBuffer();
     UploadCommandBuffer acquireUploadCmdBuffer();
@@ -78,8 +91,23 @@ class RenderDevice {
     bool beginFrame(Window &window);
 
     // ends cmd buffer recording
-    void submitWork(GraphicsCommandBuffer &cmdBuffer);
-    void submitWork(UploadCommandBuffer &cmdBuffer);
+    Receipt submitWork(GraphicsCommandBuffer &cmdBuffer,
+                       std::span<Receipt> waitReceipts);
+    Receipt submitWork(UploadCommandBuffer &cmdBuffer,
+                       std::span<Receipt> waitReceipts);
+    Receipt submitWork(ComputeCommandBuffer &cmdBuffer,
+                       std::span<Receipt> waitReceipts);
+
+    inline Receipt submitWork(GraphicsCommandBuffer &cmdBuffer) {
+        return submitWork(cmdBuffer, {});
+    }
+    inline Receipt submitWork(UploadCommandBuffer &cmdBuffer) {
+        return submitWork(cmdBuffer, {});
+    }
+    inline Receipt submitWork(ComputeCommandBuffer &cmdBuffer) {
+        return submitWork(cmdBuffer, {});
+    }
+
     // ends frame
     void present(Window &window);
 
@@ -88,6 +116,7 @@ class RenderDevice {
   private:
     friend class GraphicsCommandBuffer;
     friend class UploadCommandBuffer;
+    friend class ComputeCommandBuffer;
 
     void initContext(Window *window);
     void initDescriptorSetLayout();
@@ -98,6 +127,10 @@ class RenderDevice {
     void initSamplers();
 
     void recreateSwapchain(Window &window);
+
+    void pollSubmissions();
+
+    VkCommandBuffer acquireCommandBuffer();
 
     inline AttachmentHandle
     getSwapchainAttachmentHandle(uint32_t imageIndex) const {
@@ -128,7 +161,7 @@ class RenderDevice {
     VkDescriptorSetLayout m_BindlessDescriptorSetLayout{};
     VkDescriptorSetLayout m_UBODescriptorSetLayout{};
 
-    VkPipelineLayout m_GraphicsPipelineLayout;
+    VkPipelineLayout m_BindlessPipelineLayout;
 
     VkDescriptorSet m_BindlessDescriptorSet{};
     VkDescriptorSet m_UBODescriptorSet{};
@@ -154,7 +187,16 @@ class RenderDevice {
     VK::SlotMap<AttachmentHandle, VK::Attachment> m_Attachments{};
     std::vector<AttachmentHandle> m_SwapchainAttachmentHandles{};
 
-    VK::SlotMap<ReceiptHandle, VK::Receipt> m_Receipts{};
+    // these are different cus you may want signal at different pipeline stages
+    // for optimization
+    VkSemaphore m_GPUSubmissionSemaphore; // for gpu-gpu sync
+    VkSemaphore m_CPUSubmissionSemaphore; // for cpu-gpu sync
+
+    uint64_t m_SubmissionCount{};
+    std::queue<VK::PendingSubmission> m_PendingSubmissions;
+
+    std::vector<VkCommandBuffer> m_FreeCmdBuffers;
+    std::vector<VkFence> m_FreeFences;
 };
 
 } // namespace SYN

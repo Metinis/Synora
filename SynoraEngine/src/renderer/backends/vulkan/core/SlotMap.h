@@ -27,7 +27,7 @@ template <HandleConcept Handle, typename T> struct SlotMapIterator {
         return *this;
     }
 
-    std::pair<Handle, T &> operator*() { return {Handle{.id = index}, *it}; }
+    std::pair<Handle, T> operator*() { return {Handle{.id = index}, *it}; }
 
     bool operator!=(const SlotMapIterator &other) const {
         return it != other.it;

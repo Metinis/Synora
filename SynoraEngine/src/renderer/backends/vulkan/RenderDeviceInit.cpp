@@ -37,6 +37,21 @@ constexpr uint32_t c_MB{1024 * 1024};
 
 void SYN::RenderDevice::init(Window &window) {
     initContext(&window);
+    {
+        VkSemaphoreTypeCreateInfo semaphoreTypeCI{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+            .initialValue = 0,
+        };
+        VkSemaphoreCreateInfo timelineSemaphoreCI{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = &semaphoreTypeCI,
+        };
+        vkCreateSemaphore(m_Device.logical, &timelineSemaphoreCI, nullptr,
+                          &m_GPUSubmissionSemaphore);
+        vkCreateSemaphore(m_Device.logical, &timelineSemaphoreCI, nullptr,
+                          &m_CPUSubmissionSemaphore);
+    }
 
     initFrameData(m_Swapchain);
     initDescriptorSetLayout();
@@ -79,6 +94,8 @@ void SYN::RenderDevice::shutdown() {
     for (const auto &semaphore : m_RenderFinishedSemaphores) {
         vkDestroySemaphore(m_Device.logical, semaphore, nullptr);
     }
+    vkDestroySemaphore(m_Device.logical, m_GPUSubmissionSemaphore, nullptr);
+    vkDestroySemaphore(m_Device.logical, m_CPUSubmissionSemaphore, nullptr);
 
     for (auto sampler : m_Samplers) {
         vkDestroySampler(m_Device.logical, sampler, nullptr);
@@ -116,7 +133,7 @@ void SYN::RenderDevice::shutdown() {
     ImGui_ImplVulkan_Shutdown();
     vkDestroyDescriptorPool(m_Device.logical, m_ImGUIDescriptorPool, nullptr);
 
-    vkDestroyPipelineLayout(m_Device.logical, m_GraphicsPipelineLayout,
+    vkDestroyPipelineLayout(m_Device.logical, m_BindlessPipelineLayout,
                             nullptr);
 
     vkDestroyCommandPool(m_Device.logical, m_TransientCmdPool, nullptr);
@@ -292,7 +309,7 @@ void SYN::RenderDevice::initPipelineLayout() {
     };
 
     VkResult res{vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
-                                        &m_GraphicsPipelineLayout)};
+                                        &m_BindlessPipelineLayout)};
     if (res != VK_SUCCESS) {
         spdlog::error(
             "Could not create graphics pipeline layout. VkResult = {}",
@@ -510,7 +527,7 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
         m_SwapchainAttachmentHandles[i] = handle;
     }
 
-    for (const auto &[handle, attachment] : m_Attachments) {
+    for (auto [handle, attachment] : m_Attachments) {
         if (attachment.size != AttachmentSize::relative) {
             continue;
         }

@@ -206,6 +206,35 @@ VkPipeline SYN::VK::GraphicsPipelineBuilder::build(
     return pipeline;
 }
 
+VkPipeline SYN::VK::buildComputePipeline(const Device &device,
+                                         VkPipelineLayout layout,
+                                         const std::string &shaderPath) {
+    VkShaderModule shaderModule{createShaderModule(device, shaderPath)};
+
+    VkPipelineShaderStageCreateInfo stageCI{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = shaderModule,
+        .pName = "main",
+    };
+
+    VkComputePipelineCreateInfo computeCI{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage = stageCI,
+        .layout = layout};
+
+    VkPipeline pipeline{};
+    VkResult res{vkCreateComputePipelines(device.logical, VK_NULL_HANDLE, 1,
+                                          &computeCI, nullptr, &pipeline)};
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not create compute pipeline");
+    }
+
+    vkDestroyShaderModule(device.logical, shaderModule, nullptr);
+
+    return pipeline;
+}
+
 namespace {
 
 // TODO: add default shaders for if theres an error

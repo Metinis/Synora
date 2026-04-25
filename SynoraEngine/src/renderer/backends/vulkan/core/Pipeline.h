@@ -52,4 +52,7 @@ class GraphicsPipelineBuilder {
     VkPipelineDepthStencilStateCreateInfo m_DepthStencilStateCI;
 };
 
+VkPipeline buildComputePipeline(const Device &device, VkPipelineLayout layout,
+                                const std::string &shaderPath);
+
 } // namespace SYN::VK

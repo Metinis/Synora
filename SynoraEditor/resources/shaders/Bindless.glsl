@@ -9,15 +9,15 @@ layout(set = 0, binding = 0) uniform textureCube cubeMaps[];
 layout(set = 0, binding = 1) uniform sampler samplers[];
 
 vec4 sample2DLinear(uint textureIndex, vec2 uv) {
-    return texture(sampler2D(textures[textureIndex], samplers[LINEAR_SAMPLER_INDEX]), uv);
+    return texture(sampler2D(textures[nonuniformEXT(textureIndex)], samplers[nonuniformEXT(LINEAR_SAMPLER_INDEX)]), uv);
 }
 vec4 sample2DNearest(uint textureIndex, vec2 uv) {
-    return texture(sampler2D(textures[textureIndex], samplers[NEAREST_SAMPLER_INDEX]), uv);
+    return texture(sampler2D(textures[nonuniformEXT(textureIndex)], samplers[nonuniformEXT(NEAREST_SAMPLER_INDEX)]), uv);
 }
 
 vec4 sampleCubeLinear(uint cubeMapIndex, vec3 dir) {
-    return texture(samplerCube(cubeMaps[cubeMapIndex], samplers[LINEAR_SAMPLER_INDEX]), dir);
+    return texture(samplerCube(cubeMaps[nonuniformEXT(cubeMapIndex)], samplers[nonuniformEXT(LINEAR_SAMPLER_INDEX)]), dir);
 }
 vec4 sampleCubeNearest(uint cubeMapIndex, vec3 dir) {
-    return texture(samplerCube(cubeMaps[cubeMapIndex], samplers[NEAREST_SAMPLER_INDEX]), dir);
+    return texture(samplerCube(cubeMaps[nonuniformEXT(cubeMapIndex)], samplers[nonuniformEXT(NEAREST_SAMPLER_INDEX)]), dir);
 }

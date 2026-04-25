@@ -29,11 +29,15 @@ void SYN::Renderer::init(EngineContext *ctx) {
 
     m_Window = ctx->window.get();
 
-    m_MSAADepthAttachment = m_Device->createAttachment(
-        AttachmentDesc{.type = TextureType::depth, .msaaSamples = 4});
+    m_MSAADepthAttachment = m_Device->createAttachment(AttachmentDesc{
+        .type = TextureType::depth,
+        .format = TextureFormat::r32f,
+        .msaaSamples = 4,
+    });
 
     m_MSAAScreenColorAttachment = m_Device->createAttachment(AttachmentDesc{
         .type = TextureType::srgb,
+        .format = TextureFormat::rgba8,
         .msaaSamples = 4,
     });
 
@@ -48,6 +52,7 @@ void SYN::Renderer::init(EngineContext *ctx) {
         .width = right.width,
         .height = right.height,
         .type = TextureType::srgb,
+        .format = TextureFormat::rgba8,
         .hasMipChain = false,
         .isCubeMap = true,
     };
@@ -95,7 +100,8 @@ void SYN::Renderer::render(Window &window) {
 
     GraphicsCommandBuffer cmdBuf{m_Device->acquireGraphicsCmdBuffer()};
     m_RenderGraph->execute(cmdBuf);
-    m_Device->submitWork(cmdBuf);
+    Receipt renderReceipt{m_Device->submitWork(cmdBuf)};
+    spdlog::info("receipt value: {}", renderReceipt.waitValue);
 
     m_Device->present(*m_Window);
 
@@ -128,6 +134,7 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         .width = meshData.albedo->width,
         .height = meshData.albedo->height,
         .type = TextureType::srgb,
+        .format = TextureFormat::rgba8,
     })};
     cmdBuf.uploadToTexture(albedo, meshData.albedo->data,
                            meshData.albedo->width, meshData.albedo->height);
@@ -136,6 +143,7 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         .width = meshData.metallicRoughness->width,
         .height = meshData.metallicRoughness->height,
         .type = TextureType::rgba,
+        .format = TextureFormat::rgba8,
     })};
     cmdBuf.uploadToTexture(metallicRoughness, meshData.metallicRoughness->data,
                            meshData.metallicRoughness->width,
@@ -145,6 +153,7 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         .width = meshData.normalMap->width,
         .height = meshData.normalMap->height,
         .type = TextureType::rgba,
+        .format = TextureFormat::rgba8,
     })};
     cmdBuf.uploadToTexture(normalMap, meshData.normalMap->data,
                            meshData.normalMap->width,
