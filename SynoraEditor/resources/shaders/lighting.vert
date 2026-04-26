@@ -61,7 +61,7 @@ void main() {
     mat3 normalMat = transpose(mat3(modelMat));
 
     outFaceNormal = normalize(normalMat * vertex.normal);
-    outFaceTangent = vertex.tangent.xyz;
+    outFaceTangent = normalize(normalMat * vertex.tangent.xyz);
     outHandedness = vertex.tangent.w;
 
 	gl_Position = projectionMat * viewMat * worldPos;

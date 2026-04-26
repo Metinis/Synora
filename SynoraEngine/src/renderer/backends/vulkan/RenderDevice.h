@@ -37,7 +37,8 @@ struct Texture {
 struct Attachment {
     Image image;
     AttachmentSize size;
-    uint32_t bindlessSamplerIndex;
+    uint32_t bindlessTextureIndex;
+    std::optional<uint32_t> bindlessStorageImageIndex;
 };
 
 struct FrameData {
@@ -65,6 +66,9 @@ class RenderDevice {
     ~RenderDevice() = default;
 
     void init(Window &window);
+
+    TextureFormat getSwapchainFormat() const;
+    TextureType getSwapchainType() const;
 
     BufferHandle createBuffer(const BufferDesc &desc);
     void destroyBuffer(BufferHandle &handle);
@@ -167,6 +171,7 @@ class RenderDevice {
     VkDescriptorSet m_UBODescriptorSet{};
 
     std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
+    std::vector<uint32_t> m_BindlessStorageImageFreelist{};
 
     std::array<VkSampler, VK::Limits::c_SamplerCount> m_Samplers{};
 

@@ -21,7 +21,15 @@ template <typename T> struct GPUResourceHandle {
     bool isValid() const { return id != UINT32_MAX; }
 };
 
-enum class TextureFormat { invalid, rgba8, rgba16f, rgba32f, r32f, r32ui };
+enum class TextureFormat {
+    invalid,
+    rgba8,
+    bgra8,
+    rgba16f,
+    rgba32f,
+    r32f,
+    r32ui
+};
 enum class TextureType { invalid, srgb, depth, rgba };
 enum class PipelineStage { invalid, compute, fragment };
 

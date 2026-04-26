@@ -157,8 +157,6 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
         height = m_Swapchain.extent.height;
     }
 
-    Image image{};
-    uint32_t bindlessSamplerIndex{};
     VkSampleCountFlagBits samples{getSamples(m_Device, desc.msaaSamples)};
 
     uint32_t layerCount{1};
@@ -166,6 +164,7 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
         layerCount = 6;
     }
 
+    Image image{};
     image = createImage(m_Device, m_Allocator, format,
                         {.width = width, .height = height}, usage, aspect,
                         samples, 1, layerCount, desc.isCubeMap);
@@ -178,31 +177,58 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
         return {};
     }
 
+    uint32_t bindlessTextureIndex{};
+    std::optional<uint32_t> bindlessStorageImageIndex{};
+
     VkDescriptorImageInfo imageInfo{
         .imageView = image.view,
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
 
-    uint32_t descriptorElement{m_BindlessTextureIndexFreelist.back()};
+    std::vector<VkWriteDescriptorSet> bindlessWrites{};
+    bindlessWrites.reserve(2);
+
+    uint32_t textureElement{m_BindlessTextureIndexFreelist.back()};
     m_BindlessTextureIndexFreelist.pop_back();
 
-    VkWriteDescriptorSet bindlessWrite{
+    VkWriteDescriptorSet textureWrite{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         .dstSet = m_BindlessDescriptorSet,
         .dstBinding = Limits::c_TextureBinding,
-        .dstArrayElement = descriptorElement,
+        .dstArrayElement = textureElement,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         .pImageInfo = &imageInfo,
     };
+    bindlessWrites.emplace_back(textureWrite);
+    bindlessTextureIndex = textureElement;
 
-    vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
-    bindlessSamplerIndex = descriptorElement;
+    if (desc.isStorageImage) {
+        uint32_t storageImageElement{m_BindlessStorageImageFreelist.back()};
+        m_BindlessStorageImageFreelist.pop_back();
+
+        VkWriteDescriptorSet storageImageWrite{
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = m_BindlessDescriptorSet,
+            .dstBinding = Limits::c_StorageImageBinding,
+            .dstArrayElement = storageImageElement,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .pImageInfo = &imageInfo,
+        };
+
+        bindlessWrites.emplace_back(storageImageWrite);
+        bindlessStorageImageIndex = storageImageElement;
+    }
+
+    vkUpdateDescriptorSets(m_Device.logical, bindlessWrites.size(),
+                           bindlessWrites.data(), 0, nullptr);
 
     Attachment attachment{
         .image = image,
         .size = desc.size,
-        .bindlessSamplerIndex = bindlessSamplerIndex,
+        .bindlessTextureIndex = bindlessTextureIndex,
+        .bindlessStorageImageIndex = bindlessStorageImageIndex,
     };
 
     return m_Attachments.insert(attachment);
@@ -215,7 +241,12 @@ void SYN::RenderDevice::destroyAttachment(AttachmentHandle &handle) {
     destroyImage(m_Device, m_Allocator, attachment.image);
 
     m_BindlessTextureIndexFreelist.emplace_back(
-        attachment.bindlessSamplerIndex);
+        attachment.bindlessTextureIndex);
+
+    if (attachment.bindlessStorageImageIndex.has_value()) {
+        m_BindlessStorageImageFreelist.emplace_back(
+            attachment.bindlessStorageImageIndex.value());
+    }
 
     m_Attachments.remove(handle);
     handle.id = UINT32_MAX;
@@ -333,6 +364,59 @@ bool SYN::RenderDevice::getReceiptStatus(Receipt receipt) {
     return currentValue >= receipt.waitValue;
 }
 
+TextureFormat SYN::RenderDevice::getSwapchainFormat() const {
+    TextureFormat format{};
+    switch (m_Swapchain.format) {
+    case VK_FORMAT_R8G8B8A8_SRGB:
+        format = TextureFormat::rgba8;
+        break;
+    case VK_FORMAT_B8G8R8A8_SRGB:
+        format = TextureFormat::bgra8;
+        break;
+    case VK_FORMAT_R8G8B8A8_UNORM:
+        spdlog::info("Swapchain is not srgb");
+        format = TextureFormat::rgba8;
+        break;
+    case VK_FORMAT_B8G8R8A8_UNORM:
+        spdlog::info("Swapchain is not srgb");
+        format = TextureFormat::bgra8;
+        break;
+    default:
+        spdlog::warn("Swapchain is an unknown format, something "
+                     "went wrong");
+        assert(false);
+        format = TextureFormat::bgra8;
+    }
+
+    return format;
+}
+TextureType SYN::RenderDevice::getSwapchainType() const {
+    TextureType type{};
+    switch (m_Swapchain.format) {
+    case VK_FORMAT_R8G8B8A8_SRGB:
+        type = TextureType::srgb;
+        break;
+    case VK_FORMAT_B8G8R8A8_SRGB:
+        type = TextureType::srgb;
+        break;
+    case VK_FORMAT_R8G8B8A8_UNORM:
+        spdlog::info("Swapchain is not srgb");
+        type = TextureType::rgba;
+        break;
+    case VK_FORMAT_B8G8R8A8_UNORM:
+        spdlog::info("Swapchain is not srgb");
+        type = TextureType::rgba;
+        break;
+    default:
+        spdlog::warn("Swapchain is an unknown format, something "
+                     "went wrong");
+        assert(false);
+        type = TextureType::srgb;
+    }
+
+    return type;
+}
+
 namespace {
 VkImageAspectFlags getVkAspect(TextureType type) {
     VkImageAspectFlags aspect{};
@@ -372,11 +456,14 @@ VkFormat getVkFormat(TextureFormat format, TextureType type) {
     }
 
     if (type == TextureType::srgb) {
-        if (format != TextureFormat::rgba8) {
-            spdlog::warn("Using srgb texture type with invalid format ");
-            assert(false);
+        if (format == TextureFormat::bgra8) {
+            return VK_FORMAT_B8G8R8A8_SRGB;
         }
-        return VK_FORMAT_R8G8B8A8_SRGB;
+        if (format == TextureFormat::rgba8) {
+            return VK_FORMAT_R8G8B8A8_SRGB;
+        }
+        spdlog::warn("Using wrong format for srgb texture type");
+        assert(false);
     }
 
     switch (format) {
@@ -394,6 +481,9 @@ VkFormat getVkFormat(TextureFormat format, TextureType type) {
         break;
     case TextureFormat::r32ui:
         vkFormat = VK_FORMAT_R32_UINT;
+        break;
+    case TextureFormat::bgra8:
+        vkFormat = VK_FORMAT_B8G8R8A8_UNORM;
         break;
     default:
         spdlog::warn("invalid texture format");

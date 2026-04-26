@@ -88,7 +88,7 @@ SYN::ComputeCommandBuffer::getShaderTextureIndexCmd(AttachmentHandle handle) {
     assert(m_RenderDevice->m_Attachments.contains(handle));
     const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
 
-    return attachment.bindlessSamplerIndex;
+    return attachment.bindlessTextureIndex;
 }
 
 uint64_t SYN::ComputeCommandBuffer::getBufferAddressCmd(BufferHandle handle) {

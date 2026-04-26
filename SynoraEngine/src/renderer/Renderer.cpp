@@ -36,8 +36,8 @@ void SYN::Renderer::init(EngineContext *ctx) {
     });
 
     m_MSAAScreenColorAttachment = m_Device->createAttachment(AttachmentDesc{
-        .type = TextureType::srgb,
-        .format = TextureFormat::rgba8,
+        .type = m_Device->getSwapchainType(),
+        .format = m_Device->getSwapchainFormat(),
         .msaaSamples = 4,
     });
 

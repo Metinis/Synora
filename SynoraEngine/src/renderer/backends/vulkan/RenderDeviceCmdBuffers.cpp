@@ -175,7 +175,10 @@ SYN::Receipt SYN::RenderDevice::submitWork(UploadCommandBuffer &cmdBuffer,
     }
 
     cmdBuffer.reset();
-    return {};
+    return {
+        .waitValue = 0 // zero cus we waited on the cpu so the data is available
+                       // immediately
+    };
 }
 
 SYN::Receipt SYN::RenderDevice::submitWork(ComputeCommandBuffer &cmdBuffer,

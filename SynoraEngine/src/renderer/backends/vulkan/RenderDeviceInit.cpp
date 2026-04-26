@@ -215,13 +215,18 @@ void SYN::RenderDevice::initDescriptorSetLayout() {
     uint32_t samplerDescriptorCount{
         std::min(Limits::c_SamplerCount,
                  m_Device.properties.limits.maxDescriptorSetSamplers)};
+    uint32_t storageImageDescriptorCount{
+        std::min(Limits::c_MaxStorageImages,
+                 m_Device.properties.limits.maxDescriptorSetStorageImages)};
 
     VkDescriptorBindingFlags uboFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
 
-    std::array<VkDescriptorBindingFlags, 2> bindlessFlags{
+    std::array<VkDescriptorBindingFlags, 3> bindlessFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+    };
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindlessBindingFlagsCI{
         .sType =
@@ -241,16 +246,24 @@ void SYN::RenderDevice::initDescriptorSetLayout() {
         .binding = Limits::c_TextureBinding,
         .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         .descriptorCount = textureDescriptorCount,
-        .stageFlags = VK_SHADER_STAGE_ALL};
+        .stageFlags = VK_SHADER_STAGE_ALL,
+    };
 
     VkDescriptorSetLayoutBinding samplerBinding{
         .binding = Limits::c_SamplerBinding,
         .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
         .descriptorCount = samplerDescriptorCount,
-        .stageFlags = VK_SHADER_STAGE_ALL};
+        .stageFlags = VK_SHADER_STAGE_ALL,
+    };
+    VkDescriptorSetLayoutBinding storageImageBinding{
+        .binding = Limits::c_StorageImageBinding,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        .descriptorCount = storageImageDescriptorCount,
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+    };
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindlessBindings{
-        textureBinding, samplerBinding};
+    std::array<VkDescriptorSetLayoutBinding, 3> bindlessBindings{
+        textureBinding, samplerBinding, storageImageBinding};
 
     VkDescriptorSetLayoutBinding uboBinding{
         .binding = 0,
@@ -325,8 +338,11 @@ void SYN::RenderDevice::initDescriptorSets() {
     uint32_t samplerDescriptorCount{
         std::min(Limits::c_SamplerCount,
                  m_Device.properties.limits.maxDescriptorSetSamplers)};
+    uint32_t storageImageDescriptorCount{
+        std::min(Limits::c_MaxStorageImages,
+                 m_Device.properties.limits.maxDescriptorSetStorageImages)};
 
-    std::array<VkDescriptorPoolSize, 3> poolSizes{
+    std::array<VkDescriptorPoolSize, 4> poolSizes{
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
             .descriptorCount = textureDescriptorCount,
@@ -334,6 +350,11 @@ void SYN::RenderDevice::initDescriptorSets() {
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_SAMPLER,
             .descriptorCount = static_cast<uint32_t>(samplerDescriptorCount),
+        },
+        VkDescriptorPoolSize{
+            .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .descriptorCount =
+                static_cast<uint32_t>(storageImageDescriptorCount),
         },
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -534,7 +555,7 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
 
         {
             Image prevImage{attachment.image};
-            attachment.image = createImage(
+            m_Attachments[handle].image = createImage(
                 m_Device, m_Allocator, prevImage.format, m_Swapchain.extent,
                 prevImage.usage, prevImage.subresourceRange.aspectMask,
                 prevImage.samples, prevImage.mipLevels, prevImage.layerCount,
@@ -548,24 +569,40 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
                          VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
                          VK_ACCESS_2_SHADER_READ_BIT);
 
-        uint32_t descriptorElement{attachment.bindlessSamplerIndex};
-
+        std::vector<VkDescriptorImageInfo> imageInfos;
+        std::vector<VkWriteDescriptorSet> bindlessWrites;
+        // TODO: transition images
         VkDescriptorImageInfo imageInfo{
-            .imageView = attachment.image.view,
+            .imageView = m_Attachments[handle].image.view,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
+        imageInfos.emplace_back(imageInfo);
 
-        VkWriteDescriptorSet bindlessWrite{
+        VkWriteDescriptorSet textureWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet = m_BindlessDescriptorSet,
             .dstBinding = Limits::c_TextureBinding,
-            .dstArrayElement = descriptorElement,
+            .dstArrayElement = attachment.bindlessTextureIndex,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            .pImageInfo = &imageInfo,
+            .pImageInfo = &imageInfos.back(),
         };
+        bindlessWrites.emplace_back(textureWrite);
+        if (attachment.bindlessStorageImageIndex.has_value()) {
+            VkWriteDescriptorSet storageImageWrite{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = m_BindlessDescriptorSet,
+                .dstBinding = Limits::c_StorageImageBinding,
+                .dstArrayElement = attachment.bindlessStorageImageIndex.value(),
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .pImageInfo = &imageInfos.back(),
+            };
+            bindlessWrites.emplace_back(storageImageWrite);
+        }
 
-        vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
+        vkUpdateDescriptorSets(m_Device.logical, bindlessWrites.size(),
+                               bindlessWrites.data(), 0, nullptr);
     }
 }
 

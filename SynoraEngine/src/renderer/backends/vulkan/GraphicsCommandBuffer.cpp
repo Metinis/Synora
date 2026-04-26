@@ -265,7 +265,7 @@ uint32_t
 SYN::GraphicsCommandBuffer::getShaderTextureIndexCmd(AttachmentHandle handle) {
     const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
 
-    return attachment.bindlessSamplerIndex;
+    return attachment.bindlessTextureIndex;
 }
 
 uint64_t SYN::GraphicsCommandBuffer::getBufferAddressCmd(BufferHandle handle) {
