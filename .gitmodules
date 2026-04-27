@@ -1,27 +1,30 @@
-[submodule "3rdparty/glfw"]
-	path = 3rdparty/glfw
+[submodule "SynoraEngine/3rdparty/glfw"]
+	path = SynoraEngine/3rdparty/glfw
 	url = https://github.com/glfw/glfw.git
-[submodule "3rdparty/spdlog"]
-	path = 3rdparty/spdlog
+[submodule "SynoraEngine/3rdparty/spdlog"]
+	path = SynoraEngine/3rdparty/spdlog
 	url = https://github.com/gabime/spdlog.git
-[submodule "3rdparty/entt"]
-	path = 3rdparty/entt
+[submodule "SynoraEngine/3rdparty/entt"]
+	path = SynoraEngine/3rdparty/entt
 	url = https://github.com/skypjack/entt.git
-[submodule "3rdparty/miniaudio"]
-	path = 3rdparty/miniaudio
+[submodule "SynoraEngine/3rdparty/miniaudio"]
+	path = SynoraEngine/3rdparty/miniaudio
 	url = https://github.com/mackron/miniaudio.git
-[submodule "3rdparty/JoltPhysics"]
-	path = 3rdparty/JoltPhysics
+[submodule "SynoraEngine/3rdparty/JoltPhysics"]
+	path = SynoraEngine/3rdparty/JoltPhysics
 	url = https://github.com/jrouwe/JoltPhysics.git
-[submodule "3rdparty/glm"]
-	path = 3rdparty/glm
+[submodule "SynoraEngine/3rdparty/glm"]
+	path = SynoraEngine/3rdparty/glm
 	url = https://github.com/g-truc/glm.git
-[submodule "3rdparty/VulkanMemoryAllocator"]
-	path = 3rdparty/VulkanMemoryAllocator
+[submodule "SynoraEngine/3rdparty/VulkanMemoryAllocator"]
+	path = SynoraEngine/3rdparty/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-[submodule "3rdparty/stb"]
-	path = 3rdparty/stb
+[submodule "SynoraEngine/3rdparty/stb"]
+	path = SynoraEngine/3rdparty/stb
 	url = https://github.com/nothings/stb
-[submodule "3rdparty/assimp"]
-	path = 3rdparty/assimp
+[submodule "SynoraEngine/3rdparty/assimp"]
+	path = SynoraEngine/3rdparty/assimp
 	url = https://github.com/assimp/assimp.git
+[submodule "SynoraEngine/3rdparty/imgui"]
+	path = SynoraEngine/3rdparty/imgui
+	url = https://github.com/ocornut/imgui
