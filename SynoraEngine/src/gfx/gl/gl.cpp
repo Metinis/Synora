@@ -1,4 +1,4 @@
-#include <PuzzleEngine/gfx/gl/gl.h>
+#include <SynoraEngine/gfx/gl/gl.h>
 
 // clang-format off
 #include <glad/glad.h>

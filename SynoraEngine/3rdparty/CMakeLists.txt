@@ -40,6 +40,9 @@ add_library(imgui STATIC
         imgui/backends/imgui_impl_glfw.cpp
         imgui/backends/imgui_impl_vulkan.cpp
 )
+
+target_include_directories(imgui PRIVATE ${Vulkan_INCLUDE_DIR})
+
 add_library(tinyfiledialogs STATIC
         tinyfiledialogs/tinyfiledialogs.c
 )

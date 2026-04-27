@@ -44,6 +44,7 @@ target_link_libraries(
   assimp
   imgui
   tinyfiledialogs
+  glad
 )
 
 # This is to make the projection matrices in glm work with vulkan
