@@ -85,13 +85,13 @@ void main() {
 
     mat3 tbn = mat3(tangent, bitangent, faceNormal);
 
-    vec3 mapNormal = sample2DLinear(normalMap, uv).xyz;
+    vec3 mapNormal = sampleLinear(normalMap, uv).xyz;
     mapNormal = (mapNormal * 2.f) - 1.f;
 
     vec3 norm = normalize(tbn * mapNormal);
 
-    vec4 fragAlbedo = sample2DLinear(albedoIndex, uv);
-    vec4 fragMetallicRoughness = sample2DLinear(metallicRoughnessIndex, uv);
+    vec4 fragAlbedo = sampleLinear(albedoIndex, uv);
+    vec4 fragMetallicRoughness = sampleLinear(metallicRoughnessIndex, uv);
 
     vec3 albedo = fragAlbedo.xyz;
     float roughness = fragMetallicRoughness.g;
@@ -141,7 +141,7 @@ void main() {
 
     vec3 color = lo;
     color = color / (color + vec3(1.f));
-    color = sample2DLinear(testIndex, uv).xyz;
+    color = sampleLinear(testIndex, uv).xyz;
 
     outColor = vec4(color, 1.f);
 }

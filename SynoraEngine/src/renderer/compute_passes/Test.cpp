@@ -3,8 +3,8 @@
 #include "renderer/backends/RenderDevice.h"
 
 struct PushConstants {
-    uint32_t imageIndex;
-    uint32_t padding0;
+    uint32_t imageIndex0;
+    uint32_t imageIndex1;
     glm::uvec2 resolution;
 };
 
@@ -15,7 +15,8 @@ void SYN::TestPass::execute(GraphicsCommandBuffer &cmdBuffer,
                             PipelineHandle pipeline) {
 
     PushConstants pushConstants{
-        .imageIndex = cmdBuffer.getShaderStorageImageIndexCmd(m_ColorImage),
+        .imageIndex0 = cmdBuffer.getShaderStorageImageIndexCmd(m_ColorImage, 0),
+        .imageIndex1 = cmdBuffer.getShaderStorageImageIndexCmd(m_ColorImage, 1),
         .resolution = m_ImageResolution,
     };
 
@@ -26,7 +27,7 @@ void SYN::TestPass::execute(GraphicsCommandBuffer &cmdBuffer,
 SYN::DispatchDesc SYN::TestPass::getPassDesc() {
     return {
         .debugName = "Test Pass",
-        .readWriteAttachments = std::span(&m_ColorImage, 1),
+        .writeonlyAttachments = std::span(&m_ColorImage, 1),
         .groupCountX = static_cast<uint32_t>(m_ImageResolution.x / 16),
         .groupCountY = static_cast<uint32_t>(m_ImageResolution.y / 16),
         .groupCountZ = 1,

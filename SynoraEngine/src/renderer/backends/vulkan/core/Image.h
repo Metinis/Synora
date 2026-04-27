@@ -18,6 +18,8 @@ struct ImageSyncState {
 struct Image {
     VkImage handle;
     VkImageView view;
+    std::vector<VkImageView> mipViews;
+
     VkExtent2D extent;
     VkImageSubresourceRange subresourceRange;
     VkFormat format;

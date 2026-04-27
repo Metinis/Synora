@@ -296,17 +296,18 @@ uint64_t SYN::GraphicsCommandBuffer::getBufferAddressCmd(BufferHandle handle) {
 }
 
 uint32_t SYN::GraphicsCommandBuffer::getShaderStorageImageIndexCmd(
-    AttachmentHandle handle) {
+    AttachmentHandle handle, uint32_t mipLevel) {
     assert(m_RenderDevice->m_Attachments.contains(handle));
 
     const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
-    if (!attachment.bindlessStorageImageIndex.has_value()) {
+    if (mipLevel > attachment.bindlessStorageImageIndices.size()) {
         spdlog::error("Trying to access shader storage image index for an "
-                      "attachment that doesnt one");
+                      "attachment that doesnt have one, or trying to access "
+                      "mip level that attachment wasnt created with");
         assert(false);
     }
 
-    return attachment.bindlessStorageImageIndex.value();
+    return attachment.bindlessStorageImageIndices[mipLevel];
 }
 
 namespace {

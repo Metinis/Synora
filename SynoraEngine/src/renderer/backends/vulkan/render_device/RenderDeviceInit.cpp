@@ -532,7 +532,9 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
         m_SwapchainAttachmentHandles[i] = handle;
     }
 
-    for (auto [handle, attachment] : m_Attachments) {
+    for (auto [handle, _] : m_Attachments) {
+        Attachment &attachment{m_Attachments[handle]};
+
         if (attachment.size != AttachmentSize::relative) {
             continue;
         }
@@ -548,14 +550,9 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
             destroyImage(m_Device, m_Allocator, prevImage);
         }
 
-        generateMipChain(m_TransientCmdPool, m_Device, attachment.image,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-                         VK_ACCESS_2_SHADER_READ_BIT);
-
         std::vector<VkDescriptorImageInfo> imageInfos;
         std::vector<VkWriteDescriptorSet> bindlessWrites;
-        // TODO: transition images
+
         VkDescriptorImageInfo imageInfo{
             .imageView = m_Attachments[handle].image.view,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -572,12 +569,12 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
             .pImageInfo = &imageInfos.back(),
         };
         bindlessWrites.emplace_back(textureWrite);
-        if (attachment.bindlessStorageImageIndex.has_value()) {
+        for (auto index : attachment.bindlessStorageImageIndices) {
             VkWriteDescriptorSet storageImageWrite{
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .dstSet = m_BindlessSet,
                 .dstBinding = Limits::c_StorageImageBinding,
-                .dstArrayElement = attachment.bindlessStorageImageIndex.value(),
+                .dstArrayElement = index,
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                 .pImageInfo = &imageInfos.back(),

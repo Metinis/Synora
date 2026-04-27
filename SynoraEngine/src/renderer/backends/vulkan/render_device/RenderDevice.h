@@ -36,7 +36,9 @@ struct Attachment {
     Image image;
     AttachmentSize size;
     uint32_t bindlessTextureIndex;
-    std::optional<uint32_t> bindlessStorageImageIndex;
+
+    // per mip level
+    std::vector<uint32_t> bindlessStorageImageIndices;
 };
 
 struct FrameData {

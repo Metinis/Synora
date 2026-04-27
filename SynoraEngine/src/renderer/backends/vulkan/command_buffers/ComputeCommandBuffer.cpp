@@ -69,6 +69,12 @@ void SYN::ComputeCommandBuffer::dispatchCmd(const DispatchDesc &desc) {
                            VK_ACCESS_2_SHADER_READ_BIT |
                                VK_ACCESS_2_SHADER_WRITE_BIT);
     }
+    for (const auto &attachment : desc.writeonlyAttachments) {
+        Image &image{m_RenderDevice->m_Attachments[attachment].image};
+        transitionImageCmd(m_CmdBuffer, image, VK_IMAGE_LAYOUT_GENERAL,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_WRITE_BIT);
+    }
 
     vkCmdDispatch(m_CmdBuffer, desc.groupCountX, desc.groupCountY,
                   desc.groupCountZ);
@@ -88,18 +94,19 @@ SYN::ComputeCommandBuffer::getShaderTextureIndexCmd(AttachmentHandle handle) {
     return attachment.bindlessTextureIndex;
 }
 
-uint32_t
-SYN::ComputeCommandBuffer::getShaderStorageImageCmd(AttachmentHandle handle) {
+uint32_t SYN::ComputeCommandBuffer::getShaderStorageImageIndexCmd(
+    AttachmentHandle handle, uint32_t mipLevel) {
     assert(m_RenderDevice->m_Attachments.contains(handle));
 
     const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
-    if (!attachment.bindlessStorageImageIndex.has_value()) {
+    if (mipLevel > attachment.bindlessStorageImageIndices.size()) {
         spdlog::error("Trying to access shader storage image index for an "
-                      "attachment that doesnt one");
+                      "attachment that doesnt have one, or trying to access "
+                      "mip level that attachment wasnt created with");
         assert(false);
     }
 
-    return attachment.bindlessStorageImageIndex.value();
+    return attachment.bindlessStorageImageIndices[mipLevel];
 }
 
 uint64_t SYN::ComputeCommandBuffer::getBufferAddressCmd(BufferHandle handle) {

@@ -3,6 +3,7 @@
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <queue>
+#include <set>
 #include <unordered_map>
 
 #include "renderer/backends/RenderDevice.h"
@@ -10,11 +11,11 @@
 using namespace SYN;
 
 namespace {
-std::vector<size_t> makeTopoSorted(std::span<RenderPassNode> passNodes);
+std::vector<size_t> makeTopoSorted(std::span<PassNode> passNodes);
 }
 
 void RenderGraph::compile(RenderDevice &renderDevice) {
-    m_Passes.reserve(m_RenderPasses.size() + m_ComputePasses.size());
+    m_PassFunctors.reserve(m_RenderPasses.size() + m_ComputePasses.size());
 
     for (auto &pass : m_RenderPasses) {
         GraphicsPipelineDesc pipelineDesc{pass->getPipelineDesc()};
@@ -27,7 +28,7 @@ void RenderGraph::compile(RenderDevice &renderDevice) {
             pipelineHandle = m_GraphicsPipelineCache[pipelineDesc];
         }
 
-        m_Passes.emplace_back(
+        m_PassFunctors.emplace_back(
             [pipelineHandle, &pass](GraphicsCommandBuffer &cmdBuffer) {
                 pass->execute(cmdBuffer, pipelineHandle);
             });
@@ -43,7 +44,7 @@ void RenderGraph::compile(RenderDevice &renderDevice) {
         } else {
             pipelineHandle = m_ComputePipelineCache[pipelineDesc];
         }
-        m_Passes.emplace_back(
+        m_PassFunctors.emplace_back(
             [pipelineHandle, &pass](GraphicsCommandBuffer &cmdBuffer) {
                 pass->execute(cmdBuffer, pipelineHandle);
             });
@@ -59,20 +60,16 @@ void RenderGraph::execute(GraphicsCommandBuffer &cmdBuffer) {
         return;
     }
 
-    // std::vector<size_t> sortedPassIndices{makeTopoSorted(m_RenderPassNodes)};
-    std::vector<size_t> sortedPassIndices{};
-    for (size_t i{}; i < m_RenderPassNodes.size(); i++) {
-        sortedPassIndices.emplace_back(i);
-    }
+    std::vector<size_t> sortedPassIndices{makeTopoSorted(m_PassNodes)};
 
     for (const auto &passIndex : sortedPassIndices) {
-        m_Passes[passIndex](cmdBuffer);
+        m_PassFunctors[passIndex](cmdBuffer);
     }
 
     m_RenderPasses.clear();
     m_ComputePasses.clear();
-    m_Passes.clear();
-    m_RenderPassNodes.clear();
+    m_PassFunctors.clear();
+    m_PassNodes.clear();
 
     m_Compiled = false;
 }
@@ -88,16 +85,17 @@ void RenderGraph::shutdown(RenderDevice &renderDevice) {
 
 namespace {
 
-std::vector<size_t> makeTopoSorted(std::span<RenderPassNode> passNodes) {
+std::vector<size_t> makeTopoSorted(std::span<PassNode> passNodes) {
 
     size_t passCount{passNodes.size()};
     std::vector<size_t> passInDegree(passCount, 0);
     std::queue<size_t> passQueue{};
-    std::vector<std::vector<size_t>> passAdjList(passCount);
+    std::vector<std::unordered_set<size_t>> passAdjList(passCount);
 
     std::unordered_map<AttachmentHandle, size_t> attachmentToLastOutputPass{};
+
     for (size_t i{}; i < passCount; i++) {
-        const RenderPassNode &node{passNodes[i]};
+        const PassNode &node{passNodes[i]};
 
         for (auto attachment : node.inputAttachments) {
             if (!attachmentToLastOutputPass.contains(attachment)) {
@@ -108,18 +106,20 @@ std::vector<size_t> makeTopoSorted(std::span<RenderPassNode> passNodes) {
                 continue;
             }
             size_t predecessor{attachmentToLastOutputPass[attachment]};
-            passAdjList[predecessor].emplace_back(i);
+            if (passAdjList[predecessor].contains(i)) {
+                continue;
+            }
+
+            passAdjList[predecessor].emplace(i);
             passInDegree[i]++;
+        }
+
+        if (passInDegree[i] == 0) {
+            passQueue.push(i);
         }
 
         for (auto attachment : node.outputAttachments) {
             attachmentToLastOutputPass[attachment] = i;
-        }
-    }
-
-    for (size_t i{}; i < passInDegree.size(); i++) {
-        if (passInDegree[i] == 0) {
-            passQueue.push(i);
         }
     }
 
@@ -130,16 +130,17 @@ std::vector<size_t> makeTopoSorted(std::span<RenderPassNode> passNodes) {
         passQueue.pop();
         sortedPasses.emplace_back(frontPass);
 
-        for (auto descendantPass : passAdjList[frontPass]) {
-            passInDegree[descendantPass]--;
-            if (passInDegree[descendantPass] == 0) {
-                passQueue.push(descendantPass);
+        for (auto neighbor : passAdjList[frontPass]) {
+            passInDegree[neighbor]--;
+            if (passInDegree[neighbor] == 0) {
+                passQueue.push(neighbor);
             }
         }
     }
 
     if (sortedPasses.size() < passCount) {
-        spdlog::warn("Render graph contains cycles");
+        spdlog::error("Render graph contains cycles");
+        assert(false);
     }
     return sortedPasses;
 }

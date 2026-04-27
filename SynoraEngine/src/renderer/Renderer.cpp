@@ -81,6 +81,7 @@ void SYN::Renderer::init(EngineContext *ctx) {
         .type = TextureType::rgba,
         .format = TextureFormat::rgba8,
         .isStorageImage = true,
+        .mipLevels = 2,
     });
 }
 

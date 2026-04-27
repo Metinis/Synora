@@ -17,11 +17,11 @@ class RenderGraph {
         if constexpr (std::is_base_of<IRenderPass, T>()) {
             m_RenderPasses.emplace_back(
                 std::make_unique<T>(std::forward<Args>(args)...));
-            m_RenderPassNodes.emplace_back(m_RenderPasses.back()->getNode());
+            m_PassNodes.emplace_back(m_RenderPasses.back()->getNode());
         } else if constexpr (std::is_base_of<IComputePass, T>()) {
             m_ComputePasses.emplace_back(
                 std::make_unique<T>(std::forward<Args>(args)...));
-            m_RenderPassNodes.emplace_back(m_ComputePasses.back()->getNode());
+            m_PassNodes.emplace_back(m_ComputePasses.back()->getNode());
         }
     }
 
@@ -33,9 +33,9 @@ class RenderGraph {
   private:
     std::vector<std::unique_ptr<IRenderPass>> m_RenderPasses;
     std::vector<std::unique_ptr<IComputePass>> m_ComputePasses;
-    std::vector<RenderPassNode> m_RenderPassNodes;
+    std::vector<PassNode> m_PassNodes;
 
-    std::vector<std::function<void(GraphicsCommandBuffer &)>> m_Passes;
+    std::vector<std::function<void(GraphicsCommandBuffer &)>> m_PassFunctors;
 
     std::unordered_map<GraphicsPipelineDesc, PipelineHandle>
         m_GraphicsPipelineCache;

@@ -57,6 +57,8 @@ struct AttachmentDesc {
     uint32_t msaaSamples{1}; // 1 is no multisampling
     bool isCubeMap{false};   // layer count must be 6 if this is true
     bool isStorageImage{false};
+
+    uint32_t mipLevels{1};
 };
 
 struct BufferDesc {
@@ -138,13 +140,16 @@ struct DispatchDesc {
     std::span<AttachmentHandle> readonlyAttachments; // accessed in textures
     std::span<AttachmentHandle>
         readWriteAttachments; // accessed in storage images
+    std::span<AttachmentHandle>
+        writeonlyAttachments; // accessed in storage images
 
     uint32_t groupCountX;
     uint32_t groupCountY;
     uint32_t groupCountZ;
 };
 
-struct RenderPassNode {
+// for render/compute passes
+struct PassNode {
     std::string debugName;
     std::vector<AttachmentHandle> inputAttachments;
     std::vector<AttachmentHandle> outputAttachments;

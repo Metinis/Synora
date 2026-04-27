@@ -119,6 +119,10 @@ void SYN::RenderDevice::destroyTexture(TextureHandle &handle) {
 
 AttachmentHandle
 SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
+    if (desc.mipLevels > 1) {
+        assert(desc.isStorageImage);
+    }
+
     VkFormat format{getVkFormat(desc.format, desc.type)};
     VkImageAspectFlags aspect{getVkAspect(desc.type)};
     VkImageUsageFlags usage{VK_IMAGE_USAGE_SAMPLED_BIT};
@@ -162,7 +166,7 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
     Image image{};
     image = createImage(m_Device, m_Allocator, format,
                         {.width = width, .height = height}, usage, aspect,
-                        samples, 1, layerCount, desc.isCubeMap);
+                        samples, desc.mipLevels, layerCount, desc.isCubeMap);
 
     if (m_BindlessTextureIndexFreelist.empty() && !desc.isCubeMap) {
         spdlog::warn("Could not create attachment, bindless array is full");
@@ -172,20 +176,12 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
         return {};
     }
 
-    uint32_t bindlessTextureIndex{};
-    std::optional<uint32_t> bindlessStorageImageIndex{};
+    std::vector<VkWriteDescriptorSet> bindlessWrites{};
 
     VkDescriptorImageInfo textureImageInfo{
         .imageView = image.view,
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
     };
-    VkDescriptorImageInfo storageImageInfo{
-        .imageView = image.view,
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-    };
-
-    std::vector<VkWriteDescriptorSet> bindlessWrites{};
-    bindlessWrites.reserve(2);
 
     uint32_t textureElement{m_BindlessTextureIndexFreelist.back()};
     m_BindlessTextureIndexFreelist.pop_back();
@@ -200,24 +196,43 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
         .pImageInfo = &textureImageInfo,
     };
     bindlessWrites.emplace_back(textureWrite);
-    bindlessTextureIndex = textureElement;
 
+    uint32_t bindlessTextureIndex{textureElement};
+    std::vector<uint32_t> bindlessStorageImageIndices{};
+
+    std::vector<VkDescriptorImageInfo> storageImageInfos(image.mipViews.size());
     if (desc.isStorageImage) {
-        uint32_t storageImageElement{m_BindlessStorageImageFreelist.back()};
-        m_BindlessStorageImageFreelist.pop_back();
+        assert(desc.mipLevels == image.mipViews.size());
 
-        VkWriteDescriptorSet storageImageWrite{
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = m_BindlessSet,
-            .dstBinding = Limits::c_StorageImageBinding,
-            .dstArrayElement = storageImageElement,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-            .pImageInfo = &storageImageInfo,
-        };
+        for (size_t i{}; i < desc.mipLevels; i++) {
+            storageImageInfos[i] = {
+                .imageView = image.mipViews[i],
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            };
 
-        bindlessWrites.emplace_back(storageImageWrite);
-        bindlessStorageImageIndex = storageImageElement;
+            // TODO: refactor this whole function, getting long, also make this
+            // auto free all the attachments created here
+            if (m_BindlessStorageImageFreelist.empty()) {
+                spdlog::error("Bindless storage images all used up ):");
+                assert(false);
+            }
+
+            uint32_t storageImageElement{m_BindlessStorageImageFreelist.back()};
+            m_BindlessStorageImageFreelist.pop_back();
+
+            VkWriteDescriptorSet storageImageWrite{
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = m_BindlessSet,
+                .dstBinding = Limits::c_StorageImageBinding,
+                .dstArrayElement = storageImageElement,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                .pImageInfo = &storageImageInfos[i],
+            };
+
+            bindlessWrites.emplace_back(storageImageWrite);
+            bindlessStorageImageIndices.emplace_back(storageImageElement);
+        }
     }
 
     vkUpdateDescriptorSets(m_Device.logical, bindlessWrites.size(),
@@ -227,7 +242,7 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
         .image = image,
         .size = desc.size,
         .bindlessTextureIndex = bindlessTextureIndex,
-        .bindlessStorageImageIndex = bindlessStorageImageIndex,
+        .bindlessStorageImageIndices = bindlessStorageImageIndices,
     };
 
     return m_Attachments.insert(attachment);
@@ -242,9 +257,8 @@ void SYN::RenderDevice::destroyAttachment(AttachmentHandle &handle) {
     m_BindlessTextureIndexFreelist.emplace_back(
         attachment.bindlessTextureIndex);
 
-    if (attachment.bindlessStorageImageIndex.has_value()) {
-        m_BindlessStorageImageFreelist.emplace_back(
-            attachment.bindlessStorageImageIndex.value());
+    for (auto index : attachment.bindlessStorageImageIndices) {
+        m_BindlessStorageImageFreelist.emplace_back(index);
     }
 
     m_Attachments.remove(handle);

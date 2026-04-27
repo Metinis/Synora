@@ -14,8 +14,8 @@ class IRenderPass {
     virtual RenderPassDesc getPassDesc() = 0;
     virtual GraphicsPipelineDesc getPipelineDesc() const = 0;
 
-    RenderPassNode getNode() {
-        RenderPassNode node{};
+    PassNode getNode() {
+        PassNode node{};
 
         RenderPassDesc desc{this->getPassDesc()};
         node.debugName = desc.debugName;

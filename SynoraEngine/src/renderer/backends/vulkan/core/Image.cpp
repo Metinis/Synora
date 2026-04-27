@@ -74,7 +74,7 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
                       static_cast<int>(res));
     }
 
-    VkImageViewCreateInfo viewCI{
+    VkImageViewCreateInfo regularViewCI{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = handle,
         .viewType = viewType,
@@ -85,17 +85,42 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
             .layerCount = layerCount,
         },
     };
-    VkImageView view{};
-    res = vkCreateImageView(device.logical, &viewCI, nullptr, &view);
+    VkImageView regularView{};
+    res = vkCreateImageView(device.logical, &regularViewCI, nullptr,
+                            &regularView);
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create Vulkan image view. VkResult = {}",
                       static_cast<int>(res));
     }
 
+    std::vector<VkImageView> mipViews(mipLevels);
+    for (uint32_t i{}; i < mipViews.size(); i++) {
+        VkImageViewCreateInfo mipViewCI{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = handle,
+            .viewType = viewType,
+            .format = format,
+            .subresourceRange{
+                .aspectMask = aspect,
+                .baseMipLevel = i,
+                .levelCount = 1,
+                .layerCount = layerCount,
+            },
+        };
+
+        res = vkCreateImageView(device.logical, &mipViewCI, nullptr,
+                                &mipViews[i]);
+        if (res != VK_SUCCESS) {
+            spdlog::error("Could not create Vulkan image view. VkResult = {}",
+                          static_cast<int>(res));
+        }
+    }
+
     return Image{.handle = handle,
-                 .view = view,
+                 .view = regularView,
+                 .mipViews = std::move(mipViews),
                  .extent = extent,
-                 .subresourceRange = viewCI.subresourceRange,
+                 .subresourceRange = regularViewCI.subresourceRange,
                  .format = format,
                  .usage = usage,
                  .samples = samples,
@@ -108,6 +133,9 @@ Image SYN::VK::createImage(const Device &device, VmaAllocator allocator,
 void SYN::VK::destroyImage(const Device &device, VmaAllocator allocator,
                            Image &image) {
     vkDestroyImageView(device.logical, image.view, nullptr);
+    for (auto view : image.mipViews) {
+        vkDestroyImageView(device.logical, view, nullptr);
+    }
     vmaDestroyImage(allocator, image.handle, image.allocation);
 
     image = {};

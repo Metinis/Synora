@@ -14,5 +14,5 @@ layout(set = 1, binding = 0) uniform Uniform {
 };
 
 void main() {
-    outColor = sampleCubeLinear(cubeMapIndex, normalize(lookDir));
+    outColor = sampleLinear(cubeMapIndex, normalize(lookDir));
 }
