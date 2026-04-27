@@ -51,14 +51,22 @@ int main(void) {
 
         void main() {
             vec4 imageTex = texture(texture0, fragTexCoords);
-            fragColor = mix(imageTex, vertexColor, 0.0);
+            fragColor = mix(imageTex, vertexColor, 0.3);
         }
     )";
 
-    float vertices[] = {0.5,  0.5,  0.0, 1.0, 0.0, 0.0, 1.0, 1.0,
-                        -0.5, -0.5, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-                        0.5,  -0.5, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0,
-                        -0.5, 0.5,  0.0, 1.0, 1.0, 0.0, 0.0, 1.0};
+    struct Vertex {
+        glm::vec3 position;
+        glm::vec3 color;
+        glm::vec2 texCoord;
+    };
+
+    Vertex vertices[] = {
+        // position           // color           // texCoord
+        {{0.5f, 0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}},
+        {{-0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 0.0f}, {0.0f, 1.0f}}};
 
     gl::Handle<gl::Shader> mainShader =
         glContext.createShader(vertexSource, fragmentSource).value();
@@ -74,7 +82,7 @@ int main(void) {
 
     gl::Handle<gl::Buffer> indexBuffer =
         glContext
-            .createBuffer({gl::BufferType::Index, gl::BufferUsage::Static,
+            .createBuffer({gl::BufferType::Index, gl::BufferUsage::Dynamic,
                            sizeof(indices)},
                           indices)
             .value();
@@ -82,12 +90,13 @@ int main(void) {
     gl::VertexArrayDesc basicVertexDesc;
     basicVertexDesc.indexBufferHandle = indexBuffer;
     basicVertexDesc.vertexBufferHandle = vertexBuffer;
-    basicVertexDesc.vertexBufferStride = sizeof(float) * 8;
-    basicVertexDesc.attributes[0] = {0, gl::VertexFormat::Float3, 0, false};
+    basicVertexDesc.vertexBufferStride = sizeof(Vertex);
+    basicVertexDesc.attributes[0] = {0, gl::VertexFormat::Float3,
+                                     offsetof(Vertex, position), false};
     basicVertexDesc.attributes[1] = {1, gl::VertexFormat::Float3,
-                                     sizeof(float) * 3, false};
+                                     offsetof(Vertex, color), false};
     basicVertexDesc.attributes[2] = {2, gl::VertexFormat::Float2,
-                                     sizeof(float) * 6, false};
+                                     offsetof(Vertex, texCoord), false};
     basicVertexDesc.attributeCount = 3;
 
     gl::Handle<gl::VertexArray> vertexArray =
@@ -113,6 +122,16 @@ int main(void) {
 
     stbi_image_free(image_data);
 
+    image_data =
+        stbi_load("resources/textures/missing_texture.png", &x, &y, &nrC, 0);
+
+    glContext.updateTexture(texture, 0, 100, 100, x, y,
+                            gl::TextureFormat::RGBA8, image_data);
+    glContext.updateTexture(texture, 0, 500, 500, x, y,
+                            gl::TextureFormat::RGBA8, image_data);
+
+    stbi_image_free(image_data);
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -127,11 +146,21 @@ int main(void) {
                  vp, std::nullopt});
             pass.usePipeline(defaultPipeline);
 
-            float scale = std::sin(glfwGetTime());
+            float t = glfwGetTime();
+            for (int i = 0; i < 4; ++i) {
+                vertices[i].color.x += sinf(t * 2.0f);
+                vertices[i].color.y += cosf(t * 2.0f);
+                vertices[i].color.x =
+                    glm::clamp(vertices[i].color.x, -1.0f, 1.0f);
+                vertices[i].color.y =
+                    glm::clamp(vertices[i].color.y, -1.0f, 1.0f);
+            }
+            glContext.updateBuffer(vertexBuffer, 0, sizeof(vertices),
+                                   &vertices[0]);
 
             pass.bindTexture(0, texture, sampler);
 
-            pass.bindUniform("scale", scale);
+            pass.bindUniform("scale", 1.0f);
             pass.bindUniform("texture0", 0);
 
             pass.bindVertexArray(vertexArray);
