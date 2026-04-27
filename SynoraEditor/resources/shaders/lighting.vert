@@ -40,6 +40,7 @@ layout(push_constant, std430) uniform PushConstants {
     uint albedoIndex;
     uint metallicRoughnessIndex;
     uint normalMap;
+    uint testIndex;
 };
 
 

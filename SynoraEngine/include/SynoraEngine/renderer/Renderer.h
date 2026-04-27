@@ -67,6 +67,7 @@ class Renderer {
 
     AttachmentHandle m_MSAADepthAttachment;
     AttachmentHandle m_MSAAScreenColorAttachment;
+    AttachmentHandle m_TestImage;
 
     TextureHandle m_SkyBox;
 

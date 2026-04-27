@@ -1,21 +1,19 @@
 #pragma once
-#include "Limits.h"
+#include "../Limits.h"
+#include "../command_buffers/ComputeCommandBuffer.h"
+#include "../command_buffers/GraphicsCommandBuffer.h"
+#include "../command_buffers/UploadCommandBuffer.h"
+#include "../core/Buffer.h"
+#include "../core/Device.h"
+#include "../core/DynamicUBO.h"
+#include "../core/Image.h"
+#include "../core/SlotMap.h"
+#include "../core/StagingBuffer.h"
+#include "../core/Swapchain.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "core/Buffer.h"
-#include "core/Device.h"
-#include "core/DynamicUBO.h"
-#include "core/Image.h"
-#include "core/SlotMap.h"
-#include "core/StagingBuffer.h"
-#include "core/Swapchain.h"
-#include "renderer/backends/vulkan/ComputeCommandBuffer.h"
-#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
-#include "renderer/backends/vulkan/Limits.h"
-#include "renderer/backends/vulkan/UploadCommandBuffer.h"
 
 #include <stb_image.h>
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_core.h>
 
 struct MeshData;
 struct MeshComp;
@@ -89,6 +87,7 @@ class RenderDevice {
 
     GraphicsCommandBuffer acquireGraphicsCmdBuffer();
     UploadCommandBuffer acquireUploadCmdBuffer();
+    ComputeCommandBuffer acquireComputeCmdBuffer();
 
     AttachmentHandle acquireSwapchainAttachment();
 
@@ -123,9 +122,16 @@ class RenderDevice {
     friend class ComputeCommandBuffer;
 
     void initContext(Window *window);
-    void initDescriptorSetLayout();
+
+    void initUBOSetLayout();
+    void initBindlessSetLayout(uint32_t textureDescriptorCount,
+                               uint32_t samplerDescriptorCount,
+                               uint32_t storageImageDescriptorCount);
+    void initDescriptorPool(uint32_t textureDescriptorCount,
+                            uint32_t samplerDescriptorCount,
+                            uint32_t storageImageDescriptorCount);
     void initPipelineLayout();
-    void initDescriptorSets();
+
     void initFrameData(const VK::Swapchain &swapchain);
     void initImGUI(Window *window);
     void initSamplers();
@@ -162,13 +168,13 @@ class RenderDevice {
 
     VkDescriptorPool m_DescriptorPool{};
 
-    VkDescriptorSetLayout m_BindlessDescriptorSetLayout{};
-    VkDescriptorSetLayout m_UBODescriptorSetLayout{};
+    VkDescriptorSetLayout m_BindlessSetLayout{};
+    VkDescriptorSetLayout m_UBOSetLayout{};
 
-    VkPipelineLayout m_BindlessPipelineLayout;
+    VkPipelineLayout m_PipelineLayout{};
 
-    VkDescriptorSet m_BindlessDescriptorSet{};
-    VkDescriptorSet m_UBODescriptorSet{};
+    VkDescriptorSet m_BindlessSet{};
+    VkDescriptorSet m_UBOSet{};
 
     std::vector<uint32_t> m_BindlessTextureIndexFreelist{};
     std::vector<uint32_t> m_BindlessStorageImageFreelist{};
@@ -194,14 +200,14 @@ class RenderDevice {
 
     // these are different cus you may want signal at different pipeline stages
     // for optimization
-    VkSemaphore m_GPUSubmissionSemaphore; // for gpu-gpu sync
-    VkSemaphore m_CPUSubmissionSemaphore; // for cpu-gpu sync
+    VkSemaphore m_GPUSubmissionSemaphore{}; // for gpu-gpu sync
+    VkSemaphore m_CPUSubmissionSemaphore{}; // for cpu-gpu sync
 
     uint64_t m_SubmissionCount{};
-    std::queue<VK::PendingSubmission> m_PendingSubmissions;
+    std::queue<VK::PendingSubmission> m_PendingSubmissions{};
 
-    std::vector<VkCommandBuffer> m_FreeCmdBuffers;
-    std::vector<VkFence> m_FreeFences;
+    std::vector<VkCommandBuffer> m_FreeCmdBuffers{};
+    std::vector<VkFence> m_FreeFences{};
 };
 
 } // namespace SYN

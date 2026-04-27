@@ -10,6 +10,8 @@ template <typename T> void hashCombine(uint64_t &seed, const T &val) {
 
 namespace SYN {
 
+class GraphicsCommandBuffer;
+
 // this is a struct 1. for type safety and 2. so we can add stuff like
 // generation later
 template <typename T> struct GPUResourceHandle {
@@ -142,6 +144,12 @@ struct DispatchDesc {
     uint32_t groupCountZ;
 };
 
+struct RenderPassNode {
+    std::string debugName;
+    std::vector<AttachmentHandle> inputAttachments;
+    std::vector<AttachmentHandle> outputAttachments;
+};
+
 } // namespace SYN
 
 template <typename T> struct std::hash<SYN::GPUResourceHandle<T>> {
@@ -154,6 +162,15 @@ template <> struct std::hash<SYN::GraphicsPipelineDesc> {
         uint64_t seed{};
         hashCombine(seed, desc.fragmentShaderPath);
         hashCombine(seed, desc.vertexShaderPath);
+
+        return seed;
+    }
+};
+
+template <> struct std::hash<SYN::ComputePipelineDesc> {
+    size_t operator()(const SYN::ComputePipelineDesc &desc) const {
+        uint64_t seed{};
+        hashCombine(seed, desc.shaderPath);
 
         return seed;
     }

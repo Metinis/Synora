@@ -1,18 +1,28 @@
 #pragma once
+#include "SynoraEngine/renderer/IComputePass.h"
 #include "SynoraEngine/renderer/IRenderPass.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
 #include "renderer/backends/CommandBuffers.h"
 #include "renderer/backends/RenderDevice.h"
-#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
+#include <concepts>
 #include <memory>
 #include <typeindex>
 #include <typeinfo>
 
 namespace SYN {
+
 class RenderGraph {
   public:
     template <typename T, typename... Args> void addPass(Args &&...args) {
-        m_Passes.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
+        if constexpr (std::is_base_of<IRenderPass, T>()) {
+            m_RenderPasses.emplace_back(
+                std::make_unique<T>(std::forward<Args>(args)...));
+            m_RenderPassNodes.emplace_back(m_RenderPasses.back()->getNode());
+        } else if constexpr (std::is_base_of<IComputePass, T>()) {
+            m_ComputePasses.emplace_back(
+                std::make_unique<T>(std::forward<Args>(args)...));
+            m_RenderPassNodes.emplace_back(m_ComputePasses.back()->getNode());
+        }
     }
 
     void compile(RenderDevice &renderDevice);
@@ -21,10 +31,16 @@ class RenderGraph {
     void shutdown(RenderDevice &renderDevice);
 
   private:
-    std::vector<std::unique_ptr<IRenderPass>> m_Passes;
+    std::vector<std::unique_ptr<IRenderPass>> m_RenderPasses;
+    std::vector<std::unique_ptr<IComputePass>> m_ComputePasses;
+    std::vector<RenderPassNode> m_RenderPassNodes;
 
-    std::vector<PipelineHandle> m_PipelineHandles;
-    std::unordered_map<GraphicsPipelineDesc, PipelineHandle> m_PipelineCache;
+    std::vector<std::function<void(GraphicsCommandBuffer &)>> m_Passes;
+
+    std::unordered_map<GraphicsPipelineDesc, PipelineHandle>
+        m_GraphicsPipelineCache;
+    std::unordered_map<ComputePipelineDesc, PipelineHandle>
+        m_ComputePipelineCache;
     bool m_Compiled{};
 };
 } // namespace SYN

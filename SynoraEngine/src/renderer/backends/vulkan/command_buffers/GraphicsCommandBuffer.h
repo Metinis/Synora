@@ -40,6 +40,8 @@ class GraphicsCommandBuffer {
         setPushConstantsCmd(&pushConstants, sizeof(pushConstants));
     }
 
+    void dispatchCmd(const DispatchDesc &desc, PipelineHandle pipeline);
+
     void drawCmd(size_t nVertices);
     void drawIndexedCmd(size_t nIndices);
     void drawImGUI();
@@ -47,14 +49,17 @@ class GraphicsCommandBuffer {
     uint32_t getShaderTextureIndexCmd(TextureHandle texture);
     uint32_t getShaderTextureIndexCmd(AttachmentHandle attachment);
 
+    uint32_t getShaderStorageImageIndexCmd(AttachmentHandle attachment);
+
     uint64_t getBufferAddressCmd(BufferHandle buffer);
 
   private:
     friend RenderDevice;
 
     void reset();
-
     RenderDevice *m_RenderDevice;
+
+    bool m_IsInRenderPass{false};
 };
 
 } // namespace SYN

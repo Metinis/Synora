@@ -1,14 +1,8 @@
-#include "Limits.h"
+#include "../core/Commands.h"
+#include "../core/DebugMessenger.h"
+#include "../core/Instance.h"
+#include "../core/Pipeline.h"
 #include "RenderDevice.h"
-#include "core/Buffer.h"
-#include "core/Commands.h"
-#include "core/DebugMessenger.h"
-#include "core/Device.h"
-#include "core/Image.h"
-#include "core/Instance.h"
-#include "core/Pipeline.h"
-#include "core/StagingBuffer.h"
-#include "core/Swapchain.h"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -23,9 +17,9 @@
 #include <imgui_impl_vulkan.h>
 #include <vulkan/vulkan_core.h>
 
+#include "../CreateInfos.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_internal.h"
-#include "renderer/backends/vulkan/CreateInfos.h"
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -35,8 +29,44 @@ constexpr uint32_t c_MB{1024 * 1024};
 
 } // namespace
 
+namespace {
+
+VkDescriptorSet allocateDescriptorSet(const Device &device,
+                                      VkDescriptorSetLayout descriptorLayout,
+                                      VkDescriptorPool descriptorPool);
+
+} // namespace
+
 void SYN::RenderDevice::init(Window &window) {
     initContext(&window);
+
+    const uint32_t textureDescriptorCount{
+        std::min(Limits::c_MaxBindlessTextures,
+                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
+    const uint32_t samplerDescriptorCount{
+        std::min(Limits::c_SamplerCount,
+                 m_Device.properties.limits.maxDescriptorSetSamplers)};
+    const uint32_t storageImageDescriptorCount{
+        std::min(Limits::c_MaxStorageImages,
+                 m_Device.properties.limits.maxDescriptorSetStorageImages)};
+
+    initDescriptorPool(textureDescriptorCount, samplerDescriptorCount,
+                       storageImageDescriptorCount);
+
+    initUBOSetLayout();
+    initBindlessSetLayout(textureDescriptorCount, samplerDescriptorCount,
+                          storageImageDescriptorCount);
+
+    m_BindlessSet =
+        allocateDescriptorSet(m_Device, m_BindlessSetLayout, m_DescriptorPool);
+
+    m_UBOSet =
+        allocateDescriptorSet(m_Device, m_UBOSetLayout, m_DescriptorPool);
+
+    initPipelineLayout();
+    initSamplers();
+    initImGUI(&window);
+
     {
         VkSemaphoreTypeCreateInfo semaphoreTypeCI{
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
@@ -54,24 +84,17 @@ void SYN::RenderDevice::init(Window &window) {
     }
 
     initFrameData(m_Swapchain);
-    initDescriptorSetLayout();
-    initDescriptorSets();
-    initPipelineLayout();
-
-    initSamplers();
-
-    initImGUI(&window);
 
     m_StagingBuffer =
         StagingBuffer().create(m_Device, m_Allocator, c_MB * 64 * 4);
 
-    uint32_t descriptorCount{
-        std::min(Limits::c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
-
-    m_BindlessTextureIndexFreelist.reserve(descriptorCount);
-    for (uint32_t i = 0; i < descriptorCount; i++) {
+    m_BindlessTextureIndexFreelist.reserve(textureDescriptorCount);
+    m_BindlessStorageImageFreelist.reserve(storageImageDescriptorCount);
+    for (uint32_t i = 0; i < textureDescriptorCount; i++) {
         m_BindlessTextureIndexFreelist.emplace_back(i);
+    }
+    for (uint32_t i = 0; i < storageImageDescriptorCount; i++) {
+        m_BindlessStorageImageFreelist.emplace_back(i);
     }
 }
 
@@ -124,17 +147,15 @@ void SYN::RenderDevice::shutdown() {
     }
     m_Attachments.clear();
 
-    vkDestroyDescriptorSetLayout(m_Device.logical,
-                                 m_BindlessDescriptorSetLayout, nullptr);
-    vkDestroyDescriptorSetLayout(m_Device.logical, m_UBODescriptorSetLayout,
+    vkDestroyDescriptorSetLayout(m_Device.logical, m_BindlessSetLayout,
                                  nullptr);
+    vkDestroyDescriptorSetLayout(m_Device.logical, m_UBOSetLayout, nullptr);
     vkDestroyDescriptorPool(m_Device.logical, m_DescriptorPool, nullptr);
 
     ImGui_ImplVulkan_Shutdown();
     vkDestroyDescriptorPool(m_Device.logical, m_ImGUIDescriptorPool, nullptr);
 
-    vkDestroyPipelineLayout(m_Device.logical, m_BindlessPipelineLayout,
-                            nullptr);
+    vkDestroyPipelineLayout(m_Device.logical, m_PipelineLayout, nullptr);
 
     vkDestroyCommandPool(m_Device.logical, m_TransientCmdPool, nullptr);
     destroySwapchain(m_Swapchain, m_Device);
@@ -208,38 +229,20 @@ void SYN::RenderDevice::initContext(Window *window) {
                         &m_TransientCmdPool);
 }
 
-void SYN::RenderDevice::initDescriptorSetLayout() {
-    uint32_t textureDescriptorCount{
-        std::min(Limits::c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
-    uint32_t samplerDescriptorCount{
-        std::min(Limits::c_SamplerCount,
-                 m_Device.properties.limits.maxDescriptorSetSamplers)};
-    uint32_t storageImageDescriptorCount{
-        std::min(Limits::c_MaxStorageImages,
-                 m_Device.properties.limits.maxDescriptorSetStorageImages)};
-
-    VkDescriptorBindingFlags uboFlags{
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
-
-    std::array<VkDescriptorBindingFlags, 3> bindlessFlags{
+void SYN::RenderDevice::initBindlessSetLayout(
+    uint32_t textureDescriptorCount, uint32_t samplerDescriptorCount,
+    uint32_t storageImageDescriptorCount) {
+    std::array<VkDescriptorBindingFlags, 3> bindingFlags{
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
     };
 
-    VkDescriptorSetLayoutBindingFlagsCreateInfo bindlessBindingFlagsCI{
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
         .sType =
             VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-        .bindingCount = bindlessFlags.size(),
-        .pBindingFlags = bindlessFlags.data(),
-    };
-
-    VkDescriptorSetLayoutBindingFlagsCreateInfo uboBindingFlagsCI{
-        .sType =
-            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-        .bindingCount = 1,
-        .pBindingFlags = &uboFlags,
+        .bindingCount = bindingFlags.size(),
+        .pBindingFlags = bindingFlags.data(),
     };
 
     VkDescriptorSetLayoutBinding textureBinding{
@@ -262,42 +265,52 @@ void SYN::RenderDevice::initDescriptorSetLayout() {
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
     };
 
-    std::array<VkDescriptorSetLayoutBinding, 3> bindlessBindings{
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{
         textureBinding, samplerBinding, storageImageBinding};
 
-    VkDescriptorSetLayoutBinding uboBinding{
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_ALL};
-
-    VkDescriptorSetLayoutCreateInfo bindlessLayoutCI{
+    VkDescriptorSetLayoutCreateInfo layoutCI{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &bindlessBindingFlagsCI,
+        .pNext = &bindingFlagsCI,
         .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
-        .bindingCount = bindlessBindings.size(),
-        .pBindings = bindlessBindings.data(),
+        .bindingCount = bindings.size(),
+        .pBindings = bindings.data(),
     };
 
-    VkDescriptorSetLayoutCreateInfo uboLayoutCI{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &uboBindingFlagsCI,
-        .bindingCount = 1,
-        .pBindings = &uboBinding,
-    };
-
-    VkResult res{vkCreateDescriptorSetLayout(m_Device.logical,
-                                             &bindlessLayoutCI, nullptr,
-                                             &m_BindlessDescriptorSetLayout)};
+    VkResult res{vkCreateDescriptorSetLayout(m_Device.logical, &layoutCI,
+                                             nullptr, &m_BindlessSetLayout)};
 
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create descriptor set layout. VkResult = {}",
                       static_cast<int>(res));
         assert(false);
     }
+}
 
-    res = vkCreateDescriptorSetLayout(m_Device.logical, &uboLayoutCI, nullptr,
-                                      &m_UBODescriptorSetLayout);
+void SYN::RenderDevice::initUBOSetLayout() {
+    VkDescriptorBindingFlags bindingFlags{
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCI{
+        .sType =
+            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindingFlags = &bindingFlags,
+    };
+
+    VkDescriptorSetLayoutBinding binding{
+        .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_ALL};
+
+    VkDescriptorSetLayoutCreateInfo layoutCI{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = &bindingFlagsCI,
+        .bindingCount = 1,
+        .pBindings = &binding,
+    };
+
+    VkResult res{vkCreateDescriptorSetLayout(m_Device.logical, &layoutCI,
+                                             nullptr, &m_UBOSetLayout)};
 
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create descriptor set layout. VkResult = {}",
@@ -311,8 +324,8 @@ void SYN::RenderDevice::initPipelineLayout() {
         .stageFlags = VK_SHADER_STAGE_ALL,
         .size = Limits::c_MinGuarenteedPushConstantSize,
     };
-    std::array<VkDescriptorSetLayout, 2> layouts{m_BindlessDescriptorSetLayout,
-                                                 m_UBODescriptorSetLayout};
+    std::array<VkDescriptorSetLayout, 2> layouts{m_BindlessSetLayout,
+                                                 m_UBOSetLayout};
     VkPipelineLayoutCreateInfo layoutCI{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = layouts.size(),
@@ -322,7 +335,7 @@ void SYN::RenderDevice::initPipelineLayout() {
     };
 
     VkResult res{vkCreatePipelineLayout(m_Device.logical, &layoutCI, nullptr,
-                                        &m_BindlessPipelineLayout)};
+                                        &m_PipelineLayout)};
     if (res != VK_SUCCESS) {
         spdlog::error(
             "Could not create graphics pipeline layout. VkResult = {}",
@@ -331,17 +344,9 @@ void SYN::RenderDevice::initPipelineLayout() {
     }
 }
 
-void SYN::RenderDevice::initDescriptorSets() {
-    uint32_t textureDescriptorCount{
-        std::min(Limits::c_MaxBindlessTextures,
-                 m_Device.properties.limits.maxDescriptorSetSampledImages)};
-    uint32_t samplerDescriptorCount{
-        std::min(Limits::c_SamplerCount,
-                 m_Device.properties.limits.maxDescriptorSetSamplers)};
-    uint32_t storageImageDescriptorCount{
-        std::min(Limits::c_MaxStorageImages,
-                 m_Device.properties.limits.maxDescriptorSetStorageImages)};
-
+void SYN::RenderDevice::initDescriptorPool(
+    uint32_t textureDescriptorCount, uint32_t samplerDescriptorCount,
+    uint32_t storageImageDescriptorCount) {
     std::array<VkDescriptorPoolSize, 4> poolSizes{
         VkDescriptorPoolSize{
             .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -374,27 +379,6 @@ void SYN::RenderDevice::initDescriptorSets() {
                                         &m_DescriptorPool)};
     if (res != VK_SUCCESS) {
         spdlog::error("Could not create descriptor pool. VkResult = {}",
-                      static_cast<int>(res));
-        assert(false);
-    }
-
-    std::array<VkDescriptorSetLayout, 2> layouts{m_BindlessDescriptorSetLayout,
-                                                 m_UBODescriptorSetLayout};
-    VkDescriptorSetAllocateInfo descriptorSetAllocInfo{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = m_DescriptorPool,
-        .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
-        .pSetLayouts = layouts.data(),
-    };
-
-    std::array<VkDescriptorSet, 2> descriptorSets{};
-    res = vkAllocateDescriptorSets(m_Device.logical, &descriptorSetAllocInfo,
-                                   descriptorSets.data());
-    m_BindlessDescriptorSet = descriptorSets[0];
-    m_UBODescriptorSet = descriptorSets[1];
-
-    if (res != VK_SUCCESS) {
-        spdlog::error("Could not allocate descriptor sets. VkResult = {}",
                       static_cast<int>(res));
         assert(false);
     }
@@ -580,7 +564,7 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
 
         VkWriteDescriptorSet textureWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = m_BindlessDescriptorSet,
+            .dstSet = m_BindlessSet,
             .dstBinding = Limits::c_TextureBinding,
             .dstArrayElement = attachment.bindlessTextureIndex,
             .descriptorCount = 1,
@@ -591,7 +575,7 @@ void SYN::RenderDevice::recreateSwapchain(Window &window) {
         if (attachment.bindlessStorageImageIndex.has_value()) {
             VkWriteDescriptorSet storageImageWrite{
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = m_BindlessDescriptorSet,
+                .dstSet = m_BindlessSet,
                 .dstBinding = Limits::c_StorageImageBinding,
                 .dstArrayElement = attachment.bindlessStorageImageIndex.value(),
                 .descriptorCount = 1,
@@ -617,7 +601,7 @@ void SYN::RenderDevice::initSamplers() {
         VkDescriptorImageInfo imageInfo{.sampler = m_Samplers[i]};
         VkWriteDescriptorSet bindlessWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = m_BindlessDescriptorSet,
+            .dstSet = m_BindlessSet,
             .dstBinding = Limits::c_SamplerBinding,
             .dstArrayElement = i,
             .descriptorCount = 1,
@@ -627,3 +611,28 @@ void SYN::RenderDevice::initSamplers() {
         vkUpdateDescriptorSets(m_Device.logical, 1, &bindlessWrite, 0, nullptr);
     }
 }
+
+namespace {
+VkDescriptorSet allocateDescriptorSet(const Device &device,
+                                      VkDescriptorSetLayout descriptorLayout,
+                                      VkDescriptorPool descriptorPool) {
+    VkDescriptorSetAllocateInfo descriptorSetAllocInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = descriptorPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &descriptorLayout,
+    };
+
+    VkDescriptorSet descriptorSet{};
+    VkResult res{vkAllocateDescriptorSets(
+        device.logical, &descriptorSetAllocInfo, &descriptorSet)};
+
+    if (res != VK_SUCCESS) {
+        spdlog::error("Could not allocate descriptor set. VkResult = {}",
+                      static_cast<int>(res));
+        assert(false);
+    }
+
+    return descriptorSet;
+}
+} // namespace

@@ -11,7 +11,8 @@ class LightingPass : public IRenderPass {
                  const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
                  AttachmentHandle msaaColorAttachment,
                  AttachmentHandle msaaDepthAttachment,
-                 AttachmentHandle colorAttachment);
+                 AttachmentHandle colorAttachment,
+                 AttachmentHandle testAttachment);
 
     void execute(GraphicsCommandBuffer &cmdBuffer,
                  PipelineHandle pipeline) override;
@@ -26,5 +27,6 @@ class LightingPass : public IRenderPass {
 
     WriteAttachmentInfo m_ColorAttachment;
     WriteAttachmentInfo m_DepthAttachment;
+    AttachmentHandle m_TestAttachment;
 };
 } // namespace SYN

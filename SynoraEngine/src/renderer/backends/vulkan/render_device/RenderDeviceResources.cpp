@@ -1,12 +1,7 @@
-#include "Limits.h"
+#include "../core/Commands.h"
+#include "../core/Pipeline.h"
 #include "RenderDevice.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "core/Buffer.h"
-#include "core/Commands.h"
-#include "core/Device.h"
-#include "core/Image.h"
-#include "core/Pipeline.h"
-#include "core/StagingBuffer.h"
 
 #include <GLFW/glfw3.h>
 #include <cstring>
@@ -92,7 +87,7 @@ TextureHandle SYN::RenderDevice::createTexture(const TextureDesc &desc) {
 
     VkWriteDescriptorSet bindlessWrite{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_BindlessDescriptorSet,
+        .dstSet = m_BindlessSet,
         .dstBinding = Limits::c_TextureBinding,
         .dstArrayElement = descriptorElement,
         .descriptorCount = 1,
@@ -180,9 +175,13 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
     uint32_t bindlessTextureIndex{};
     std::optional<uint32_t> bindlessStorageImageIndex{};
 
-    VkDescriptorImageInfo imageInfo{
+    VkDescriptorImageInfo textureImageInfo{
         .imageView = image.view,
         .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+    VkDescriptorImageInfo storageImageInfo{
+        .imageView = image.view,
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
     };
 
     std::vector<VkWriteDescriptorSet> bindlessWrites{};
@@ -193,12 +192,12 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
 
     VkWriteDescriptorSet textureWrite{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_BindlessDescriptorSet,
+        .dstSet = m_BindlessSet,
         .dstBinding = Limits::c_TextureBinding,
         .dstArrayElement = textureElement,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-        .pImageInfo = &imageInfo,
+        .pImageInfo = &textureImageInfo,
     };
     bindlessWrites.emplace_back(textureWrite);
     bindlessTextureIndex = textureElement;
@@ -209,12 +208,12 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
 
         VkWriteDescriptorSet storageImageWrite{
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet = m_BindlessDescriptorSet,
+            .dstSet = m_BindlessSet,
             .dstBinding = Limits::c_StorageImageBinding,
             .dstArrayElement = storageImageElement,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-            .pImageInfo = &imageInfo,
+            .pImageInfo = &storageImageInfo,
         };
 
         bindlessWrites.emplace_back(storageImageWrite);
@@ -306,14 +305,14 @@ SYN::RenderDevice::createPipeline(const GraphicsPipelineDesc &desc) {
     }
 
     VkPipeline pipeline{
-        pipelineBuilder.build(m_Device, m_BindlessPipelineLayout, shaderPaths)};
+        pipelineBuilder.build(m_Device, m_PipelineLayout, shaderPaths)};
 
     return m_Pipelines.insert(pipeline);
 }
 
 PipelineHandle
 SYN::RenderDevice::createPipeline(const ComputePipelineDesc &desc) {
-    VkPipeline pipeline{buildComputePipeline(m_Device, m_BindlessPipelineLayout,
+    VkPipeline pipeline{buildComputePipeline(m_Device, m_PipelineLayout,
                                              std::string(desc.shaderPath))};
 
     return m_Pipelines.insert(pipeline);

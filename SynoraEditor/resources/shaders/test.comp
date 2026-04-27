@@ -1,0 +1,22 @@
+#version 460
+#include "Bindless.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant) uniform PushConstants {
+    uint imageIndex;
+    uint padding0;
+    uvec2 resolution;
+};
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    
+    if (coord.x >= resolution.x || coord.y >= resolution.y) {
+        return;
+    }
+
+    vec2 uv = vec2(coord) / vec2(resolution);
+    
+    imageStore(rgba8Images[imageIndex], coord, vec4(uv, 0.0, 1.0));
+}

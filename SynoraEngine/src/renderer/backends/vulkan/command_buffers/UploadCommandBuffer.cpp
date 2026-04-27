@@ -1,28 +1,5 @@
 #include "UploadCommandBuffer.h"
-#include "Limits.h"
-#include "RenderDevice.h"
-
-#include "core/Buffer.h"
-#include "core/Commands.h"
-#include "core/Device.h"
-#include "core/Image.h"
-#include "core/Pipeline.h"
-#include "core/StagingBuffer.h"
-#include "core/Swapchain.h"
-
-#include <GLFW/glfw3.h>
-#include <cstdint>
-#include <cstring>
-#include <glm/glm.hpp>
-#include <spdlog/spdlog.h>
-#include <stb_image.h>
-#include <vk_mem_alloc.h>
-
-#include <SynoraEngine/core/Window.h>
-#include <vulkan/vulkan_core.h>
-
-#include "imgui_impl_vulkan.h"
-#include "renderer/backends/vulkan/UploadCommandBuffer.h"
+#include "../render_device/RenderDevice.h"
 
 using namespace SYN;
 using namespace SYN::VK;

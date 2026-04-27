@@ -1,5 +1,6 @@
 #include "SkyBoxPass.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
+#include "renderer/backends/RenderDevice.h"
 #include <glm/ext.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>

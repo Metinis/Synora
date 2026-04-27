@@ -1,5 +1,5 @@
 #include "ComputeCommandBuffer.h"
-#include "RenderDevice.h"
+#include "../render_device/RenderDevice.h"
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
@@ -17,12 +17,9 @@ SYN::ComputeCommandBuffer::ComputeCommandBuffer(SYN::RenderDevice *renderDevice)
 
     vkBeginCommandBuffer(m_CmdBuffer, &cmdBufferBeginInfo);
 
-    VkDescriptorSet bindlessDescriptorSet{
-        m_RenderDevice->m_BindlessDescriptorSet};
-
     vkCmdBindDescriptorSets(m_CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            m_RenderDevice->m_BindlessPipelineLayout, 0, 1,
-                            &bindlessDescriptorSet, 0, nullptr);
+                            m_RenderDevice->m_PipelineLayout, 0, 1,
+                            &m_RenderDevice->m_BindlessSet, 0, nullptr);
 }
 
 void SYN::ComputeCommandBuffer::reset() {
@@ -47,8 +44,8 @@ void SYN::ComputeCommandBuffer::setPushConstantsCmd(const void *data,
         size = Limits::c_MinGuarenteedPushConstantSize;
     }
 
-    vkCmdPushConstants(m_CmdBuffer, m_RenderDevice->m_BindlessPipelineLayout,
-                       VK_SHADER_STAGE_COMPUTE_BIT, 0, size, data);
+    vkCmdPushConstants(m_CmdBuffer, m_RenderDevice->m_PipelineLayout,
+                       VK_SHADER_STAGE_ALL, 0, size, data);
 }
 void SYN::ComputeCommandBuffer::bindPipelineCmd(PipelineHandle pipelineHandle) {
     assert(m_RenderDevice->m_Pipelines.contains(pipelineHandle));
@@ -89,6 +86,20 @@ SYN::ComputeCommandBuffer::getShaderTextureIndexCmd(AttachmentHandle handle) {
     const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
 
     return attachment.bindlessTextureIndex;
+}
+
+uint32_t
+SYN::ComputeCommandBuffer::getShaderStorageImageCmd(AttachmentHandle handle) {
+    assert(m_RenderDevice->m_Attachments.contains(handle));
+
+    const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
+    if (!attachment.bindlessStorageImageIndex.has_value()) {
+        spdlog::error("Trying to access shader storage image index for an "
+                      "attachment that doesnt one");
+        assert(false);
+    }
+
+    return attachment.bindlessStorageImageIndex.value();
 }
 
 uint64_t SYN::ComputeCommandBuffer::getBufferAddressCmd(BufferHandle handle) {

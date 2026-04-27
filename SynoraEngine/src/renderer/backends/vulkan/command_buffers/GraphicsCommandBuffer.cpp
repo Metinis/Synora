@@ -1,27 +1,8 @@
 #include "GraphicsCommandBuffer.h"
-#include "Limits.h"
-#include "RenderDevice.h"
-
-#include "core/Buffer.h"
-#include "core/Commands.h"
-#include "core/Device.h"
-#include "core/Image.h"
-#include "core/Pipeline.h"
-#include "core/StagingBuffer.h"
-#include "core/Swapchain.h"
-
-#include <GLFW/glfw3.h>
-#include <cstdint>
-#include <cstring>
-#include <glm/glm.hpp>
-#include <spdlog/spdlog.h>
-#include <stb_image.h>
-#include <vk_mem_alloc.h>
-
-#include <SynoraEngine/core/Window.h>
-#include <vulkan/vulkan_core.h>
+#include "../render_device/RenderDevice.h"
 
 #include "imgui_impl_vulkan.h"
+#include <vulkan/vulkan_core.h>
 
 using namespace SYN;
 using namespace SYN::VK;
@@ -49,13 +30,14 @@ SYN::GraphicsCommandBuffer::GraphicsCommandBuffer(
 
     vkBeginCommandBuffer(frame.graphicsCmdBuffer, &cmdBufferBeginInfo);
 
-    VkDescriptorSet bindlessDescriptorSet{
-        m_RenderDevice->m_BindlessDescriptorSet};
-
     vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_RenderDevice->m_BindlessPipelineLayout, 0, 1,
-                            &bindlessDescriptorSet, 0, nullptr);
+                            m_RenderDevice->m_PipelineLayout, 0, 1,
+                            &m_RenderDevice->m_BindlessSet, 0, nullptr);
+    vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
+                            VK_PIPELINE_BIND_POINT_COMPUTE,
+                            m_RenderDevice->m_PipelineLayout, 0, 1,
+                            &m_RenderDevice->m_BindlessSet, 0, nullptr);
 }
 
 void SYN::GraphicsCommandBuffer::reset() { m_RenderDevice = nullptr; }
@@ -70,6 +52,8 @@ SYN::GraphicsCommandBuffer::~GraphicsCommandBuffer() {
 
 void SYN::GraphicsCommandBuffer::beginRenderPassCmd(
     const RenderPassDesc &desc, PipelineHandle pipelineHandle) {
+    m_IsInRenderPass = true;
+
     VkPipeline pipeline{m_RenderDevice->m_Pipelines.at(pipelineHandle)};
 
     FrameData &frame{m_RenderDevice->getCurrentFrame()};
@@ -205,19 +189,23 @@ void SYN::GraphicsCommandBuffer::beginRenderPassCmd(
 void SYN::GraphicsCommandBuffer::beginRenderPassCmd(
     const RenderPassDesc &desc, PipelineHandle pipelineHandle,
     const void *uniformData, size_t uniformSize) {
+    m_IsInRenderPass = true;
+
     FrameData &frame{m_RenderDevice->getCurrentFrame()};
 
     beginRenderPassCmd(desc, pipelineHandle);
 
     uint32_t dynamicOffset{frame.UBOBuffer.write(uniformData, uniformSize)};
 
-    VkDescriptorSet uboDescriptorSet{m_RenderDevice->m_UBODescriptorSet};
+    VkDescriptorSet uboDescriptorSet{m_RenderDevice->m_UBOSet};
     vkCmdBindDescriptorSets(frame.graphicsCmdBuffer,
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_RenderDevice->m_BindlessPipelineLayout, 1, 1,
+                            m_RenderDevice->m_PipelineLayout, 1, 1,
                             &uboDescriptorSet, 1, &dynamicOffset);
 }
 void SYN::GraphicsCommandBuffer::endRenderPassCmd() {
+    m_IsInRenderPass = false;
+
     const FrameData &frame{m_RenderDevice->getCurrentFrame()};
     vkCmdEndRendering(frame.graphicsCmdBuffer);
 }
@@ -233,8 +221,43 @@ void SYN::GraphicsCommandBuffer::setPushConstantsCmd(const void *data,
     }
 
     vkCmdPushConstants(frame.graphicsCmdBuffer,
-                       m_RenderDevice->m_BindlessPipelineLayout,
-                       VK_SHADER_STAGE_ALL, 0, size, data);
+                       m_RenderDevice->m_PipelineLayout, VK_SHADER_STAGE_ALL, 0,
+                       size, data);
+}
+
+void SYN::GraphicsCommandBuffer::dispatchCmd(const DispatchDesc &desc,
+                                             PipelineHandle pipelineHandle) {
+    if (m_IsInRenderPass) {
+        spdlog::error(
+            "Dispatching compute work within renderpass isn't allowed");
+        assert(false);
+    }
+
+    const FrameData &frame{m_RenderDevice->getCurrentFrame()};
+
+    assert(m_RenderDevice->m_Pipelines.contains(pipelineHandle));
+
+    VkPipeline pipeline{m_RenderDevice->m_Pipelines[pipelineHandle]};
+    vkCmdBindPipeline(frame.graphicsCmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                      pipeline);
+
+    for (const auto &attachment : desc.readonlyAttachments) {
+        Image &image{m_RenderDevice->m_Attachments[attachment].image};
+        transitionImageCmd(frame.graphicsCmdBuffer, image,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_READ_BIT);
+    }
+    for (const auto &attachment : desc.readWriteAttachments) {
+        Image &image{m_RenderDevice->m_Attachments[attachment].image};
+        transitionImageCmd(
+            frame.graphicsCmdBuffer, image, VK_IMAGE_LAYOUT_GENERAL,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    }
+
+    vkCmdDispatch(frame.graphicsCmdBuffer, desc.groupCountX, desc.groupCountY,
+                  desc.groupCountZ);
 }
 
 void SYN::GraphicsCommandBuffer::drawCmd(size_t nVertices) {
@@ -270,6 +293,20 @@ SYN::GraphicsCommandBuffer::getShaderTextureIndexCmd(AttachmentHandle handle) {
 
 uint64_t SYN::GraphicsCommandBuffer::getBufferAddressCmd(BufferHandle handle) {
     return m_RenderDevice->m_Buffers.at(handle).deviceAddress;
+}
+
+uint32_t SYN::GraphicsCommandBuffer::getShaderStorageImageIndexCmd(
+    AttachmentHandle handle) {
+    assert(m_RenderDevice->m_Attachments.contains(handle));
+
+    const Attachment &attachment{m_RenderDevice->m_Attachments.at(handle)};
+    if (!attachment.bindlessStorageImageIndex.has_value()) {
+        spdlog::error("Trying to access shader storage image index for an "
+                      "attachment that doesnt one");
+        assert(false);
+    }
+
+    return attachment.bindlessStorageImageIndex.value();
 }
 
 namespace {

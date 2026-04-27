@@ -1,5 +1,6 @@
 #include "LightingPass.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
+#include "renderer/backends/RenderDevice.h"
 #include <glm/ext.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/ext/matrix_transform.hpp>
@@ -19,6 +20,8 @@ struct alignas(16) PushConstants {
     uint32_t albedoIndex;
     uint32_t metallicRoughnessIndex;
     uint32_t normalMapIndex;
+
+    uint32_t testIndex;
 };
 
 struct LightCaster {
@@ -39,15 +42,14 @@ struct Uniforms {
 };
 } // namespace
 
-SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
-                                std::span<Renderer::MeshDrawCall> drawCalls,
-                                const glm::mat4 &cameraProjection,
-                                const glm::mat4 &cameraView,
-                                AttachmentHandle msaaColorAttachment,
-                                AttachmentHandle msaaDepthAttachment,
-                                AttachmentHandle colorAttachment)
+SYN::LightingPass::LightingPass(
+    uint32_t msaaSampleCount, std::span<Renderer::MeshDrawCall> drawCalls,
+    const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
+    AttachmentHandle msaaColorAttachment, AttachmentHandle msaaDepthAttachment,
+    AttachmentHandle colorAttachment, AttachmentHandle testAttachment)
     : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
-      m_CameraProjection(cameraProjection), m_CameraView(cameraView) {
+      m_CameraProjection(cameraProjection), m_CameraView(cameraView),
+      m_TestAttachment(testAttachment) {
     m_ColorAttachment = WriteAttachmentInfo{.handle = msaaColorAttachment,
                                             .resolveHandle = colorAttachment,
                                             .clearColor = {0.f, 0.f, 0.f, 1.f}};
@@ -100,6 +102,7 @@ void SYN::LightingPass::execute(GraphicsCommandBuffer &cmdBuffer,
                 drawCall.mesh.metallicRoughness),
             .normalMapIndex =
                 cmdBuffer.getShaderTextureIndexCmd(drawCall.mesh.normalMap),
+            .testIndex = cmdBuffer.getShaderTextureIndexCmd(m_TestAttachment),
         };
 
         cmdBuffer.setPushConstantsCmd(pushConstants);
@@ -112,6 +115,7 @@ void SYN::LightingPass::execute(GraphicsCommandBuffer &cmdBuffer,
 RenderPassDesc SYN::LightingPass::getPassDesc() {
     return RenderPassDesc{
         .debugName = "First Pass",
+        .readAttachments = std::span(&m_TestAttachment, 1),
         .colorAttachments = std::span(&m_ColorAttachment, 1),
         .depthAttachment = m_DepthAttachment,
     };

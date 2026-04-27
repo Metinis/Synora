@@ -8,6 +8,11 @@ layout(set = 0, binding = 0) uniform texture2D textures[];
 layout(set = 0, binding = 0) uniform textureCube cubeMaps[];
 layout(set = 0, binding = 1) uniform sampler samplers[];
 
+layout(set = 0, binding = 2, rgba8) uniform image2D rgba8Images[];
+layout(set = 0, binding = 2, rgba16f) uniform image2D rgba16fImages[];
+layout(set = 0, binding = 2, rgba32f) uniform image2D rgba32fImages[];
+layout(set = 0, binding = 2, r32f) uniform image2D r32fImages[];
+
 vec4 sample2DLinear(uint textureIndex, vec2 uv) {
     return texture(sampler2D(textures[nonuniformEXT(textureIndex)], samplers[nonuniformEXT(LINEAR_SAMPLER_INDEX)]), uv);
 }

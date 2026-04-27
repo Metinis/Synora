@@ -2,12 +2,11 @@
 #include "RenderGraph.h"
 #include "SynoraEngine/core/Window.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
+#include "compute_passes/Test.h"
 #include "glm/ext/quaternion_common.hpp"
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
-#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
-#include "renderer/backends/vulkan/UploadCommandBuffer.h"
 #include <memory>
 #include <vulkan/vulkan_core.h>
 
@@ -15,7 +14,8 @@ using namespace SYN;
 
 namespace {
 SYN::TextureData loadTexture(const std::string &path);
-}
+
+} // namespace
 
 SYN::Renderer::Renderer() = default;
 SYN::Renderer::~Renderer() = default;
@@ -73,6 +73,15 @@ void SYN::Renderer::init(EngineContext *ctx) {
     stbi_image_free(down.data);
     stbi_image_free(front.data);
     stbi_image_free(back.data);
+
+    m_TestImage = m_Device->createAttachment({
+        .width = 1024,
+        .height = 1024,
+        .size = AttachmentSize::fixed,
+        .type = TextureType::rgba,
+        .format = TextureFormat::rgba8,
+        .isStorageImage = true,
+    });
 }
 
 void SYN::Renderer::render(Window &window) {
@@ -84,11 +93,13 @@ void SYN::Renderer::render(Window &window) {
     AttachmentHandle swapchainAttachment{
         m_Device->acquireSwapchainAttachment()};
 
+    m_RenderGraph->addPass<TestPass>(m_TestImage, glm::vec2(1024, 1024));
+
     uint32_t msaaSamples{4};
     m_RenderGraph->addPass<LightingPass>(
         msaaSamples, m_DrawCalls, m_CurrentCameraProjection,
         m_CurrentCameraView, m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
-        swapchainAttachment);
+        swapchainAttachment, m_TestImage);
 
     m_RenderGraph->addPass<SkyBoxPass>(
         msaaSamples, m_CurrentCameraProjection, m_CurrentCameraView, m_SkyBox,
@@ -100,8 +111,7 @@ void SYN::Renderer::render(Window &window) {
 
     GraphicsCommandBuffer cmdBuf{m_Device->acquireGraphicsCmdBuffer()};
     m_RenderGraph->execute(cmdBuf);
-    Receipt renderReceipt{m_Device->submitWork(cmdBuf)};
-    spdlog::info("receipt value: {}", renderReceipt.waitValue);
+    m_Device->submitWork(cmdBuf);
 
     m_Device->present(*m_Window);
 
@@ -228,6 +238,7 @@ void SYN::Renderer::shutdown() {
     m_Device->destroyAttachment(m_MSAAScreenColorAttachment);
     m_Device->destroyAttachment(m_MSAADepthAttachment);
     m_Device->destroyTexture(m_SkyBox);
+    m_Device->destroyAttachment(m_TestImage);
 
     m_Device->shutdown();
 }

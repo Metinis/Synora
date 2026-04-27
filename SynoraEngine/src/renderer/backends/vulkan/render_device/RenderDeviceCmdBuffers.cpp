@@ -1,7 +1,5 @@
 #include "RenderDevice.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
-#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
-#include "renderer/backends/vulkan/UploadCommandBuffer.h"
 #include <cstdint>
 #include <vulkan/vulkan_core.h>
 
@@ -18,6 +16,10 @@ GraphicsCommandBuffer SYN::RenderDevice::acquireGraphicsCmdBuffer() {
 
 UploadCommandBuffer SYN::RenderDevice::acquireUploadCmdBuffer() {
     return UploadCommandBuffer(this);
+}
+
+ComputeCommandBuffer SYN::RenderDevice::acquireComputeCmdBuffer() {
+    return ComputeCommandBuffer(this);
 }
 
 bool SYN::RenderDevice::beginFrame(Window &window) {
@@ -52,7 +54,7 @@ bool SYN::RenderDevice::beginFrame(Window &window) {
 
     VkWriteDescriptorSet writeDescriptorSet{
         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = m_UBODescriptorSet,
+        .dstSet = m_UBOSet,
         .dstBinding = 0,
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,

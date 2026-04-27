@@ -33,6 +33,8 @@ class ComputeCommandBuffer {
     uint32_t getShaderTextureIndexCmd(TextureHandle texture);
     uint32_t getShaderTextureIndexCmd(AttachmentHandle attachment);
 
+    uint32_t getShaderStorageImageCmd(AttachmentHandle attachment);
+
     uint64_t getBufferAddressCmd(BufferHandle buffer);
 
   private:

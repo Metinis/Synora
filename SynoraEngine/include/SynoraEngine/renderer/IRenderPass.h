@@ -1,16 +1,9 @@
 #pragma once
 #include "RenderTypes.h"
-#include "renderer/backends/vulkan/GraphicsCommandBuffer.h"
 
 namespace SYN {
 
 class GraphicsCommandBuffer;
-
-struct RenderPassNode {
-    std::string debugName;
-    std::vector<AttachmentHandle> inputAttachments;
-    std::vector<AttachmentHandle> outputAttachments;
-};
 
 class IRenderPass {
   public:

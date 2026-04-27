@@ -40,6 +40,7 @@ layout(push_constant, std430) uniform PushConstants {
     uint albedoIndex;
     uint metallicRoughnessIndex;
     uint normalMap;
+    uint testIndex;
 };
 
 
@@ -140,6 +141,7 @@ void main() {
 
     vec3 color = lo;
     color = color / (color + vec3(1.f));
+    color = sample2DLinear(testIndex, uv).xyz;
 
     outColor = vec4(color, 1.f);
 }
