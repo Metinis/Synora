@@ -764,3 +764,45 @@ void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
 
     m_TextureSlotsBound.insert(binding);
 }
+
+void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
+                                          uint32_t mipLevel, uint32_t x,
+                                          uint32_t y, uint32_t width,
+                                          uint32_t height, TextureFormat format,
+                                          const void *data) {
+    std::optional<Texture> textureOpt =
+        m_TextureRegistry.getResource(textureHandle);
+
+    if (!textureOpt.has_value())
+        return;
+
+    Texture texture = textureOpt.value();
+
+    GLenum glFormat;
+    GLenum dataType = GL_UNSIGNED_BYTE;
+    switch (format) {
+    case TextureFormat::RGBA8:
+        glFormat = GL_RGBA;
+        break;
+    case TextureFormat::RGB8:
+        glFormat = GL_RGB;
+        break;
+    case TextureFormat::RG8:
+        glFormat = GL_RG;
+        break;
+    case TextureFormat::R8:
+        glFormat = GL_RED;
+        break;
+    case TextureFormat::Depth24:
+        glFormat = GL_DEPTH_COMPONENT;
+        dataType = GL_FLOAT;
+        break;
+    case TextureFormat::Depth24Stencil8:
+        glFormat = GL_DEPTH_STENCIL;
+        dataType = GL_UNSIGNED_INT_24_8;
+        break;
+    }
+
+    glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
+                        dataType, data);
+}

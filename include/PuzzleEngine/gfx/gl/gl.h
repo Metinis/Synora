@@ -356,9 +356,9 @@ class Context {
 
     std::optional<Handle<Texture>>
     createTexture(const TextureDesc &desc, const void *initialData = nullptr);
-    void updateTexture(Texture texture, uint32_t mipLevel, uint32_t x,
-                       uint32_t y, uint32_t width, uint32_t height,
-                       const void *data);
+    void updateTexture(Handle<Texture> textureHandle, uint32_t mipLevel,
+                       uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+                       TextureFormat format, const void *data);
     void deleteTexture(Handle<Texture> textureHandle);
 
     Renderbuffer createRenderbuffer(const RenderbufferDesc &desc);
