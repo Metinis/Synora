@@ -6,6 +6,7 @@
 #include "renderer/backends/RenderDevice.h"
 #include <concepts>
 #include <memory>
+#include <type_traits>
 #include <typeindex>
 #include <typeinfo>
 
@@ -27,6 +28,24 @@ class RenderGraph {
 
     void compile(RenderDevice &renderDevice);
     void execute(GraphicsCommandBuffer &cmdBuffer);
+
+    template <typename T>
+    void executeImmediately(RenderDevice &renderDevice,
+                            ComputeCommandBuffer &cmdBuffer, T computePass) {
+        static_assert(std::is_base_of<IComputePass, T>());
+
+        ComputePipelineDesc pipelineDesc{computePass.getPipelineDesc()};
+
+        PipelineHandle pipelineHandle{};
+        if (!m_ComputePipelineCache.contains(pipelineDesc)) {
+            pipelineHandle = renderDevice.createPipeline(pipelineDesc);
+            m_ComputePipelineCache[pipelineDesc] = pipelineHandle;
+        } else {
+            pipelineHandle = m_ComputePipelineCache[pipelineDesc];
+        }
+
+        computePass.execute(cmdBuffer, pipelineHandle);
+    }
 
     void shutdown(RenderDevice &renderDevice);
 

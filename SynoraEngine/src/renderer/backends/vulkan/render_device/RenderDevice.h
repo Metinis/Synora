@@ -60,12 +60,19 @@ struct PendingSubmission {
 
 namespace SYN {
 
+struct Region {
+    void *data;
+    size_t size;
+};
+
 class RenderDevice {
   public:
     RenderDevice() = default;
     ~RenderDevice() = default;
 
     void init(Window &window);
+
+    void waitIdle() const;
 
     TextureFormat getSwapchainFormat() const;
     TextureType getSwapchainType() const;
@@ -75,6 +82,10 @@ class RenderDevice {
 
     TextureHandle createTexture(const TextureDesc &desc);
     void destroyTexture(TextureHandle &handle);
+
+    TextureHandle attachmentToTexture(AttachmentHandle &handle);
+
+    Region mapBuffer(BufferHandle buffer);
 
     AttachmentHandle createAttachment(const AttachmentDesc &desc);
     void destroyAttachment(AttachmentHandle &attachment);

@@ -188,9 +188,8 @@ void SYN::VK::StagingBuffer::uploadToBuffer(const Device &device,
                                             const void *data, size_t size,
                                             const Buffer &dstBuffer) {
     if (dstBuffer.size < size) {
-        spdlog::warn("Could not write to buffer, write size larger than dst "
-                     "buffer size");
-        return;
+        spdlog::warn("Write size larger than dst "
+                     "buffer size, this may be slow");
     }
 
     size_t bytesLeft{size};

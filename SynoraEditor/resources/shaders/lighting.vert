@@ -1,5 +1,6 @@
 #version 450
-#include "Bindless.glsl"
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec3 outWorldPos;

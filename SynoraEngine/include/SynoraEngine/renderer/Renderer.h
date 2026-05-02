@@ -59,6 +59,7 @@ class Renderer {
     // TODO: change this, this is for testing / demoing
     glm::mat4 m_CurrentCameraProjection;
     glm::mat4 m_CurrentCameraView;
+    TransformComp m_CurrentCameraTransform;
 
     std::unique_ptr<RenderDevice> m_Device;
 
@@ -67,12 +68,16 @@ class Renderer {
 
     AttachmentHandle m_MSAADepthAttachment;
     AttachmentHandle m_MSAAScreenColorAttachment;
-    AttachmentHandle m_TestImage;
+
+    TextureHandle m_TestTexture;
 
     TextureHandle m_SkyBox;
 
     std::unordered_map<UUID, UploadedMesh> m_UploadedMeshes;
     std::vector<MeshDrawCall> m_DrawCalls;
+
+    std::unique_ptr<Receipt> m_UploadReceipt;
+    std::unique_ptr<Receipt> m_GraphicsReceipt;
 };
 
 } // namespace SYN

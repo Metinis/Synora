@@ -29,16 +29,12 @@ class GraphicsCommandBuffer {
                             const void *uniformData, size_t uniformSize);
     template <typename T>
     void beginRenderPassCmd(const RenderPassDesc &desc, PipelineHandle pipeline,
-                            const T &uniform) {
-        beginRenderPassCmd(desc, pipeline, &uniform, sizeof(uniform));
-    }
+                            const T &uniform);
 
     void endRenderPassCmd();
 
     void setPushConstantsCmd(const void *data, size_t size);
-    template <typename T> void setPushConstantsCmd(const T &pushConstants) {
-        setPushConstantsCmd(&pushConstants, sizeof(pushConstants));
-    }
+    template <typename T> void setPushConstantsCmd(const T &pushConstants);
 
     void dispatchCmd(const DispatchDesc &desc, PipelineHandle pipeline);
 
@@ -62,5 +58,17 @@ class GraphicsCommandBuffer {
 
     bool m_IsInRenderPass{false};
 };
+
+template <typename T>
+void GraphicsCommandBuffer::beginRenderPassCmd(const RenderPassDesc &desc,
+                                               PipelineHandle pipeline,
+                                               const T &uniform) {
+    beginRenderPassCmd(desc, pipeline, &uniform, sizeof(uniform));
+}
+
+template <typename T>
+void GraphicsCommandBuffer::setPushConstantsCmd(const T &pushConstants) {
+    setPushConstantsCmd(&pushConstants, sizeof(pushConstants));
+}
 
 } // namespace SYN

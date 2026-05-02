@@ -21,6 +21,10 @@ class UploadCommandBuffer {
         uploadToTexture(handle, std::span(&data, 1), width, height);
     }
 
+    void copyAttachmentToBuffer(AttachmentHandle srcAttachment,
+                                BufferHandle dstBuffer, uint32_t mipLevel = 0,
+                                uint32_t arrayLayer = 0);
+
   private:
     friend RenderDevice;
 

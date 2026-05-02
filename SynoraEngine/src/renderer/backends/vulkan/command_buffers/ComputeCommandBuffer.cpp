@@ -47,14 +47,14 @@ void SYN::ComputeCommandBuffer::setPushConstantsCmd(const void *data,
     vkCmdPushConstants(m_CmdBuffer, m_RenderDevice->m_PipelineLayout,
                        VK_SHADER_STAGE_ALL, 0, size, data);
 }
-void SYN::ComputeCommandBuffer::bindPipelineCmd(PipelineHandle pipelineHandle) {
+
+void SYN::ComputeCommandBuffer::dispatchCmd(const DispatchDesc &desc,
+                                            PipelineHandle pipelineHandle) {
     assert(m_RenderDevice->m_Pipelines.contains(pipelineHandle));
 
     VkPipeline pipeline{m_RenderDevice->m_Pipelines[pipelineHandle]};
     vkCmdBindPipeline(m_CmdBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-}
 
-void SYN::ComputeCommandBuffer::dispatchCmd(const DispatchDesc &desc) {
     for (const auto &attachment : desc.readonlyAttachments) {
         Image &image{m_RenderDevice->m_Attachments[attachment].image};
         transitionImageCmd(m_CmdBuffer, image,

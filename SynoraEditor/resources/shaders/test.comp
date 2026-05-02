@@ -1,5 +1,6 @@
 #version 460
 #include "Bindless.glsl"
+#include "BRDF.glsl"
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
@@ -9,16 +10,62 @@ layout(push_constant) uniform PushConstants {
     uvec2 resolution;
 };
 
+// directional albedo of specular BRDF with F set to 1
+float RsF1(float r, float nDotL) {
+    // assumed normal = vec3(0, 1, 0)
+    vec3 lightDir = vec3(sqrt(1.f - nDotL * nDotL), nDotL, 0.f);
+
+    float sum = 0.f;
+    int nSamplesPerAxis = 256;
+    for (int i = 0; i < nSamplesPerAxis; i++) {
+        for (int j = 0; j < nSamplesPerAxis; j++) {
+            float azimuth = ((float(j)) / float(nSamplesPerAxis)) * 2.f * PI;
+            float cosTheta = ((float(i)) / float(nSamplesPerAxis));
+            float sinTheta = sqrt(1.f - cosTheta * cosTheta);
+
+            vec3 viewDir = vec3(sinTheta * cos(azimuth), cosTheta, sinTheta * sin(azimuth));
+            float nDotV = viewDir.y;
+
+            vec3 halfway = viewDir + lightDir;
+            if (dot(halfway, halfway) < 1e-8) {
+                continue;
+            }
+            halfway = normalize(halfway);
+
+            float nDotH = halfway.y;
+            float vDotH = dot(viewDir, halfway);
+
+            float D = ggxNDF(r, nDotH);
+            float G = ggxVisibility(r, nDotL, nDotV);
+            float F = 1.f;
+
+            float BRDF = D * G * F;
+            sum += BRDF * nDotV;
+        }
+    }
+    float normalizingFactor = (2.f * PI) / (float(nSamplesPerAxis) * float(nSamplesPerAxis));
+    return sum * normalizingFactor;
+}
+
 void main() {
-    ivec2 coord0 = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 coord1 = coord0 / ivec2(2); 
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
     
-    if (coord0.x >= resolution.x || coord0.y >= resolution.y) {
+    if (coord.x >= resolution.x || coord.y >= resolution.y) {
         return;
     }
 
-    vec2 uv = vec2(coord0) / vec2(resolution);
-    
-    imageStore(rgba8ImagesW[imageIndex0], coord0, vec4(1.f, 0.f, 0.0, 1.0));
-    imageStore(rgba8ImagesW[imageIndex1], coord1, vec4(0.f, 1.f, 0.0, 1.0));
+    float r = (float(coord.x) + 0.5f) / float(resolution.x);
+    float nDotL = (float(coord.y) + 0.5f) / float(resolution.y);
+
+    float radiosity = RsF1(r, nDotL);
+
+    int nSamples = 256;
+    float sum = 0.f;
+    for (int i = 0; i < nSamples; i++) {
+        float mu = (float(i) + 0.0001f) / float(nSamples);
+        sum += RsF1(r, mu) * mu;
+    }
+    float barRsF1 = (2.f * sum) / float(nSamples);
+
+    imageStore(rgba8ImagesW[imageIndex0], coord, vec4(radiosity, radiosity, radiosity, 1.0));
 }

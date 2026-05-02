@@ -193,8 +193,6 @@ void SYN::GraphicsCommandBuffer::beginRenderPassCmd(
 
     FrameData &frame{m_RenderDevice->getCurrentFrame()};
 
-    beginRenderPassCmd(desc, pipelineHandle);
-
     uint32_t dynamicOffset{frame.UBOBuffer.write(uniformData, uniformSize)};
 
     VkDescriptorSet uboDescriptorSet{m_RenderDevice->m_UBOSet};
@@ -202,6 +200,8 @@ void SYN::GraphicsCommandBuffer::beginRenderPassCmd(
                             VK_PIPELINE_BIND_POINT_GRAPHICS,
                             m_RenderDevice->m_PipelineLayout, 1, 1,
                             &uboDescriptorSet, 1, &dynamicOffset);
+
+    beginRenderPassCmd(desc, pipelineHandle);
 }
 void SYN::GraphicsCommandBuffer::endRenderPassCmd() {
     m_IsInRenderPass = false;

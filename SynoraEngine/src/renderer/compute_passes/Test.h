@@ -12,6 +12,8 @@ class TestPass : public IComputePass {
 
     void execute(GraphicsCommandBuffer &cmdBuffer,
                  PipelineHandle pipeline) override;
+    void execute(ComputeCommandBuffer &cmdBuffer,
+                 PipelineHandle pipeline) override;
 
     DispatchDesc getPassDesc() override;
     ComputePipelineDesc getPipelineDesc() const override;

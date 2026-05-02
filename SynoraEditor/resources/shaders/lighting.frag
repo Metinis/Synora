@@ -1,5 +1,6 @@
 #version 450
 #include "Bindless.glsl"
+#include "BRDF.glsl"
 
 layout(location = 0) in vec2 uv;
 layout(location = 1) in vec3 fragPos;
@@ -52,52 +53,40 @@ layout(set = 1, binding = 0) uniform Uniform {
     LightCaster lights[16];
 };
 
-const float PI = 3.141592653589793;
-
-float ggxNDF(float roughness, float nDotH) {
-    float a2 = roughness * roughness;
-
-    float denom = 1.f + (nDotH * nDotH) * (a2 - 1.f);
-    denom = PI * denom * denom;
-    return a2 / denom;
+float hash2D(float x, float y) {
+    return fract(1.0e4 * sin(17.0 * x + 0.1 * y) * (0.1 +abs(sin(13.0 * y + x))));
 }
 
-// height correlated Smith G2 for ggx + normalization factor for brdf
-// equal to ggx
-float ggxVisibility(float roughness, float nDotL, float nDotV) {
-    float uo = nDotV;
-    float ui = nDotL;
-
-    float a2 = roughness * roughness;
-
-    float ui2 = ui * ui;
-    float uo2 = uo * uo;
-
-    float denom = uo * sqrt(a2 + ui2 * (1.f - a2));
-    denom += ui * sqrt(a2 + uo2 * (1.f - a2));
-
-    return 0.5f / denom;
-}
+float hash3D(float x, float y, float z) { return hash2D(hash2D(x,y),z); }
 
 void main() {
-    vec3 tangent = normalize(faceTangent - dot(faceTangent, faceNormal) * faceNormal);
-    vec3 bitangent = cross(faceNormal, faceTangent) * handedness;
+    vec3 N = normalize(faceNormal);
+    vec3 T = normalize(faceTangent);
 
-    mat3 tbn = mat3(tangent, bitangent, faceNormal);
+    T = normalize(T - dot(T, N) * N);
+    vec3 B = cross(N, T) * handedness;
 
-    vec3 mapNormal = sampleLinear(normalMap, uv).xyz;
-    mapNormal = (mapNormal * 2.f) - 1.f;
+    mat3 tbn = mat3(T, B, N);
+
+    vec3 mapNormal = sampleLinearR(normalMap, uv).xyz;
+    mapNormal = normalize((mapNormal * 2.f) - 1.f);
 
     vec3 norm = normalize(tbn * mapNormal);
 
-    vec4 fragAlbedo = sampleLinear(albedoIndex, uv);
-    vec4 fragMetallicRoughness = sampleLinear(metallicRoughnessIndex, uv);
+    vec4 fragAlbedo = sampleLinearR(albedoIndex, uv);
+    vec4 fragMetallicRoughness = sampleLinearR(metallicRoughnessIndex, uv);
 
     vec3 albedo = fragAlbedo.xyz;
     float roughness = fragMetallicRoughness.g;
     float metallic = fragMetallicRoughness.b;
 
-    if (fragAlbedo.a == 0.f) {
+    vec3 maxDFragPos = max(dFdx(fragPos), dFdy(fragPos));
+
+    vec3 ssFragPos = fragPos / length(maxDFragPos);
+    ssFragPos = clamp(ssFragPos, 0.f, 1.f);
+    float rand = hash3D(ssFragPos.x, ssFragPos.y, ssFragPos.z);
+
+    if (fragAlbedo.a < rand || fragAlbedo.a == 0.f) {
         discard;
     }
 
@@ -112,8 +101,8 @@ void main() {
 
         vec3 halfway = normalize(lightDir + viewDir);
 
-        float nDotL = abs(dot(norm, lightDir)) + 0.00001f;
-        float vDotH = max(dot(viewDir, halfway), 0.f);
+        float nDotL = max(abs(dot(norm, lightDir)) + 0.0001f, 0.f);
+        float vDotH = max(abs(dot(viewDir, halfway)) + 0.0001f, 0.f);
         float nDotH = abs(dot(norm, halfway));
         float nDotV = abs(dot(norm, viewDir));
 
@@ -121,11 +110,20 @@ void main() {
 
         float r = roughness * roughness;
 
+        float RsF1L = sampleLinear(testIndex, vec2(r, nDotL)).x;
+        float RsF1V = sampleLinear(testIndex, vec2(r, nDotV)).x;
+        float barRsF1 = sampleLinear(testIndex, vec2(r, 0.5f)).y;
+        vec3 barF = ((20.f/21.f) * F0) + (1.f / 21.f);
+
+        vec3 ms = (barF * barRsF1) * (1.f - RsF1L) * (1.f - RsF1V);
+        vec3 denom = (PI * (1.f - barRsF1) * (1.f - (barF * (1.f - barRsF1))));
+        ms /= max(denom, 1e-6);
+        
         float D = ggxNDF(r, nDotH);
         float G = ggxVisibility(r, nDotL, nDotV);
         vec3 F = F0 + (1.f - F0) * pow(1.f - vDotH, 5.f);
 
-        vec3 specular = D * G * F; // normalization is in G
+        vec3 specular = (D * G * F) + ms; // normalization is in G
         vec3 diffuse = ((1.f - metallic) * (1.f - F) * albedo) / PI;
 
         vec3 brdf = diffuse + specular;
@@ -140,8 +138,6 @@ void main() {
     vec3 ambient = fragAlbedo.xyz * mix(groundColor, skyColor, hemisphere);
 
     vec3 color = lo;
-    color = color / (color + vec3(1.f));
-    color = sampleLinear(testIndex, uv).xyz;
 
     outColor = vec4(color, 1.f);
 }

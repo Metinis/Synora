@@ -7,7 +7,9 @@
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
+#include "renderer/backends/vulkan/command_buffers/ComputeCommandBuffer.h"
 #include <memory>
+#include <stb_image_write.h>
 #include <vulkan/vulkan_core.h>
 
 using namespace SYN;
@@ -74,15 +76,41 @@ void SYN::Renderer::init(EngineContext *ctx) {
     stbi_image_free(front.data);
     stbi_image_free(back.data);
 
-    m_TestImage = m_Device->createAttachment({
-        .width = 1024,
-        .height = 1024,
+    AttachmentHandle testAttachment{m_Device->createAttachment({
+        .width = 32,
+        .height = 32,
         .size = AttachmentSize::fixed,
         .type = TextureType::rgba,
         .format = TextureFormat::rgba8,
         .isStorageImage = true,
-        .mipLevels = 2,
-    });
+        .mipLevels = 1,
+    })};
+
+    {
+        ComputeCommandBuffer computeCmdBuf{m_Device->acquireComputeCmdBuffer()};
+        m_RenderGraph->executeImmediately(
+            *m_Device, computeCmdBuf,
+            TestPass(testAttachment, glm::vec2(32, 32)));
+        m_Device->submitWork(computeCmdBuf);
+    }
+
+    BufferHandle intermBuffer{m_Device->createBuffer({
+        .size = 4 * 32 * 32,
+        .isReadable = true,
+    })};
+
+    {
+        UploadCommandBuffer uploadCmdBuf{m_Device->acquireUploadCmdBuffer()};
+        uploadCmdBuf.copyAttachmentToBuffer(testAttachment, intermBuffer);
+        m_Device->submitWork(uploadCmdBuf);
+    }
+
+    Region mappedRegion{m_Device->mapBuffer(intermBuffer)};
+
+    stbi_write_png("generated/test/fsF1.png", 32, 32, 4, mappedRegion.data,
+                   32 * 4);
+
+    m_TestTexture = m_Device->attachmentToTexture(testAttachment);
 }
 
 void SYN::Renderer::render(Window &window) {
@@ -94,13 +122,23 @@ void SYN::Renderer::render(Window &window) {
     AttachmentHandle swapchainAttachment{
         m_Device->acquireSwapchainAttachment()};
 
-    m_RenderGraph->addPass<TestPass>(m_TestImage, glm::vec2(1024, 1024));
+    glm::quat cameraRot{m_CurrentCameraTransform.rotation};
+    cameraRot.x *= -1.f;
+    glm::mat4 reflectedRotation(glm::conjugate(cameraRot));
+    glm::vec3 reflectedPos{m_CurrentCameraTransform.position};
+    float waterY = 1.f;
+    reflectedPos.y = (2.f * waterY) - reflectedPos.y;
+
+    glm::mat4 reflectedTranslation{
+        glm::translate(glm::mat4(1.f), -reflectedPos)};
+
+    glm::mat4 reflectedCameraView{reflectedRotation * reflectedTranslation};
 
     uint32_t msaaSamples{4};
     m_RenderGraph->addPass<LightingPass>(
         msaaSamples, m_DrawCalls, m_CurrentCameraProjection,
         m_CurrentCameraView, m_MSAAScreenColorAttachment, m_MSAADepthAttachment,
-        swapchainAttachment, m_TestImage);
+        swapchainAttachment, m_TestTexture);
 
     m_RenderGraph->addPass<SkyBoxPass>(
         msaaSamples, m_CurrentCameraProjection, m_CurrentCameraView, m_SkyBox,
@@ -170,7 +208,7 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
                            meshData.normalMap->width,
                            meshData.normalMap->height);
 
-    m_Device->submitWork(cmdBuf);
+    m_UploadReceipt = std::make_unique<Receipt>(m_Device->submitWork(cmdBuf));
 
     auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,
                              .indexBuffer = indexBuffer,
@@ -209,6 +247,7 @@ void Renderer::setCamera(const Camera &camera) {
         glm::translate(glm::mat4(1.f), -camera.transform.position)};
 
     m_CurrentCameraView = rotation * translation;
+    m_CurrentCameraTransform = camera.transform;
 }
 
 void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
@@ -228,6 +267,7 @@ void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
 }
 
 void SYN::Renderer::shutdown() {
+    m_Device->waitIdle();
     m_RenderGraph->shutdown(*m_Device);
     for (auto &[uuid, mesh] : m_UploadedMeshes) {
         m_Device->destroyTexture(mesh.albedo);
@@ -239,7 +279,7 @@ void SYN::Renderer::shutdown() {
     m_Device->destroyAttachment(m_MSAAScreenColorAttachment);
     m_Device->destroyAttachment(m_MSAADepthAttachment);
     m_Device->destroyTexture(m_SkyBox);
-    m_Device->destroyAttachment(m_TestImage);
+    m_Device->destroyTexture(m_TestTexture);
 
     m_Device->shutdown();
 }

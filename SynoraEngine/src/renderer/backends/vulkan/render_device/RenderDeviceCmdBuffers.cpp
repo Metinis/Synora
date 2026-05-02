@@ -23,8 +23,6 @@ ComputeCommandBuffer SYN::RenderDevice::acquireComputeCmdBuffer() {
 }
 
 bool SYN::RenderDevice::beginFrame(Window &window) {
-    m_StagingBuffer.stallOnPendingUploads(m_Device);
-
     FrameData &frame{getCurrentFrame()};
 
     vkWaitForFences(m_Device.logical, 1, &frame.renderFinishedFence, VK_TRUE,
@@ -88,7 +86,7 @@ SYN::Receipt SYN::RenderDevice::submitWork(GraphicsCommandBuffer &cmdBuffer,
         VkSemaphoreSubmitInfo{
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
             .semaphore = frame.imageAvailableSemaphore,
-            .stageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
         },
     };
     waitSemaphores.reserve(waitReceipts.size());
@@ -289,3 +287,5 @@ void SYN::RenderDevice::pollSubmissions() {
         }
     }
 }
+
+void SYN::RenderDevice::waitIdle() const { vkDeviceWaitIdle(m_Device.logical); }

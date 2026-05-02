@@ -24,6 +24,19 @@ void SYN::TestPass::execute(GraphicsCommandBuffer &cmdBuffer,
     cmdBuffer.dispatchCmd(getPassDesc(), pipeline);
 }
 
+void SYN::TestPass::execute(ComputeCommandBuffer &cmdBuffer,
+                            PipelineHandle pipeline) {
+
+    PushConstants pushConstants{
+        .imageIndex0 = cmdBuffer.getShaderStorageImageIndexCmd(m_ColorImage, 0),
+        .imageIndex1 = cmdBuffer.getShaderStorageImageIndexCmd(m_ColorImage, 1),
+        .resolution = m_ImageResolution,
+    };
+
+    cmdBuffer.setPushConstantsCmd(pushConstants);
+    cmdBuffer.dispatchCmd(getPassDesc(), pipeline);
+}
+
 SYN::DispatchDesc SYN::TestPass::getPassDesc() {
     return {
         .debugName = "Test Pass",

@@ -22,8 +22,7 @@ class ComputeCommandBuffer {
   public:
     ~ComputeCommandBuffer();
 
-    void bindPipelineCmd(PipelineHandle pipelineHandle);
-    void dispatchCmd(const DispatchDesc &desc);
+    void dispatchCmd(const DispatchDesc &desc, PipelineHandle handle);
 
     void setPushConstantsCmd(const void *data, size_t size);
     template <typename T> void setPushConstantsCmd(const T &pushConstants) {

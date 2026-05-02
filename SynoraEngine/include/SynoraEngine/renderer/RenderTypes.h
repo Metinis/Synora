@@ -1,4 +1,5 @@
 #pragma once
+#include <concepts>
 #include <glm/glm.hpp>
 #include <string_view>
 
@@ -15,12 +16,13 @@ class GraphicsCommandBuffer;
 // this is a struct 1. for type safety and 2. so we can add stuff like
 // generation later
 template <typename T> struct GPUResourceHandle {
-    uint32_t id{UINT32_MAX};
+    static constexpr uint32_t c_InvalidValue{UINT32_MAX};
+    uint32_t id{c_InvalidValue};
     bool operator==(const GPUResourceHandle<T> &other) const {
         return id == other.id;
     }
 
-    bool isValid() const { return id != UINT32_MAX; }
+    bool isValid() const { return id != c_InvalidValue; }
 };
 
 enum class TextureFormat {
@@ -63,6 +65,8 @@ struct AttachmentDesc {
 
 struct BufferDesc {
     size_t size;
+
+    bool isReadable{};
 };
 
 enum class CullMode { disabled, frontFace, backFace };

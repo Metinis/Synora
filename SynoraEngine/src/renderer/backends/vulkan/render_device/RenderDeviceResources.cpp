@@ -2,6 +2,7 @@
 #include "../core/Pipeline.h"
 #include "RenderDevice.h"
 #include "SynoraEngine/renderer/RenderTypes.h"
+#include "renderer/backends/vulkan/core/Image.h"
 
 #include <GLFW/glfw3.h>
 #include <cstring>
@@ -22,12 +23,18 @@ VkFormat getVkFormat(TextureFormat format, TextureType type);
 } // namespace
 
 BufferHandle SYN::RenderDevice::createBuffer(const BufferDesc &desc) {
+    VmaAllocationCreateFlags allocFlags{};
+    if (desc.isReadable) {
+        allocFlags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
+                      VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
+
     Buffer buffer{
         VK::createBuffer(m_Device, m_Allocator, desc.size,
                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
                              VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
                              VK_BUFFER_USAGE_2_STORAGE_BUFFER_BIT,
-                         0)};
+                         allocFlags)};
 
     BufferHandle handle{m_Buffers.insert(buffer)};
 
@@ -125,7 +132,8 @@ SYN::RenderDevice::createAttachment(const AttachmentDesc &desc) {
 
     VkFormat format{getVkFormat(desc.format, desc.type)};
     VkImageAspectFlags aspect{getVkAspect(desc.type)};
-    VkImageUsageFlags usage{VK_IMAGE_USAGE_SAMPLED_BIT};
+    VkImageUsageFlags usage{VK_IMAGE_USAGE_SAMPLED_BIT |
+                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT};
 
     if (aspect == VK_IMAGE_ASPECT_COLOR_BIT) {
         usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -428,6 +436,37 @@ TextureType SYN::RenderDevice::getSwapchainType() const {
     }
 
     return type;
+}
+
+TextureHandle SYN::RenderDevice::attachmentToTexture(AttachmentHandle &handle) {
+    if (!m_Attachments.contains(handle)) {
+        spdlog::warn("Trying to access attachment that doesnt exist");
+        assert(false);
+    };
+
+    Attachment attachment{m_Attachments[handle]};
+    m_Attachments.remove(handle);
+
+    for (auto index : attachment.bindlessStorageImageIndices) {
+        m_BindlessStorageImageFreelist.emplace_back(index);
+    }
+    Texture texture{
+        .image = attachment.image,
+        .bindlessSamplerIndex = attachment.bindlessTextureIndex,
+    };
+
+    transitionImage(m_TransientCmdPool, m_Device, texture.image,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    VK_ACCESS_2_SHADER_READ_BIT);
+    return m_Textures.insert(texture);
+}
+
+Region SYN::RenderDevice::mapBuffer(BufferHandle bufferHandle) {
+    Buffer &buffer{m_Buffers[bufferHandle]};
+    assert(buffer.mappedData != nullptr);
+    return Region{.data = buffer.mappedData, .size = buffer.size};
 }
 
 namespace {

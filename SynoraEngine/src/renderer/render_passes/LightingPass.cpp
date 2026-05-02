@@ -46,10 +46,10 @@ SYN::LightingPass::LightingPass(
     uint32_t msaaSampleCount, std::span<Renderer::MeshDrawCall> drawCalls,
     const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
     AttachmentHandle msaaColorAttachment, AttachmentHandle msaaDepthAttachment,
-    AttachmentHandle colorAttachment, AttachmentHandle testAttachment)
+    AttachmentHandle colorAttachment, TextureHandle testTexture)
     : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
       m_CameraProjection(cameraProjection), m_CameraView(cameraView),
-      m_TestAttachment(testAttachment) {
+      m_TestTexture(testTexture) {
     m_ColorAttachment = WriteAttachmentInfo{.handle = msaaColorAttachment,
                                             .resolveHandle = colorAttachment,
                                             .clearColor = {0.f, 0.f, 0.f, 1.f}};
@@ -84,7 +84,6 @@ void SYN::LightingPass::execute(GraphicsCommandBuffer &cmdBuffer,
     uniform.lights = lights;
 
     cmdBuffer.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
-
     for (const auto &drawCall : m_DrawCalls) {
         if (drawCall.mesh.numIndices == 0) {
             continue;
@@ -102,7 +101,7 @@ void SYN::LightingPass::execute(GraphicsCommandBuffer &cmdBuffer,
                 drawCall.mesh.metallicRoughness),
             .normalMapIndex =
                 cmdBuffer.getShaderTextureIndexCmd(drawCall.mesh.normalMap),
-            .testIndex = cmdBuffer.getShaderTextureIndexCmd(m_TestAttachment),
+            .testIndex = cmdBuffer.getShaderTextureIndexCmd(m_TestTexture),
         };
 
         cmdBuffer.setPushConstantsCmd(pushConstants);
@@ -115,7 +114,6 @@ void SYN::LightingPass::execute(GraphicsCommandBuffer &cmdBuffer,
 RenderPassDesc SYN::LightingPass::getPassDesc() {
     return RenderPassDesc{
         .debugName = "First Pass",
-        .readAttachments = std::span(&m_TestAttachment, 1),
         .colorAttachments = std::span(&m_ColorAttachment, 1),
         .depthAttachment = m_DepthAttachment,
     };
