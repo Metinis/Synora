@@ -18,7 +18,7 @@ namespace SYN::gfx::gl {
 constexpr uint32_t MAX_VERTEX_ATTRIBUTES = 16;
 
 enum class BufferType : uint8_t { Vertex, Index, Uniform };
-enum class BufferUsage : uint8_t { Static, Dynamic };
+enum class MemoryUsage : uint8_t { GpuOnly, CpuToGPU };
 enum class IndexType : uint8_t { Unsigned16, Unsigned32 };
 enum class CullMode : uint8_t { None, Front, Back };
 enum class PolygonMode : uint8_t { Fill, Line, Point };
@@ -192,7 +192,7 @@ struct ScissorRect {
 
 struct BufferDesc {
     BufferType bufferType;
-    BufferUsage usage;
+    MemoryUsage usage;
     uint32_t size;
 };
 
@@ -289,7 +289,7 @@ class Pass {
 
     void bindVertexArray(Handle<VertexArray> vertexArrayHandle);
 
-    void bindUniformBuffer(uint32_t binding, Buffer buffer);
+    void bindUniformBuffer(uint32_t binding, Handle<Buffer> bufferHandle);
 
     // Float uniforms
     void bindUniform(std::string_view name, float v0);

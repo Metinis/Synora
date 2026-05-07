@@ -268,15 +268,15 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Buffer>>
 SYN::gfx::gl::Context::createBuffer(const BufferDesc &desc,
                                     const void *initialData) {
-    GLenum usage = GL_STATIC_DRAW;
-    if (desc.usage == BufferUsage::Dynamic) {
-        usage = GL_DYNAMIC_DRAW;
+    GLenum memoryUsage = 0;
+    if (desc.usage == MemoryUsage::CpuToGPU) {
+        memoryUsage = GL_DYNAMIC_STORAGE_BIT;
     }
 
     Buffer buffer;
     buffer.type = desc.bufferType;
     glCreateBuffers(1, &buffer.id);
-    glNamedBufferData(buffer.id, desc.size, initialData, usage);
+    glNamedBufferStorage(buffer.id, desc.size, initialData, memoryUsage);
 
     return m_BufferRegistry.createHandle(buffer);
 }
@@ -440,6 +440,7 @@ SYN::gfx::gl::Context::createVertexArray(const VertexArrayDesc &desc) {
                                   attribute.normalized, attribute.offset);
     }
 
+    assert(vertexBuffer.value().type == BufferType::Vertex);
     glVertexArrayVertexBuffer(vaoId, 0, vertexBuffer.value().id, 0,
                               desc.vertexBufferStride);
     std::optional<Buffer> indexBuffer =
@@ -447,6 +448,7 @@ SYN::gfx::gl::Context::createVertexArray(const VertexArrayDesc &desc) {
     std::optional<IndexType> indexType = std::nullopt;
     if (indexBuffer.has_value()) {
         indexType = desc.indexType;
+        assert(indexBuffer.value().type == BufferType::Index);
         glVertexArrayElementBuffer(vaoId, indexBuffer.value().id);
     }
 
@@ -805,4 +807,14 @@ void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
 
     glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
                         dataType, data);
+}
+
+void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
+                                           Handle<Buffer> bufferHandle) {
+    std::optional<Buffer> buffer = m_ContextPtr->getBuffer(bufferHandle);
+    if (!buffer.has_value())
+        return;
+    if (buffer.value().type != BufferType::Uniform)
+        return;
+    glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer.value().id);
 }
