@@ -31,7 +31,9 @@ int main(void) {
         out vec4 vertexColor;
         out vec2 fragTexCoords;
 
-        uniform float scale;
+        layout (std140, binding = 0) uniform UBO {
+            float scale;
+        };
 
         void main() {
             fragTexCoords = aTexCoords;
@@ -75,14 +77,14 @@ int main(void) {
 
     gl::Handle<gl::Buffer> vertexBuffer =
         glContext
-            .createBuffer({gl::BufferType::Vertex, gl::BufferUsage::Static,
+            .createBuffer({gl::BufferType::Vertex, gl::MemoryUsage::CpuToGPU,
                            sizeof(vertices)},
                           vertices)
             .value();
 
     gl::Handle<gl::Buffer> indexBuffer =
         glContext
-            .createBuffer({gl::BufferType::Index, gl::BufferUsage::Dynamic,
+            .createBuffer({gl::BufferType::Index, gl::MemoryUsage::GpuOnly,
                            sizeof(indices)},
                           indices)
             .value();
@@ -132,6 +134,13 @@ int main(void) {
 
     stbi_image_free(image_data);
 
+    gl::Handle<gl::Buffer> ubo =
+        glContext
+            .createBuffer(
+                {gl::BufferType::Uniform, gl::MemoryUsage::CpuToGPU, 4})
+            .value();
+
+    float scale = 1.0f;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -160,8 +169,9 @@ int main(void) {
 
             pass.bindTexture(0, texture, sampler);
 
-            pass.bindUniform("scale", 1.0f);
             pass.bindUniform("texture0", 0);
+            pass.bindUniformBuffer(0, ubo);
+            glContext.updateBuffer(ubo, 0, sizeof(float), &scale);
 
             pass.bindVertexArray(vertexArray);
             pass.drawIndexed(6);
