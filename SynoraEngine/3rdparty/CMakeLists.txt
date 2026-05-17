@@ -39,6 +39,7 @@ add_library(imgui STATIC
         imgui/imgui_demo.cpp
         imgui/backends/imgui_impl_glfw.cpp
         imgui/backends/imgui_impl_vulkan.cpp
+        imgui/backends/imgui_impl_opengl3.cpp
 )
 
 target_include_directories(imgui PRIVATE ${Vulkan_INCLUDE_DIR})
