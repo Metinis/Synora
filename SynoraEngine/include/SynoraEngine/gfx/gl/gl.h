@@ -5,7 +5,6 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <variant>
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
