@@ -1,20 +1,13 @@
 #pragma once
-#include <string_view>
 
 #include "Application.h"
 
 namespace SYN {
 class Window {
   public:
-    struct Config {
-        std::string_view title;
-        uint16_t width;
-        uint16_t height;
-    };
-
   public:
     Window();
-    void init(const Config &config);
+    void init(const WindowConfig &config);
     bool isRunning() const;
     ~Window();
 

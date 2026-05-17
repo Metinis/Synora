@@ -4,6 +4,7 @@
 #include "SynoraEngine/scene/Scene.h"
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 #include "imgui_impl_vulkan.h"
 #include "scene/CameraSystem.h"
 #include <GLFW/glfw3.h>
@@ -29,6 +30,7 @@ Application::Application() {
         .assetManager = std::make_unique<AssetManager>(),
     };
     m_EngineContext.projectConfig = std::move(projectConfig);
+    m_EngineContext.windowConfig = WindowConfig{"Synora Engine", 1280, 720};
 }
 
 void Application::init() {
@@ -36,7 +38,7 @@ void Application::init() {
     // create window etc
     m_IsRunning = true;
 
-    m_EngineContext.window->init(Window::Config{"Synora Engine", 1280, 720});
+    m_EngineContext.window->init(m_EngineContext.windowConfig);
 
     m_EngineContext.inputManager->init(&m_EngineContext);
     m_EngineContext.renderer->init(&m_EngineContext);
@@ -62,7 +64,12 @@ void Application::run() {
             l->onUpdate(dt);
         }
 
-        ImGui_ImplVulkan_NewFrame();
+        if (m_EngineContext.windowConfig.openGLConfig.has_value()) {
+            ImGui_ImplOpenGL3_NewFrame();
+        } else {
+            ImGui_ImplVulkan_NewFrame();
+        }
+
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         for (auto &l : m_Layers) {
@@ -71,11 +78,13 @@ void Application::run() {
         ImGui::Render();
         ImGui::EndFrame();
 
-        m_EngineContext.renderer->render(*m_EngineContext.window.get());
+        if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
+            m_EngineContext.renderer->render(*m_EngineContext.window.get());
+        }
+
         for (auto &l : m_Layers) {
             l->onRender();
         }
-
     }
 }
 

@@ -1,8 +1,7 @@
 #pragma once
 #include "Layer.h"
 #include "SynoraEngine/project/Project.h"
-
-
+#include "WindowConfig.h"
 
 namespace SYN {
 class Window;
@@ -11,8 +10,6 @@ class Renderer;
 class Scene;
 class CameraSystem;
 
-
-
 struct EngineContext {
     std::unique_ptr<Window> window;
     std::unique_ptr<Input> inputManager;
@@ -20,7 +17,9 @@ struct EngineContext {
     std::unique_ptr<Scene> scene;
     std::unique_ptr<CameraSystem> cameraSystem;
     ProjectConfig projectConfig;
+    WindowConfig windowConfig;
 };
+
 class Application {
   public:
     Application();
@@ -40,8 +39,5 @@ class Application {
     std::deque<ILayer *> m_Layers;
 
     bool m_IsRunning{};
-
-    int m_WindowWidth;
-    int m_WindowHeight;
 };
 } // namespace SYN

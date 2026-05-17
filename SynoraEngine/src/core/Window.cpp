@@ -6,12 +6,19 @@
 
 SYN::Window::Window() {}
 
-void SYN::Window::init(const Config &config) {
+void SYN::Window::init(const WindowConfig &config) {
     if (!glfwInit())
         spdlog::error("Failed to initialize GLFW!");
 
-    // no api if vulkan
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    if (config.openGLConfig.has_value()) {
+        OpenGLConfig settings = config.openGLConfig.value();
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, settings.versionMajor);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, settings.versionMinor);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    } else {
+        // no api if vulkan
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    }
 
     m_Window = glfwCreateWindow(config.width, config.height,
                                 config.title.data(), nullptr, nullptr);
