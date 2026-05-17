@@ -190,6 +190,11 @@ SYN::gfx::gl::Context::~Context() {
     std::vector<Sampler> samplers = m_SamplerRegistry.getAllResources();
     for (Sampler sampler : samplers)
         glDeleteSamplers(1, &sampler.id);
+
+    std::vector<Framebuffer> framebuffers =
+        m_FramebufferRegistry.getAllResources();
+    for (Framebuffer framebuffer : framebuffers)
+        glDeleteFramebuffers(1, &framebuffer.id);
 }
 
 void SYN::gfx::gl::Context::present() { glfwSwapBuffers(m_Window); }
@@ -224,8 +229,14 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
 
     m_ContextPtr = context;
 
-    if (desc.framebuffer.has_value()) {
-        glBindFramebuffer(GL_FRAMEBUFFER, desc.framebuffer.value().id);
+    if (desc.framebufferHandle.has_value()) {
+        std::optional<Framebuffer> framebuffer =
+            context->getFramebuffer(desc.framebufferHandle.value());
+
+        assert(framebuffer.has_value() &&
+               "Framebuffer in render pass doesn't exist!");
+
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.value().id);
     }
 
     GLbitfield clearMask = 0;
@@ -297,6 +308,65 @@ void SYN::gfx::gl::Context::deleteBuffer(Handle<Buffer> bufferHandle) {
     uint32_t bufferId = buffer.value().id;
     m_PendingDeleteBuffers.push_back(bufferId);
     m_BufferRegistry.releaseHandle(bufferHandle);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Framebuffer>>
+SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
+    Framebuffer framebuffer;
+    glCreateFramebuffers(1, &framebuffer.id);
+
+    size_t colorIndex = 0;
+    for (const AttachmentDesc &colorAttachment : desc.colorAttachments) {
+        assert(colorAttachment.type == AttachmentDesc::Type::Texture &&
+               "Only texture color attachments supported for now!");
+        assert(m_TextureRegistry.isValidHandle(colorAttachment.handle) &&
+               "Texture handle invalid!");
+
+        Texture texture =
+            m_TextureRegistry.getResource(colorAttachment.handle).value();
+
+        glNamedFramebufferTexture(
+            framebuffer.id, GL_COLOR_ATTACHMENT0 + colorIndex, texture.id, 0);
+
+        ++colorIndex;
+    }
+
+    if (desc.depthStencilAttachment.has_value()) {
+        const AttachmentDesc &attachmentDesc =
+            desc.depthStencilAttachment.value();
+        assert(attachmentDesc.type == AttachmentDesc::Type::Texture &&
+               "Only texture depth stencil attachments supported for now!");
+        assert(m_TextureRegistry.isValidHandle(attachmentDesc.handle) &&
+               "Texture handle invalid!");
+        Texture texture =
+            m_TextureRegistry.getResource(attachmentDesc.handle).value();
+        GLenum attachmentType = desc.isDepthOnly ? GL_DEPTH_ATTACHMENT
+                                                 : GL_DEPTH_STENCIL_ATTACHMENT;
+
+        glNamedFramebufferTexture(framebuffer.id, attachmentType, texture.id,
+                                  0);
+    }
+
+    if (glCheckNamedFramebufferStatus(framebuffer.id, GL_FRAMEBUFFER) !=
+        GL_FRAMEBUFFER_COMPLETE) {
+        return std::nullopt;
+    }
+
+    return m_FramebufferRegistry.createHandle(framebuffer);
+}
+
+void SYN::gfx::gl::Context::deleteFramebuffer(
+    Handle<Framebuffer> framebufferHandle) {
+    std::optional<Framebuffer> framebuffer =
+        m_FramebufferRegistry.getResource(framebufferHandle);
+
+    if (!framebuffer.has_value())
+        return;
+
+    uint32_t framebufferId = framebuffer.value().id;
+    m_PendingDeleteFramebuffers.push_back(framebufferId);
+
+    m_FramebufferRegistry.releaseHandle(framebufferHandle);
 }
 
 bool validateShaderCompileStatus(uint32_t shader, bool isVertex) {
@@ -486,11 +556,18 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
     }
 
     if (!m_PendingDeleteTextures.empty()) {
-        glDeleteTextures(1, &m_PendingDeleteTextures[0]);
+        glDeleteTextures(m_PendingDeleteTextures.size(),
+                         &m_PendingDeleteTextures[0]);
     }
 
     if (!m_PendingDeleteSamplers.empty()) {
-        glDeleteSamplers(1, &m_PendingDeleteSamplers[0]);
+        glDeleteSamplers(m_PendingDeleteSamplers.size(),
+                         &m_PendingDeleteSamplers[0]);
+    }
+
+    if (!m_PendingDeleteFramebuffers.empty()) {
+        glDeleteFramebuffers(m_PendingDeleteFramebuffers.size(),
+                             &m_PendingDeleteFramebuffers[0]);
     }
 
     m_PendingDeleteShaders.clear();
@@ -499,6 +576,7 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
     m_PendingDeleteBuffers.clear();
     m_PendingDeleteTextures.clear();
     m_PendingDeleteSamplers.clear();
+    m_PendingDeleteFramebuffers.clear();
 }
 
 std::optional<SYN::gfx::gl::VertexArray>
@@ -522,6 +600,11 @@ SYN::gfx::gl::Context::getSampler(Handle<Sampler> samplerHandle) {
 std::optional<SYN::gfx::gl::Shader>
 SYN::gfx::gl::Context::getShader(Handle<Shader> shaderHandle) {
     return m_ShaderRegistry.getResource(shaderHandle);
+}
+
+std::optional<SYN::gfx::gl::Framebuffer>
+SYN::gfx::gl::Context::getFramebuffer(Handle<Framebuffer> framebufferHandle) {
+    return m_FramebufferRegistry.getResource(framebufferHandle);
 }
 
 SYN::gfx::gl::Pass::~Pass() {

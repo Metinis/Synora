@@ -29,7 +29,6 @@ enum class SampleFilter : uint8_t {
     Linear_Mipmap_Linear,
 };
 enum class WrapMode : uint8_t { ClampToEdge, Repeat, MirroredRepeat };
-enum class AttachmentType : uint8_t { Texture2D, Renderbuffer };
 enum class TextureFormat : uint8_t {
     RGBA8,
     RGB8,
@@ -210,24 +209,19 @@ struct SamplerDesc {
     WrapMode wrapV = WrapMode::Repeat;
 };
 
-struct RenderbufferDesc {
-    uint32_t width;
-    uint32_t height;
-    TextureFormat format;
-};
-
 struct AttachmentDesc {
-    AttachmentType type;
-    std::variant<Texture, Renderbuffer> resource;
+    enum class Type { Texture } type;
+    Handle<Texture> handle;
 };
 
 struct FramebufferDesc {
     std::span<const AttachmentDesc> colorAttachments;
     std::optional<AttachmentDesc> depthStencilAttachment;
+    bool isDepthOnly;
 };
 
 struct PassDesc {
-    std::optional<Framebuffer> framebuffer;
+    std::optional<Handle<Framebuffer>> framebufferHandle;
     std::optional<glm::vec4> clearColor;
 
     bool enableDepthTest;
@@ -361,9 +355,6 @@ class Context {
                        TextureFormat format, const void *data);
     void deleteTexture(Handle<Texture> textureHandle);
 
-    Renderbuffer createRenderbuffer(const RenderbufferDesc &desc);
-    void deleteRenderbuffer(Renderbuffer renderbuffer);
-
     std::optional<Handle<Sampler>> createSampler(const SamplerDesc &desc);
     void deleteSampler(Handle<Sampler> samplerHandle);
 
@@ -374,8 +365,9 @@ class Context {
 
     void deleteShader(Handle<Shader> shaderHandle);
 
-    Framebuffer createFramebuffer(const FramebufferDesc &desc);
-    void deleteFramebuffer(Framebuffer framebuffer);
+    std::optional<Handle<Framebuffer>>
+    createFramebuffer(const FramebufferDesc &desc);
+    void deleteFramebuffer(Handle<Framebuffer> framebufferHandle);
 
     std::optional<Handle<VertexArray>>
     createVertexArray(const VertexArrayDesc &desc);
@@ -394,6 +386,8 @@ class Context {
     std::optional<Shader> getShader(Handle<Shader> shaderHandle);
     std::optional<Texture> getTexture(Handle<Texture> textureHandle);
     std::optional<Sampler> getSampler(Handle<Sampler> samplerHandle);
+    std::optional<Framebuffer>
+    getFramebuffer(Handle<Framebuffer> framebufferHandle);
 
   private:
     friend class Pass;
@@ -402,7 +396,9 @@ class Context {
     GLResourceRegistry<Shader> m_ShaderRegistry;
     GLResourceRegistry<Texture> m_TextureRegistry;
     GLResourceRegistry<Sampler> m_SamplerRegistry;
+    GLResourceRegistry<Framebuffer> m_FramebufferRegistry;
 
+    std::vector<uint32_t> m_PendingDeleteFramebuffers;
     std::vector<uint32_t> m_PendingDeleteVertexArrays;
     std::vector<uint32_t> m_PendingDeleteBuffers;
     std::vector<uint32_t> m_PendingDeleteShaders;
