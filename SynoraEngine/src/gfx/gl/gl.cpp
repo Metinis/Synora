@@ -8,6 +8,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <spdlog/spdlog.h>
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 struct {
     using UniformLocations = std::unordered_map<std::string_view, int>;
     std::unordered_map<uint32_t, UniformLocations> shaderUniformCache;
@@ -216,6 +220,10 @@ SYN::gfx::gl::Context::createContext(const ContextInitDesc &desc) {
     }
 
     glViewport(0, 0, desc.width, desc.height);
+
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForOpenGL(desc.windowHandle, true);
+    ImGui_ImplOpenGL3_Init();
 
     return Context(desc);
 }
