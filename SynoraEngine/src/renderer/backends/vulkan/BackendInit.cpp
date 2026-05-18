@@ -461,7 +461,7 @@ void VulkanBackend::initImGUI(Window *window) {
     }
 
     ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForVulkan(window->getHandle(), true);
+    ImGui_ImplGlfw_InitForVulkan(window->getHandle(), false);
 
     ImGui_ImplVulkan_InitInfo initInfo = {};
     initInfo.Instance = m_Instance;

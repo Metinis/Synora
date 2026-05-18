@@ -5,6 +5,8 @@
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
 
+#include <imgui_impl_glfw.h>
+
 #include <optional>
 
 struct WindowPointers {
@@ -158,6 +160,9 @@ translateGLFWMouseButton(int32_t mouseButtonCode) {
 
 void keyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mods) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+    
     WindowPointers *user_data =
         static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
 
@@ -171,6 +176,9 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
 
 void mouseButtonCallback(GLFWwindow *window, int32_t button, int32_t action,
                          int32_t mods) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+    
     WindowPointers *user_data =
         static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
 
@@ -183,6 +191,9 @@ void mouseButtonCallback(GLFWwindow *window, int32_t button, int32_t action,
 }
 
 void cursorPositionCallback(GLFWwindow *window, double xPos, double yPos) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_CursorPosCallback(window, xPos, yPos);
+    
     WindowPointers *user_data =
         static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
 
@@ -195,6 +206,9 @@ void cursorPositionCallback(GLFWwindow *window, double xPos, double yPos) {
 }
 
 void scrollCallback(GLFWwindow *window, double xOffset, double yOffset) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_ScrollCallback(window, xOffset, yOffset);
+    
     WindowPointers *user_data =
         static_cast<WindowPointers *>(glfwGetWindowUserPointer(window));
 
@@ -204,6 +218,21 @@ void scrollCallback(GLFWwindow *window, double xOffset, double yOffset) {
     }
 
     user_data->input->onMouseScrollEvent(xOffset, yOffset);
+}
+
+void windowFocusCallback(GLFWwindow *window, int focused) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_WindowFocusCallback(window, focused);
+}
+
+void cursorEnterCallback(GLFWwindow *window, int entered) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_CursorEnterCallback(window, entered);
+}
+
+void charCallback(GLFWwindow *window, unsigned int c) {
+    // Forward to ImGui backend
+    ImGui_ImplGlfw_CharCallback(window, c);
 }
 
 void SYN::Input::onMouseScrollEvent(double xOffset, double yOffset) {
@@ -275,6 +304,9 @@ void SYN::Input::init(EngineContext *ctx) {
     glfwSetMouseButtonCallback(ctx->window->getHandle(), mouseButtonCallback);
     glfwSetCursorPosCallback(ctx->window->getHandle(), cursorPositionCallback);
     glfwSetScrollCallback(ctx->window->getHandle(), scrollCallback);
+    glfwSetWindowFocusCallback(ctx->window->getHandle(), windowFocusCallback);
+    glfwSetCursorEnterCallback(ctx->window->getHandle(), cursorEnterCallback);
+    glfwSetCharCallback(ctx->window->getHandle(), charCallback);
 }
 
 uint8_t getHandleGeneration(SYN::InputContextHandle handle) {
