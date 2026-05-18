@@ -2,6 +2,9 @@
 #include <SynoraEngine/core/Window.h>
 #include <SynoraEngine/gfx/gl/gl.h>
 #include <SynoraEngine/scene/Scene.h>
+#include <spdlog/spdlog.h>
+
+#include <imgui.h>
 
 #include <GLFW/glfw3.h>
 
@@ -58,7 +61,7 @@ class GraphicsScene : public SYN::ILayer {
         m_Context = &engineContext->glContext.value();
         m_WindowHandle = engineContext->window->getHandle();
     }
-    void onUIRender() override {}
+    void onUIRender() override { ImGui::ShowDemoWindow(); }
     void onRender() override {
         {
             SYN::gfx::gl::Viewport vp;
@@ -69,9 +72,6 @@ class GraphicsScene : public SYN::ILayer {
             m_Context->beginPass({std::nullopt, glm::vec4(0.2, 0.2, 0.53, 1.0),
                                   false, false, vp, std::nullopt});
         }
-
-        m_Context->present();
-        m_Context->flushDeferredDeletes();
     }
     void onAttach() override {};
     void onDettach() override {};
