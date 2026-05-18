@@ -1,5 +1,6 @@
 #pragma once
 #include "Layer.h"
+#include "SynoraEngine/gfx/gl/gl.h"
 #include "SynoraEngine/project/Project.h"
 #include "WindowConfig.h"
 
@@ -16,6 +17,7 @@ struct EngineContext {
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<Scene> scene;
     std::unique_ptr<CameraSystem> cameraSystem;
+    std::optional<gfx::gl::Context> glContext;
     ProjectConfig projectConfig;
     WindowConfig windowConfig;
 };

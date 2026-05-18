@@ -40,14 +40,22 @@ void Application::init() {
 
     m_EngineContext.window->init(m_EngineContext.windowConfig);
 
-    m_EngineContext.inputManager->init(&m_EngineContext);
-    m_EngineContext.renderer->init(&m_EngineContext);
-    m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
-    m_EngineContext.scene->init(&m_EngineContext);
-    m_EngineContext.cameraSystem->init(&m_EngineContext);
+    if (m_EngineContext.windowConfig.openGLConfig.has_value()) {
+        m_EngineContext.glContext = gfx::gl::Context::createContext(
+            {m_EngineContext.window->getHandle(),
+             m_EngineContext.windowConfig.width,
+             m_EngineContext.windowConfig.height});
+    }
 
-    m_Layers.push_back(m_EngineContext.scene.get());
-    m_Layers.push_back(m_EngineContext.cameraSystem.get());
+    m_EngineContext.inputManager->init(&m_EngineContext);
+    if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
+        m_EngineContext.renderer->init(&m_EngineContext);
+        m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
+        m_EngineContext.scene->init(&m_EngineContext);
+        m_EngineContext.cameraSystem->init(&m_EngineContext);
+        m_Layers.push_back(m_EngineContext.scene.get());
+        m_Layers.push_back(m_EngineContext.cameraSystem.get());
+    }
 }
 
 void Application::run() {
@@ -88,7 +96,11 @@ void Application::run() {
     }
 }
 
-void Application::shutdown() { m_EngineContext.renderer->shutdown(); }
+void Application::shutdown() {
+    if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
+        m_EngineContext.renderer->shutdown();
+    }
+}
 
 std::unique_ptr<Input> &Application::GetInput() {
     return m_EngineContext.inputManager;
