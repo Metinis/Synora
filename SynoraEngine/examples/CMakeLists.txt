@@ -3,3 +3,6 @@ target_link_libraries(InputSystem PRIVATE SynoraEngine)
 
 add_executable(GLTest gl_test.cpp)
 target_link_libraries(GLTest PRIVATE SynoraEngine)
+
+add_executable(GLTest2 gl_test2.cpp)
+target_link_libraries(GLTest2 PRIVATE SynoraEngine)
