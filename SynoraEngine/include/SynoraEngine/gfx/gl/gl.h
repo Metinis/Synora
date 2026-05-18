@@ -375,8 +375,14 @@ class Context {
 
     void flushDeferredDeletes();
 
+  public:
+    Context(Context &&other);
+    Context(const Context &other) = delete;
+    Context &operator=(Context &&other);
+
   private:
     Context(const ContextInitDesc &desc);
+    bool m_MainContext = true;
 
   private:
     std::optional<VertexArray>

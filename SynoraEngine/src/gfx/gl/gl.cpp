@@ -169,6 +169,8 @@ SYN::gfx::gl::Context::Context(const ContextInitDesc &desc) {
 }
 
 SYN::gfx::gl::Context::~Context() {
+    if (!m_MainContext)
+        return;
     std::vector<VertexArray> vertexArrays =
         m_VertexArrayRegistry.getAllResources();
     for (VertexArray vao : vertexArrays)
@@ -199,6 +201,29 @@ SYN::gfx::gl::Context::~Context() {
         m_FramebufferRegistry.getAllResources();
     for (Framebuffer framebuffer : framebuffers)
         glDeleteFramebuffers(1, &framebuffer.id);
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+}
+
+SYN::gfx::gl::Context::Context(Context &&other) {
+    m_MainContext = true;
+    m_Window = other.m_Window;
+
+    other.m_MainContext = false;
+    other.m_Window = nullptr;
+}
+
+SYN::gfx::gl::Context &SYN::gfx::gl::Context::operator=(Context &&other) {
+    if (this != &other) {
+        m_MainContext = true;
+        m_Window = other.m_Window;
+
+        other.m_Window = nullptr;
+        other.m_MainContext = false;
+    }
+    return *this;
 }
 
 void SYN::gfx::gl::Context::present() { glfwSwapBuffers(m_Window); }
@@ -222,8 +247,14 @@ SYN::gfx::gl::Context::createContext(const ContextInitDesc &desc) {
     glViewport(0, 0, desc.width, desc.height);
 
     ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForOpenGL(desc.windowHandle, true);
-    ImGui_ImplOpenGL3_Init();
+    ImGuiIO &io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // keyboard controls
+    io.ConfigFlags |=
+        ImGuiConfigFlags_NavEnableGamepad; // gamepad controls (optional)
+
+    ImGui_ImplGlfw_InitForOpenGL(desc.windowHandle, false);
+
+    ImGui_ImplOpenGL3_Init("#version 450");
 
     return Context(desc);
 }
