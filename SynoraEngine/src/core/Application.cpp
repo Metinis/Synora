@@ -72,26 +72,35 @@ void Application::run() {
             l->onUpdate(dt);
         }
 
-        if (m_EngineContext.windowConfig.openGLConfig.has_value()) {
-            ImGui_ImplOpenGL3_NewFrame();
-        } else {
-            ImGui_ImplVulkan_NewFrame();
-        }
-
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-        for (auto &l : m_Layers) {
-            l->onUIRender();
-        }
-        ImGui::Render();
-        ImGui::EndFrame();
-
         if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+            for (auto &l : m_Layers) {
+                l->onUIRender();
+            }
+            ImGui::Render();
+            ImGui::EndFrame();
             m_EngineContext.renderer->render(*m_EngineContext.window.get());
-        }
+            for (auto &l : m_Layers) {
+                l->onRender();
+            }
+        } else {
+            for (auto &l : m_Layers) {
+                l->onRender();
+            }
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+            for (auto &l : m_Layers) {
+                l->onUIRender();
+            }
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        for (auto &l : m_Layers) {
-            l->onRender();
+            gfx::gl::Context *context = &m_EngineContext.glContext.value();
+            context->present();
+            context->flushDeferredDeletes();
         }
     }
 }
