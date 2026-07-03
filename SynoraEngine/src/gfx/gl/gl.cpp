@@ -37,6 +37,39 @@ int SYN::gfx::gl::Pass::getShaderUniformLocation(std::string_view uniform) {
     return Globals.shaderUniformCache[shader.program].at(uniform);
 }
 
+GLenum getInternalTextureFormat(SYN::gfx::gl::TextureFormat format) {
+    switch (format) {
+    case SYN::gfx::gl::TextureFormat::RGBA8:
+        return GL_RGBA8;
+    case SYN::gfx::gl::TextureFormat::RGB8:
+        return GL_RGB8;
+    case SYN::gfx::gl::TextureFormat::RG8:
+    case SYN::gfx::gl::TextureFormat::R8:
+        return GL_R8;
+    case SYN::gfx::gl::TextureFormat::Depth24:
+        return GL_DEPTH_COMPONENT24;
+    case SYN::gfx::gl::TextureFormat::Depth24Stencil8:
+        return GL_DEPTH24_STENCIL8;
+    }
+}
+
+GLenum getTextureFormat(SYN::gfx::gl::TextureFormat format) {
+    switch (format) {
+    case SYN::gfx::gl::TextureFormat::RGBA8:
+        return GL_RGBA;
+    case SYN::gfx::gl::TextureFormat::RGB8:
+        return GL_RGB;
+    case SYN::gfx::gl::TextureFormat::RG8:
+        return GL_RG;
+    case SYN::gfx::gl::TextureFormat::R8:
+        return GL_RED;
+    case SYN::gfx::gl::TextureFormat::Depth24:
+        return GL_DEPTH_COMPONENT;
+    case SYN::gfx::gl::TextureFormat::Depth24Stencil8:
+        return GL_DEPTH_STENCIL;
+    }
+}
+
 void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0) {
     int loc = getShaderUniformLocation(name);
     if (loc == -1) {
@@ -202,6 +235,10 @@ SYN::gfx::gl::Context::~Context() {
     for (Framebuffer framebuffer : framebuffers)
         glDeleteFramebuffers(1, &framebuffer.id);
 
+    std::vector<Renderbuffer> renderbuffers = m_RenderbufferRegistry.getAllResources();
+    for (Renderbuffer renderbuffer : renderbuffers)
+        glDeleteRenderbuffers(1, &renderbuffer.id);
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -356,16 +393,22 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
 
     size_t colorIndex = 0;
     for (const AttachmentDesc &colorAttachment : desc.colorAttachments) {
-        assert(colorAttachment.type == AttachmentDesc::Type::Texture &&
-               "Only texture color attachments supported for now!");
-        assert(m_TextureRegistry.isValidHandle(colorAttachment.handle) &&
-               "Texture handle invalid!");
-
-        Texture texture =
-            m_TextureRegistry.getResource(colorAttachment.handle).value();
-
-        glNamedFramebufferTexture(
-            framebuffer.id, GL_COLOR_ATTACHMENT0 + colorIndex, texture.id, 0);
+        if (std::holds_alternative<Handle<Texture>>(colorAttachment.handle)) {
+            Texture texture =
+                m_TextureRegistry
+                    .getResource(std::get<Handle<Texture>>(colorAttachment.handle))
+                    .value();
+            glNamedFramebufferTexture(
+                framebuffer.id, GL_COLOR_ATTACHMENT0 + colorIndex, texture.id, 0);
+        }
+        if (std::holds_alternative<Handle<Renderbuffer>>(colorAttachment.handle)) {
+            Renderbuffer renderbuffer =
+                m_RenderbufferRegistry
+                    .getResource(std::get<Handle<Renderbuffer>>(colorAttachment.handle))
+                    .value();
+            glNamedFramebufferRenderbuffer(
+                framebuffer.id, GL_COLOR_ATTACHMENT0 + colorIndex, GL_RENDERBUFFER, renderbuffer.id);
+        }
 
         ++colorIndex;
     }
@@ -373,17 +416,26 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
     if (desc.depthStencilAttachment.has_value()) {
         const AttachmentDesc &attachmentDesc =
             desc.depthStencilAttachment.value();
-        assert(attachmentDesc.type == AttachmentDesc::Type::Texture &&
-               "Only texture depth stencil attachments supported for now!");
-        assert(m_TextureRegistry.isValidHandle(attachmentDesc.handle) &&
-               "Texture handle invalid!");
-        Texture texture =
-            m_TextureRegistry.getResource(attachmentDesc.handle).value();
-        GLenum attachmentType = desc.isDepthOnly ? GL_DEPTH_ATTACHMENT
-                                                 : GL_DEPTH_STENCIL_ATTACHMENT;
 
-        glNamedFramebufferTexture(framebuffer.id, attachmentType, texture.id,
-                                  0);
+        GLenum attachmentType = desc.isDepthOnly ? GL_DEPTH_ATTACHMENT
+                                                : GL_DEPTH_STENCIL_ATTACHMENT;
+
+        if (std::holds_alternative<Handle<Texture>>(attachmentDesc.handle)) {
+            Texture texture =
+                m_TextureRegistry
+                    .getResource(std::get<Handle<Texture>>(attachmentDesc.handle))
+                    .value();
+
+            glNamedFramebufferTexture(framebuffer.id, attachmentType, texture.id, 0);
+        }
+        if (std::holds_alternative<Handle<Renderbuffer>>(attachmentDesc.handle)) {
+            Renderbuffer renderbuffer =
+                m_RenderbufferRegistry
+                    .getResource(std::get<Handle<Renderbuffer>>(attachmentDesc.handle))
+                    .value();
+            glNamedFramebufferRenderbuffer(
+                framebuffer.id, attachmentType, GL_RENDERBUFFER, renderbuffer.id);
+        }
     }
 
     if (glCheckNamedFramebufferStatus(framebuffer.id, GL_FRAMEBUFFER) !=
@@ -406,6 +458,27 @@ void SYN::gfx::gl::Context::deleteFramebuffer(
     m_PendingDeleteFramebuffers.push_back(framebufferId);
 
     m_FramebufferRegistry.releaseHandle(framebufferHandle);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Renderbuffer>> 
+    SYN::gfx::gl::Context::createRenderbuffer(const RenderbufferDesc& desc) {
+    Renderbuffer renderbuffer;
+    glCreateRenderbuffers(1, &renderbuffer.id);
+    glNamedRenderbufferStorage(renderbuffer.id, getInternalTextureFormat(desc.format), desc.width, desc.height);
+    return m_RenderbufferRegistry.createHandle(renderbuffer);
+}
+
+void SYN::gfx::gl::Context::deleteRenderbuffer(Handle<Renderbuffer> renderbufferHandle) {
+    std::optional<Renderbuffer> renderbufferOpt =
+        m_RenderbufferRegistry.getResource(renderbufferHandle);
+
+    if (!renderbufferOpt.has_value())
+        return;
+
+    Renderbuffer renderbuffer = renderbufferOpt.value();
+
+    m_PendingDeleteRenderbuffers.push_back(renderbuffer.id);
+    m_RenderbufferRegistry.releaseHandle(renderbufferHandle);
 }
 
 bool validateShaderCompileStatus(uint32_t shader, bool isVertex) {
@@ -609,6 +682,11 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
                              &m_PendingDeleteFramebuffers[0]);
     }
 
+    if (!m_PendingDeleteRenderbuffers.empty()) {
+        glDeleteRenderbuffers(m_PendingDeleteRenderbuffers.size(), 
+                              &m_PendingDeleteRenderbuffers[0]);
+    }
+
     m_PendingDeleteShaders.clear();
     m_PendingDeletePrograms.clear();
     m_PendingDeleteVertexArrays.clear();
@@ -616,6 +694,7 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
     m_PendingDeleteTextures.clear();
     m_PendingDeleteSamplers.clear();
     m_PendingDeleteFramebuffers.clear();
+    m_PendingDeleteRenderbuffers.clear();
 }
 
 std::optional<SYN::gfx::gl::VertexArray>
@@ -644,6 +723,11 @@ SYN::gfx::gl::Context::getShader(Handle<Shader> shaderHandle) {
 std::optional<SYN::gfx::gl::Framebuffer>
 SYN::gfx::gl::Context::getFramebuffer(Handle<Framebuffer> framebufferHandle) {
     return m_FramebufferRegistry.getResource(framebufferHandle);
+}
+
+std::optional<SYN::gfx::gl::Renderbuffer>
+SYN::gfx::gl::Context::getRenderbuffer(Handle<Renderbuffer> renderbufferHandle) {
+    return m_RenderbufferRegistry.getResource(renderbufferHandle);
 }
 
 SYN::gfx::gl::Pass::~Pass() {
@@ -764,34 +848,17 @@ SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
     Texture texture{};
     glCreateTextures(GL_TEXTURE_2D, 1, &texture.id);
 
-    GLenum internalFormat;
-    GLenum format;
+    GLenum internalFormat = getInternalTextureFormat(desc.format);
+    GLenum format = getTextureFormat(desc.format);
     GLenum dataType = GL_UNSIGNED_BYTE;
     switch (desc.format) {
-    case TextureFormat::RGBA8:
-        internalFormat = GL_RGBA8;
-        format = GL_RGBA;
-        break;
-    case TextureFormat::RGB8:
-        internalFormat = GL_RGB8;
-        format = GL_RGB;
-        break;
-    case TextureFormat::RG8:
-        internalFormat = GL_RG8;
-        format = GL_RG;
-        break;
-    case TextureFormat::R8:
-        internalFormat = GL_R8;
-        format = GL_RED;
-        break;
     case TextureFormat::Depth24:
-        internalFormat = GL_DEPTH_COMPONENT24;
-        format = GL_DEPTH_COMPONENT;
         dataType = GL_FLOAT;
         break;
     case TextureFormat::Depth24Stencil8:
-        internalFormat = GL_DEPTH_STENCIL;
         dataType = GL_UNSIGNED_INT_24_8;
+        break;
+    default:
         break;
     }
 
@@ -940,3 +1007,4 @@ void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
         return;
     glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer.value().id);
 }
+

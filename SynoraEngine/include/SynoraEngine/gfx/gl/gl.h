@@ -208,15 +208,21 @@ struct SamplerDesc {
     WrapMode wrapV = WrapMode::Repeat;
 };
 
+struct RenderbufferDesc {
+    TextureFormat format;           
+    uint32_t width;
+    uint32_t height;
+    uint32_t sampleCount = 1; 
+};
+
 struct AttachmentDesc {
-    enum class Type { Texture } type;
-    Handle<Texture> handle;
+    std::variant<Handle<Texture>, Handle<Renderbuffer>> handle;
 };
 
 struct FramebufferDesc {
     std::span<const AttachmentDesc> colorAttachments;
     std::optional<AttachmentDesc> depthStencilAttachment;
-    bool isDepthOnly;
+    bool isDepthOnly = false;
 };
 
 struct PassDesc {
@@ -354,6 +360,9 @@ class Context {
                        TextureFormat format, const void *data);
     void deleteTexture(Handle<Texture> textureHandle);
 
+    std::optional<Handle<Renderbuffer>> createRenderbuffer(const RenderbufferDesc& desc);
+    void deleteRenderbuffer(Handle<Renderbuffer> renderbufferHandle);
+
     std::optional<Handle<Sampler>> createSampler(const SamplerDesc &desc);
     void deleteSampler(Handle<Sampler> samplerHandle);
 
@@ -393,6 +402,8 @@ class Context {
     std::optional<Sampler> getSampler(Handle<Sampler> samplerHandle);
     std::optional<Framebuffer>
     getFramebuffer(Handle<Framebuffer> framebufferHandle);
+    std::optional<Renderbuffer>
+    getRenderbuffer(Handle<Renderbuffer> renderbufferHandle);
 
   private:
     friend class Pass;
@@ -402,6 +413,7 @@ class Context {
     GLResourceRegistry<Texture> m_TextureRegistry;
     GLResourceRegistry<Sampler> m_SamplerRegistry;
     GLResourceRegistry<Framebuffer> m_FramebufferRegistry;
+    GLResourceRegistry<Renderbuffer> m_RenderbufferRegistry;
 
     std::vector<uint32_t> m_PendingDeleteFramebuffers;
     std::vector<uint32_t> m_PendingDeleteVertexArrays;
@@ -410,6 +422,7 @@ class Context {
     std::vector<uint32_t> m_PendingDeletePrograms;
     std::vector<uint32_t> m_PendingDeleteTextures;
     std::vector<uint32_t> m_PendingDeleteSamplers;
+    std::vector<uint32_t> m_PendingDeleteRenderbuffers;
 
   private:
     GLFWwindow *m_Window;
