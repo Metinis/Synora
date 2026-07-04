@@ -343,12 +343,12 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
     }
 
     if (clearMask != 0) {
-        glClear(clearMask);
         if (desc.clearColor.has_value()) {
             glm::vec4 clearColor = desc.clearColor.value();
             glClearColor(clearColor.r, clearColor.g, clearColor.b,
                          clearColor.a);
         }
+        glClear(clearMask);
     }
 }
 
