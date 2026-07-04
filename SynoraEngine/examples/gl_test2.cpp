@@ -92,8 +92,45 @@ std::string framebufferFragmentSource = R"(
    out vec4 fragColor;
    in vec2 fragTexCoords;
    uniform sampler2D texture0;
+   #define INVERT 0
+   #define GRAYSCALE 1
+   #define SHARPEN 2
+   uniform int mode;
    void main() {
-    fragColor = vec4(vec3(1.0 - texture(texture0, fragTexCoords)), 1.0);
+    vec3 textureColor = texture(texture0, fragTexCoords).rgb;
+    vec3 finalColor = textureColor;
+    if (mode == GRAYSCALE) {
+        finalColor = vec3(0.2126 * finalColor.r + 0.7152 * finalColor.g + 0.0722 * finalColor.b);
+    } else if (mode == SHARPEN) {
+        const float offset = 1.0 / 300.0;
+        vec2 offsets[9] = vec2[](
+            vec2(-offset,  offset), // top-left
+            vec2( 0.0f,    offset), // top-center
+            vec2( offset,  offset), // top-right
+            vec2(-offset,  0.0f),   // center-left
+            vec2( 0.0f,    0.0f),   // center-center
+            vec2( offset,  0.0f),   // center-right
+            vec2(-offset, -offset), // bottom-left
+            vec2( 0.0f,   -offset), // bottom-center
+            vec2( offset, -offset)  // bottom-right    
+        );
+
+        float kernel[9] = float[](
+            -1, -1, -1,
+            -1,  9, -1,
+            -1, -1, -1
+        );
+        vec3 sampleTex[9];
+        for(int i = 0; i < 9; i++) {
+            sampleTex[i] = vec3(texture(texture0, fragTexCoords + offsets[i]));
+        }
+        finalColor = vec3(0.0);
+        for(int i = 0; i < 9; i++)
+            finalColor += sampleTex[i] * kernel[i];
+    } else {
+        finalColor = 1.0 - finalColor;
+    }
+    fragColor = vec4(finalColor, 1.0);
    }
 )";
 
@@ -394,16 +431,23 @@ class GraphicsScene : public SYN::ILayer {
         m_PostProcessShader = 
             m_Context->createShader(framebufferVertexSource, framebufferFragmentSource).value();
     }
-    void onUIRender() override { ImGui::ShowDemoWindow(); }
+    void onUIRender() override { 
+        if (ImGui::Begin("Post Process")) {
+            const char *effects[] = { "Invert", "Grayscale", "Sharpen" };
+            ImGui::Combo("Current Effect", &m_PostProcessMode, effects, IM_ARRAYSIZE(effects));
+            ImGui::End();
+        }
+    }
     void onRender() override {
         SYN::gfx::gl::Viewport vp;
         int w, h;
         glfwGetWindowSize(m_WindowHandle, &w, &h);
-        vp.width = w;
-        vp.height = h;
         {
             SYN::gfx::gl::PipelineState pipeline;
             pipeline.shader = m_Shader;
+
+            vp.width = WINDOW_WIDTH;
+            vp.height = WINDOW_HEIGHT;
 
             SYN::gfx::gl::Pass pass = m_Context->beginPass(
                 {m_Framebuffer, glm::vec4(0.2, 0.2, 0.53, 1.0), true, false, vp,
@@ -450,15 +494,18 @@ class GraphicsScene : public SYN::ILayer {
                 pass.drawIndexed(mesh.indices.size());
             }
         }
+        vp.width = w;
+        vp.height = h;
         {
             SYN::gfx::gl::PipelineState pipeline;
             pipeline.shader = m_PostProcessShader;
             SYN::gfx::gl::Pass pass = m_Context->beginPass(
-                {std::nullopt, glm::vec4(0.2, 0.2, 0.53, 1.0), true, false, vp,
+                {std::nullopt, glm::vec4(0.0, 0.0, 0.0, 1.0), false, false, vp,
                  std::nullopt});
             pass.usePipeline(pipeline);
             pass.bindTexture(0, m_PostProcessTexture, m_Sampler);
             pass.bindUniform("texture0", 0);
+            pass.bindUniform("mode", m_PostProcessMode);
             pass.bindVertexArray(m_ScreenQuad);
             pass.drawIndexed(6);
         }
@@ -472,6 +519,7 @@ class GraphicsScene : public SYN::ILayer {
     SYN::gfx::gl::Context *m_Context;
     GLFWwindow *m_WindowHandle;
     Model m_Model;
+    int m_PostProcessMode = 0;
     SYN::gfx::gl::Handle<SYN::gfx::gl::Shader> m_Shader;
     SYN::gfx::gl::Handle<SYN::gfx::gl::Shader> m_PostProcessShader;
     SYN::gfx::gl::Handle<SYN::gfx::gl::Renderbuffer> m_Renderbuffer;
