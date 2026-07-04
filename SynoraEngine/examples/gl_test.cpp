@@ -1,4 +1,4 @@
-#include <SynoraEngine/gfx/gl/gl.h>
+#include <SynoraEngine/gfx/gl/GL.h>
 
 #include <GLFW/glfw3.h>
 

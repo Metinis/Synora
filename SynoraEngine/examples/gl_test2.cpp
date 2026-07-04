@@ -1,6 +1,6 @@
 #include <SynoraEngine/core/Application.h>
 #include <SynoraEngine/core/Window.h>
-#include <SynoraEngine/gfx/gl/gl.h>
+#include <SynoraEngine/gfx/gl/GL.h>
 #include <SynoraEngine/scene/Scene.h>
 #include <spdlog/spdlog.h>
 

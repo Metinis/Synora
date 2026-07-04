@@ -1,6 +1,6 @@
 #pragma once
 #include "Layer.h"
-#include "SynoraEngine/gfx/gl/gl.h"
+#include "SynoraEngine/gfx/gl/GL.h"
 #include "SynoraEngine/project/Project.h"
 #include "WindowConfig.h"
 
