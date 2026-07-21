@@ -22,5 +22,3 @@ add_subdirectory(src)
 if (SYNORA_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
-
-

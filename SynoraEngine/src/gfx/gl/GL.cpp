@@ -8,6 +8,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <spdlog/spdlog.h>
 
+#include <fstream>
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -50,6 +52,10 @@ GLenum getInternalTextureFormat(SYN::gfx::gl::TextureFormat format) {
         return GL_DEPTH_COMPONENT24;
     case SYN::gfx::gl::TextureFormat::Depth24Stencil8:
         return GL_DEPTH24_STENCIL8;
+    case SYN::gfx::gl::TextureFormat::SRGB:
+        return GL_SRGB8;
+    case SYN::gfx::gl::TextureFormat::SRGBA:
+        return GL_SRGB8_ALPHA8;
     }
 }
 
@@ -67,6 +73,10 @@ GLenum getTextureFormat(SYN::gfx::gl::TextureFormat format) {
         return GL_DEPTH_COMPONENT;
     case SYN::gfx::gl::TextureFormat::Depth24Stencil8:
         return GL_DEPTH_STENCIL;
+    case SYN::gfx::gl::TextureFormat::SRGB:
+        return GL_RGB;
+    case SYN::gfx::gl::TextureFormat::SRGBA:
+        return GL_RGBA;
     }
 }
 
@@ -235,7 +245,8 @@ SYN::gfx::gl::Context::~Context() {
     for (Framebuffer framebuffer : framebuffers)
         glDeleteFramebuffers(1, &framebuffer.id);
 
-    std::vector<Renderbuffer> renderbuffers = m_RenderbufferRegistry.getAllResources();
+    std::vector<Renderbuffer> renderbuffers =
+        m_RenderbufferRegistry.getAllResources();
     for (Renderbuffer renderbuffer : renderbuffers)
         glDeleteRenderbuffers(1, &renderbuffer.id);
 
@@ -394,20 +405,24 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
     size_t colorIndex = 0;
     for (const AttachmentDesc &colorAttachment : desc.colorAttachments) {
         if (std::holds_alternative<Handle<Texture>>(colorAttachment.handle)) {
-            Texture texture =
-                m_TextureRegistry
-                    .getResource(std::get<Handle<Texture>>(colorAttachment.handle))
-                    .value();
-            glNamedFramebufferTexture(
-                framebuffer.id, GL_COLOR_ATTACHMENT0 + colorIndex, texture.id, 0);
+            Texture texture = m_TextureRegistry
+                                  .getResource(std::get<Handle<Texture>>(
+                                      colorAttachment.handle))
+                                  .value();
+            glNamedFramebufferTexture(framebuffer.id,
+                                      GL_COLOR_ATTACHMENT0 + colorIndex,
+                                      texture.id, 0);
         }
-        if (std::holds_alternative<Handle<Renderbuffer>>(colorAttachment.handle)) {
+        if (std::holds_alternative<Handle<Renderbuffer>>(
+                colorAttachment.handle)) {
             Renderbuffer renderbuffer =
                 m_RenderbufferRegistry
-                    .getResource(std::get<Handle<Renderbuffer>>(colorAttachment.handle))
+                    .getResource(
+                        std::get<Handle<Renderbuffer>>(colorAttachment.handle))
                     .value();
-            glNamedFramebufferRenderbuffer(
-                framebuffer.id, GL_COLOR_ATTACHMENT0 + colorIndex, GL_RENDERBUFFER, renderbuffer.id);
+            glNamedFramebufferRenderbuffer(framebuffer.id,
+                                           GL_COLOR_ATTACHMENT0 + colorIndex,
+                                           GL_RENDERBUFFER, renderbuffer.id);
         }
 
         ++colorIndex;
@@ -418,23 +433,26 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
             desc.depthStencilAttachment.value();
 
         GLenum attachmentType = desc.isDepthOnly ? GL_DEPTH_ATTACHMENT
-                                                : GL_DEPTH_STENCIL_ATTACHMENT;
+                                                 : GL_DEPTH_STENCIL_ATTACHMENT;
 
         if (std::holds_alternative<Handle<Texture>>(attachmentDesc.handle)) {
-            Texture texture =
-                m_TextureRegistry
-                    .getResource(std::get<Handle<Texture>>(attachmentDesc.handle))
-                    .value();
+            Texture texture = m_TextureRegistry
+                                  .getResource(std::get<Handle<Texture>>(
+                                      attachmentDesc.handle))
+                                  .value();
 
-            glNamedFramebufferTexture(framebuffer.id, attachmentType, texture.id, 0);
+            glNamedFramebufferTexture(framebuffer.id, attachmentType,
+                                      texture.id, 0);
         }
-        if (std::holds_alternative<Handle<Renderbuffer>>(attachmentDesc.handle)) {
+        if (std::holds_alternative<Handle<Renderbuffer>>(
+                attachmentDesc.handle)) {
             Renderbuffer renderbuffer =
                 m_RenderbufferRegistry
-                    .getResource(std::get<Handle<Renderbuffer>>(attachmentDesc.handle))
+                    .getResource(
+                        std::get<Handle<Renderbuffer>>(attachmentDesc.handle))
                     .value();
-            glNamedFramebufferRenderbuffer(
-                framebuffer.id, attachmentType, GL_RENDERBUFFER, renderbuffer.id);
+            glNamedFramebufferRenderbuffer(framebuffer.id, attachmentType,
+                                           GL_RENDERBUFFER, renderbuffer.id);
         }
     }
 
@@ -460,15 +478,52 @@ void SYN::gfx::gl::Context::deleteFramebuffer(
     m_FramebufferRegistry.releaseHandle(framebufferHandle);
 }
 
-std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Renderbuffer>> 
-    SYN::gfx::gl::Context::createRenderbuffer(const RenderbufferDesc& desc) {
+void SYN::gfx::gl::Context::blitFramebuffer(
+    std::optional<Handle<Framebuffer>> readHandle,
+    std::optional<Handle<Framebuffer>> writeHandle, Viewport sourceRect,
+    Viewport destRect) {
+
+    if (!readHandle) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    } else {
+        Framebuffer framebuffer =
+            m_FramebufferRegistry.getResource(readHandle.value()).value();
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.id);
+    }
+
+    if (!writeHandle) {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    } else {
+        Framebuffer framebuffer =
+            m_FramebufferRegistry.getResource(writeHandle.value()).value();
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer.id);
+    }
+
+    glBlitFramebuffer(sourceRect.x, sourceRect.y, sourceRect.width,
+                      sourceRect.height, destRect.x, destRect.y, destRect.width,
+                      destRect.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Renderbuffer>>
+SYN::gfx::gl::Context::createRenderbuffer(const RenderbufferDesc &desc) {
     Renderbuffer renderbuffer;
     glCreateRenderbuffers(1, &renderbuffer.id);
-    glNamedRenderbufferStorage(renderbuffer.id, getInternalTextureFormat(desc.format), desc.width, desc.height);
+    if (desc.sampleCount > 1) {
+        glNamedRenderbufferStorageMultisample(
+            renderbuffer.id, desc.sampleCount,
+            getInternalTextureFormat(desc.format), desc.width, desc.height);
+    } else {
+        glNamedRenderbufferStorage(renderbuffer.id,
+                                   getInternalTextureFormat(desc.format),
+                                   desc.width, desc.height);
+    }
     return m_RenderbufferRegistry.createHandle(renderbuffer);
 }
 
-void SYN::gfx::gl::Context::deleteRenderbuffer(Handle<Renderbuffer> renderbufferHandle) {
+void SYN::gfx::gl::Context::deleteRenderbuffer(
+    Handle<Renderbuffer> renderbufferHandle) {
     std::optional<Renderbuffer> renderbufferOpt =
         m_RenderbufferRegistry.getResource(renderbufferHandle);
 
@@ -602,6 +657,8 @@ SYN::gfx::gl::Context::createVertexArray(const VertexArrayDesc &desc) {
         glEnableVertexArrayAttrib(vaoId, attribute.location);
         glVertexArrayAttribBinding(vaoId, attribute.location, 0);
 
+        GLenum type = GL_FLOAT;
+
         uint32_t size = 1;
         switch (attribute.format) {
         case VertexFormat::Float1:
@@ -616,9 +673,25 @@ SYN::gfx::gl::Context::createVertexArray(const VertexArrayDesc &desc) {
         case VertexFormat::Float4:
             size = 4;
             break;
+        case VertexFormat::Int1:
+            type = GL_INT;
+            size = 1;
+            break;
+        case VertexFormat::Int2:
+            type = GL_INT;
+            size = 2;
+            break;
+        case VertexFormat::Int3:
+            type = GL_INT;
+            size = 3;
+            break;
+        case VertexFormat::Int4:
+            type = GL_INT;
+            size = 4;
+            break;
         };
 
-        glVertexArrayAttribFormat(vaoId, attribute.location, size, GL_FLOAT,
+        glVertexArrayAttribFormat(vaoId, attribute.location, size, type,
                                   attribute.normalized, attribute.offset);
     }
 
@@ -683,7 +756,7 @@ void SYN::gfx::gl::Context::flushDeferredDeletes() {
     }
 
     if (!m_PendingDeleteRenderbuffers.empty()) {
-        glDeleteRenderbuffers(m_PendingDeleteRenderbuffers.size(), 
+        glDeleteRenderbuffers(m_PendingDeleteRenderbuffers.size(),
                               &m_PendingDeleteRenderbuffers[0]);
     }
 
@@ -726,7 +799,8 @@ SYN::gfx::gl::Context::getFramebuffer(Handle<Framebuffer> framebufferHandle) {
 }
 
 std::optional<SYN::gfx::gl::Renderbuffer>
-SYN::gfx::gl::Context::getRenderbuffer(Handle<Renderbuffer> renderbufferHandle) {
+SYN::gfx::gl::Context::getRenderbuffer(
+    Handle<Renderbuffer> renderbufferHandle) {
     return m_RenderbufferRegistry.getResource(renderbufferHandle);
 }
 
@@ -846,7 +920,6 @@ std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
 SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
                                      const void *initialData) {
     Texture texture{};
-    glCreateTextures(GL_TEXTURE_2D, 1, &texture.id);
 
     GLenum internalFormat = getInternalTextureFormat(desc.format);
     GLenum format = getTextureFormat(desc.format);
@@ -862,11 +935,23 @@ SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
         break;
     }
 
-    glTextureStorage2D(texture.id, desc.mipLevel, internalFormat, desc.width,
-                       desc.height);
+    if (desc.sampleCount > 1) {
+        glCreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &texture.id);
+        glTextureStorage2DMultisample(texture.id, desc.sampleCount,
+                                      internalFormat, desc.width, desc.height,
+                                      GL_TRUE);
+    } else {
+        glCreateTextures(GL_TEXTURE_2D, 1, &texture.id);
+        glTextureStorage2D(texture.id, desc.mipLevel, internalFormat,
+                           desc.width, desc.height);
+    }
+
     glTextureSubImage2D(texture.id, 0, 0, 0, desc.width, desc.height, format,
                         dataType, initialData);
-    glGenerateTextureMipmap(texture.id);
+
+    if (desc.mipLevel > 1) {
+        glGenerateTextureMipmap(texture.id);
+    }
 
     return m_TextureRegistry.createHandle(texture);
 }
@@ -921,6 +1006,11 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
                         getWrapFormat(desc.wrapU));
     glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T,
                         getWrapFormat(desc.wrapV));
+
+    // TODO: Allow setting anisotropy level
+    float maxAniso = 0.0f;
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
+    glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY, maxAniso);
 
     return m_SamplerRegistry.createHandle(sampler);
 }
@@ -992,6 +1082,12 @@ void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
         glFormat = GL_DEPTH_STENCIL;
         dataType = GL_UNSIGNED_INT_24_8;
         break;
+    case SYN::gfx::gl::TextureFormat::SRGB:
+        glFormat = GL_SRGB;
+        break;
+    case SYN::gfx::gl::TextureFormat::SRGBA:
+        glFormat = GL_SRGB_ALPHA;
+        break;
     }
 
     glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
@@ -1008,3 +1104,440 @@ void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
     glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer.value().id);
 }
 
+SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
+    m_RenderConfig = config;
+}
+
+SYN::gfx::gl::Renderer::~Renderer() {}
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+createDefaultWhiteTexture(SYN::gfx::gl::Context &context) {
+    uint8_t whitePixel[4] = {255, 255, 255, 255};
+    SYN::gfx::gl::TextureDesc desc{
+        .width = 1,
+        .height = 1,
+        .format = SYN::gfx::gl::TextureFormat::RGBA8,
+    };
+    return context.createTexture(desc, &whitePixel[0]).value();
+}
+
+int getMipLevel(int width, int height) {
+    return 1 + static_cast<int>(std::floor(std::log2(std::max(width, height))));
+}
+
+SYN::gfx::gl::Material loadMaterial(
+    SYN::gfx::gl::Context &context,
+    const SYN::gfx::gl::MaterialData &materialData,
+    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+        &textureCache) {
+    SYN::gfx::gl::Material material;
+    if (materialData.albedoData) {
+        SYN::gfx::gl::TextureData albedoTexture =
+            materialData.albedoData.value();
+        if (textureCache.find(albedoTexture.sourcePath) !=
+            textureCache.cend()) {
+            material.albedo = textureCache.at(albedoTexture.sourcePath);
+        } else {
+            albedoTexture.info.mipLevel = getMipLevel(
+                albedoTexture.info.width, albedoTexture.info.height);
+            material.albedo =
+                context
+                    .createTexture(albedoTexture.info, &albedoTexture.data[0])
+                    .value();
+            textureCache[albedoTexture.sourcePath] = material.albedo.value();
+        }
+    }
+    if (materialData.normalData) {
+        SYN::gfx::gl::TextureData normalTexture =
+            materialData.normalData.value();
+        if (textureCache.find(normalTexture.sourcePath) !=
+            textureCache.cend()) {
+            material.normalMap = textureCache.at(normalTexture.sourcePath);
+        } else {
+            normalTexture.info.mipLevel = getMipLevel(
+                normalTexture.info.width, normalTexture.info.height);
+            material.normalMap =
+                context
+                    .createTexture(normalTexture.info, &normalTexture.data[0])
+                    .value();
+            textureCache[normalTexture.sourcePath] = material.normalMap.value();
+        }
+    }
+    if (materialData.metallicRoughnessData) {
+        SYN::gfx::gl::TextureData metallicRoughnessTexture =
+            materialData.metallicRoughnessData.value();
+        if (textureCache.find(metallicRoughnessTexture.sourcePath) !=
+            textureCache.cend()) {
+            material.metallicRoughnessMap =
+                textureCache.at(metallicRoughnessTexture.sourcePath);
+        } else {
+            metallicRoughnessTexture.info.mipLevel =
+                getMipLevel(metallicRoughnessTexture.info.width,
+                            metallicRoughnessTexture.info.height);
+            material.metallicRoughnessMap =
+                context
+                    .createTexture(metallicRoughnessTexture.info,
+                                   &metallicRoughnessTexture.data[0])
+                    .value();
+            textureCache[metallicRoughnessTexture.sourcePath] =
+                material.metallicRoughnessMap.value();
+        }
+    }
+    material.metallic = materialData.metallic;
+    material.roughness = materialData.roughness;
+    material.tint = materialData.tint;
+
+    return material;
+}
+
+uint32_t getShaderFeatures(bool hasNormal, bool hasMetallicRoughness,
+                           bool hasSkin) {
+    uint32_t featureFlag = 0;
+
+    featureFlag |=
+        hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Skinned : 0;
+
+    featureFlag |=
+        hasMetallicRoughness
+            ? (uint32_t)SYN::gfx::gl::ShaderFeatures::MetallicRoughness
+            : 0;
+
+    featureFlag |=
+        hasNormal ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Normal : 0;
+
+    return featureFlag;
+}
+
+SYN::gfx::gl::Mesh createMesh(
+    SYN::gfx::gl::Context &context, const SYN::gfx::gl::MeshData &meshData,
+    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+        &textureCache,
+    SYN::gfx::gl::ShaderCache &shaderCache) {
+    SYN::gfx::gl::Mesh mesh;
+
+    mesh.vbo = context
+                   .createBuffer({SYN::gfx::gl::BufferType::Vertex,
+                                  SYN::gfx::gl::MemoryUsage::CpuToGPU,
+                                  uint32_t(sizeof(SYN::gfx::gl::Vertex) *
+                                           meshData.vertices.size())},
+                                 &meshData.vertices[0])
+                   .value();
+
+    mesh.ebo = context
+                   .createBuffer(
+                       {SYN::gfx::gl::BufferType::Index,
+                        SYN::gfx::gl::MemoryUsage::CpuToGPU,
+                        uint32_t(sizeof(uint32_t) * meshData.indices.size())},
+                       &meshData.indices[0])
+                   .value();
+
+    mesh.vao = context
+                   .createVertexArray(
+                       {mesh.vbo,
+                        sizeof(SYN::gfx::gl::Vertex),
+                        mesh.ebo,
+                        {{
+                            {0, SYN::gfx::gl::VertexFormat::Float3,
+                             offsetof(SYN::gfx::gl::Vertex, position)},
+
+                            {1, SYN::gfx::gl::VertexFormat::Float3,
+                             offsetof(SYN::gfx::gl::Vertex, normal)},
+
+                            {2, SYN::gfx::gl::VertexFormat::Float2,
+                             offsetof(SYN::gfx::gl::Vertex, uv)},
+
+                            {3, SYN::gfx::gl::VertexFormat::Float4,
+                             offsetof(SYN::gfx::gl::Vertex, tangent)},
+
+                            {4, SYN::gfx::gl::VertexFormat::Int4,
+                             offsetof(SYN::gfx::gl::Vertex, boneIndices)},
+
+                            {5, SYN::gfx::gl::VertexFormat::Float4,
+                             offsetof(SYN::gfx::gl::Vertex, boneWeights)},
+                        }},
+                        6})
+                   .value();
+
+    mesh.indexCount = meshData.indices.size();
+    mesh.localTransform = meshData.localTransform;
+    mesh.material = loadMaterial(context, meshData.material, textureCache);
+
+    mesh.shader = shaderCache.getShaderHandle(
+        context,
+        getShaderFeatures(mesh.material.normalMap.has_value(),
+                          mesh.material.metallicRoughnessMap.has_value(),
+                          meshData.hasSkin));
+
+    return mesh;
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Model>>
+SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
+    Model model;
+    for (const MeshData &meshData : data.meshes) {
+        model.meshes.emplace_back(
+            createMesh(context, meshData, m_TextureCache, m_ShaderCache));
+        Mesh &mesh = model.meshes.back();
+        if (!mesh.material.albedo) {
+            if (!m_DefaultWhite)
+                m_DefaultWhite = createDefaultWhiteTexture(context);
+            mesh.material.albedo = m_DefaultWhite;
+        }
+        if (!m_DefaultSampler) {
+            m_DefaultSampler = context.createSampler(
+                {SampleFilter::Linear_Mipmap_Linear, SampleFilter::Linear,
+                 WrapMode::Repeat, WrapMode::Repeat});
+        }
+        mesh.material.sampler = m_DefaultSampler;
+    }
+    return m_ModelRegistry.createHandle(model);
+}
+
+void SYN::gfx::gl::Renderer::destroyModel(Context &context,
+                                          Handle<Model> meshHandle) {}
+
+void SYN::gfx::gl::Renderer::beginFrame(const Camera &camera) {
+    m_MainCamera = camera;
+}
+
+void SYN::gfx::gl::Renderer::setDirectionalLight(
+    const DirectionalLight &light) {
+    m_DirectionalLight = light;
+    m_DirectionalLight.direction = glm::normalize(m_DirectionalLight.direction);
+}
+
+void SYN::gfx::gl::Renderer::submit(
+    Handle<Model> modelHandle, const glm::mat4 &transform,
+    std::span<const MaterialOverride> materialOverride) {
+    m_DrawCommandList.emplace_back(modelHandle, transform, materialOverride);
+}
+
+void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
+    if (!m_MsaaFramebuffer.update)
+        return;
+
+    m_MsaaFramebuffer.update = false;
+
+    if (m_MsaaFramebuffer.rbAttachment) {
+        context.deleteRenderbuffer(m_MsaaFramebuffer.rbAttachment.value());
+    }
+    if (m_MsaaFramebuffer.colorAttachment) {
+        context.deleteTexture(m_MsaaFramebuffer.colorAttachment.value());
+    }
+    if (m_MsaaFramebuffer.handle) {
+        context.deleteFramebuffer(m_MsaaFramebuffer.handle.value());
+    }
+
+    uint32_t samples = 1;
+    switch (m_RenderConfig.aaMode) {
+    case AntiAliasMode::None:
+        return;
+    case AntiAliasMode::FXAA:
+        return;
+    case AntiAliasMode::MSAA_2x:
+        samples = 2;
+        break;
+    case AntiAliasMode::MSAA_4x:
+        samples = 4;
+        break;
+    case AntiAliasMode::MSAA_8x:
+        samples = 8;
+        break;
+    }
+
+    m_MsaaFramebuffer.rbAttachment =
+        context
+            .createRenderbuffer({TextureFormat::Depth24Stencil8,
+                                 m_ScreenViewport.width,
+                                 m_ScreenViewport.height, samples})
+            .value();
+
+    m_MsaaFramebuffer.colorAttachment =
+        context
+            .createTexture({m_ScreenViewport.width, m_ScreenViewport.height,
+                            TextureFormat::RGBA8, 1, samples})
+            .value();
+
+    m_MsaaFramebuffer.handle =
+        context
+            .createFramebuffer(
+                {std::array{
+                     AttachmentDesc{m_MsaaFramebuffer.colorAttachment.value()}},
+                 AttachmentDesc{m_MsaaFramebuffer.rbAttachment.value()}})
+            .value();
+}
+
+void SYN::gfx::gl::Renderer::endFrame(Context &context) {
+    glm::mat4 viewMatrix = glm::lookAt(m_MainCamera.position,
+                                       m_MainCamera.target, m_MainCamera.up);
+
+    glm::mat4 projMatrix = glm::perspective(
+        glm::radians(m_MainCamera.fovYDegrees),
+        (float)m_ScreenViewport.width / m_ScreenViewport.height,
+        m_MainCamera.nearPlane, m_MainCamera.farPlane);
+
+    bool msaaActive = m_RenderConfig.aaMode >= AntiAliasMode::MSAA_2x &&
+                      m_RenderConfig.aaMode <= AntiAliasMode::MSAA_8x;
+
+    if (msaaActive) {
+        updateMsaaFramebuffer(context);
+        glDisable(GL_FRAMEBUFFER_SRGB);
+    }
+
+    // Main render pass
+    {
+        Pass pass = context.beginPass(
+            {msaaActive ? m_MsaaFramebuffer.handle : std::nullopt, m_ClearColor,
+             true, false, m_ScreenViewport});
+        PipelineState pipeline;
+
+        for (const DrawCommand &cmd : m_DrawCommandList) {
+            Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
+
+            std::vector<Mesh> meshes = model.meshes;
+
+            for (const MaterialOverride &override : cmd.materialOverride) {
+                Mesh &mesh = meshes.at(override.meshIndex);
+                mesh.material = override.material;
+                if (!mesh.material.albedo) {
+                    mesh.material.albedo = m_DefaultWhite;
+                }
+                mesh.shader = m_ShaderCache.getShaderHandle(
+                    context,
+                    getShaderFeatures(
+                        mesh.material.normalMap.has_value(),
+                        mesh.material.metallicRoughnessMap.has_value(), false));
+            }
+
+            for (const Mesh &mesh : meshes) {
+                pipeline.shader = mesh.shader;
+
+                const Material &material = mesh.material;
+
+                pass.usePipeline(pipeline);
+
+                pass.bindUniform("u_tint", material.tint.r, material.tint.g,
+                                 material.tint.b);
+                pass.bindUniform("u_metallic", material.metallic);
+                pass.bindUniform("u_roughness", material.roughness);
+                bindDirectionalLight(pass, m_DirectionalLight);
+
+                Handle<Sampler> sampler = material.sampler.has_value()
+                                              ? material.sampler.value()
+                                              : m_DefaultSampler.value();
+
+                if (material.albedo) {
+                    pass.bindTexture(0, material.albedo.value(), sampler);
+                    pass.bindUniform("u_albedoTexture", 0);
+                }
+
+                if (material.normalMap) {
+                    pass.bindTexture(1, material.normalMap.value(), sampler);
+                    pass.bindUniform("u_normalMap", 1);
+                }
+
+                if (material.metallicRoughnessMap) {
+                    pass.bindTexture(2, material.metallicRoughnessMap.value(),
+                                     sampler);
+                    pass.bindUniform("u_metallicRoughness", 2);
+                }
+
+                pass.bindUniform("u_cameraPos", m_MainCamera.position.x,
+                                 m_MainCamera.position.y,
+                                 m_MainCamera.position.z);
+                pass.bindUniform("u_ViewProjection", projMatrix * viewMatrix);
+                pass.bindUniform("u_Model",
+                                 cmd.transform * mesh.localTransform);
+                pass.bindVertexArray(mesh.vao);
+                pass.drawIndexed(mesh.indexCount);
+            }
+        }
+    }
+
+    glEnable(GL_FRAMEBUFFER_SRGB);
+
+    Viewport fullView = {0, 0, m_ScreenViewport.width, m_ScreenViewport.height};
+    if (msaaActive) {
+        context.blitFramebuffer(m_MsaaFramebuffer.handle, std::nullopt,
+                                fullView, fullView);
+    }
+
+    m_DrawCommandList.clear();
+}
+
+void SYN::gfx::gl::Renderer::setExposure(float exposure) {}
+
+void SYN::gfx::gl::Renderer::setBloomEnabled(bool enabled) {}
+
+void SYN::gfx::gl::Renderer::setAntiAliasMode(AntiAliasMode mode) {
+    if (m_RenderConfig.aaMode == mode)
+        return;
+    m_RenderConfig.aaMode = mode;
+    if (m_RenderConfig.aaMode >= AntiAliasMode::MSAA_2x &&
+        m_RenderConfig.aaMode <= AntiAliasMode::MSAA_8x) {
+        m_MsaaFramebuffer.update = true;
+    }
+}
+
+void SYN::gfx::gl::Renderer::resize(int width, int height) {
+    if (width == m_ScreenViewport.width && height == m_ScreenViewport.height)
+        return;
+    m_ScreenViewport.width = width;
+    m_ScreenViewport.height = height;
+    m_MsaaFramebuffer.update = true;
+}
+
+void SYN::gfx::gl::Renderer::setClearColor(const glm::vec4 &clearColor) {
+    m_ClearColor = clearColor;
+}
+
+void SYN::gfx::gl::Renderer::bindDirectionalLight(
+    Pass &pass, const DirectionalLight &light) {
+    pass.bindUniform("u_light.direction", light.direction.x, light.direction.y,
+                     light.direction.z);
+    pass.bindUniform("u_light.color", light.color.r, light.color.g,
+                     light.color.b);
+    pass.bindUniform("u_light.intensity", light.intensity);
+    pass.bindUniform("u_light.castShadow", light.castsShadows);
+}
+
+SYN::gfx::gl::ShaderCache::ShaderCache() {
+    std::fstream vertexFile("resources/shaders/forward.vert");
+    if (!vertexFile) {
+        spdlog::error("OpenGL renderer could not open vertex shader.");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/forward.frag");
+    if (!fragmentFile) {
+        spdlog::error("OpenGL renderer could not open fragment shader.");
+        return;
+    }
+    m_VertexSource = std::string(std::istreambuf_iterator<char>(vertexFile),
+                                 std::istreambuf_iterator<char>());
+    m_FragmentSource = std::string(std::istreambuf_iterator<char>(fragmentFile),
+                                   std::istreambuf_iterator<char>());
+}
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
+SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
+                                           uint32_t featureFlags) {
+    std::string versionString = "#version 450 core\n";
+    if (m_ShaderCache.find(featureFlags) != m_ShaderCache.cend()) {
+        return m_ShaderCache.at(featureFlags);
+    }
+    if (featureFlags & (uint32_t)ShaderFeatures::Normal) {
+        versionString += "#define FEATURE_NORMAL\n";
+    }
+    if (featureFlags & (uint32_t)ShaderFeatures::MetallicRoughness) {
+        versionString += "#define FEATURE_METALLIC_ROUGHNESS\n";
+    }
+    if (featureFlags & (uint32_t)ShaderFeatures::Skinned) {
+        versionString += "#define FEATURE_SKINNED\n";
+    }
+
+    std::string fullVertexSrc = versionString + m_VertexSource;
+    std::string fullFragmentSrc = versionString + m_FragmentSource;
+    m_ShaderCache[featureFlags] =
+        context.createShader(fullVertexSrc, fullFragmentSrc).value();
+    return m_ShaderCache.at(featureFlags);
+}

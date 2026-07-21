@@ -18,6 +18,8 @@ class Window {
     void disableCursor();
     void enableCursor();
 
+    std::tuple<uint32_t, uint32_t> getScreenSize() const;
+
   private:
     struct GLFWwindow *m_Window{};
     float m_LastTime;

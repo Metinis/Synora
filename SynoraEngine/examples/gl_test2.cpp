@@ -370,48 +370,53 @@ class GraphicsScene : public SYN::ILayer {
         }
         m_Sampler = m_Context->createSampler({}).value();
 
-        m_Renderbuffer = m_Context->createRenderbuffer({
-            SYN::gfx::gl::TextureFormat::Depth24Stencil8,
-            WINDOW_WIDTH,
-            WINDOW_HEIGHT,
-        }).value();
+        m_Renderbuffer = m_Context
+                             ->createRenderbuffer({
+                                 SYN::gfx::gl::TextureFormat::Depth24Stencil8,
+                                 WINDOW_WIDTH,
+                                 WINDOW_HEIGHT,
+                             })
+                             .value();
 
-        m_PostProcessTexture = m_Context->createTexture({
-            WINDOW_WIDTH,
-            WINDOW_HEIGHT,
-            SYN::gfx::gl::TextureFormat::RGB8
-        }).value();
+        m_PostProcessTexture =
+            m_Context
+                ->createTexture({WINDOW_WIDTH, WINDOW_HEIGHT,
+                                 SYN::gfx::gl::TextureFormat::RGB8})
+                .value();
 
-        m_Framebuffer = m_Context->createFramebuffer({
-                std::array{SYN::gfx::gl::AttachmentDesc{m_PostProcessTexture}},
-                SYN::gfx::gl::AttachmentDesc{m_Renderbuffer}
-        }).value();
+        m_Framebuffer = m_Context
+                            ->createFramebuffer(
+                                {std::array{SYN::gfx::gl::AttachmentDesc{
+                                     m_PostProcessTexture}},
+                                 SYN::gfx::gl::AttachmentDesc{m_Renderbuffer}})
+                            .value();
 
         struct Vertex {
             glm::vec3 position;
             glm::vec2 texCoord;
         };
 
-        Vertex vertices[] = {
-            {{1.0f, 1.0f, 0.0f},  {1.0f, 1.0f}},
-            {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
-            {{1.0f, -1.0f, 0.0f},  {1.0f, 0.0f}},
-            {{-1.0f, 1.0f, 0.0f},  {0.0f, 1.0f}}};
+        Vertex vertices[] = {{{1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+                             {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f}},
+                             {{1.0f, -1.0f, 0.0f}, {1.0f, 0.0f}},
+                             {{-1.0f, 1.0f, 0.0f}, {0.0f, 1.0f}}};
 
         unsigned int indices[] = {3, 0, 2, 3, 1, 2};
 
         SYN::gfx::gl::Handle<SYN::gfx::gl::Buffer> vertexBuffer =
             m_Context
-                ->createBuffer({SYN::gfx::gl::BufferType::Vertex, SYN::gfx::gl::MemoryUsage::CpuToGPU,
-                            sizeof(vertices)},
-                            vertices)
+                ->createBuffer({SYN::gfx::gl::BufferType::Vertex,
+                                SYN::gfx::gl::MemoryUsage::CpuToGPU,
+                                sizeof(vertices)},
+                               vertices)
                 .value();
 
         SYN::gfx::gl::Handle<SYN::gfx::gl::Buffer> indexBuffer =
             m_Context
-                ->createBuffer({SYN::gfx::gl::BufferType::Index, SYN::gfx::gl::MemoryUsage::GpuOnly,
-                            sizeof(indices)},
-                            indices)
+                ->createBuffer({SYN::gfx::gl::BufferType::Index,
+                                SYN::gfx::gl::MemoryUsage::GpuOnly,
+                                sizeof(indices)},
+                               indices)
                 .value();
 
         SYN::gfx::gl::VertexArrayDesc basicVertexDesc;
@@ -419,24 +424,26 @@ class GraphicsScene : public SYN::ILayer {
         basicVertexDesc.vertexBufferHandle = vertexBuffer;
         basicVertexDesc.vertexBufferStride = sizeof(Vertex);
         basicVertexDesc.attributes[0] = {0, SYN::gfx::gl::VertexFormat::Float3,
-                                        offsetof(Vertex, position), false};
+                                         offsetof(Vertex, position), false};
         basicVertexDesc.attributes[1] = {1, SYN::gfx::gl::VertexFormat::Float2,
-                                        offsetof(Vertex, texCoord), false};
+                                         offsetof(Vertex, texCoord), false};
         basicVertexDesc.attributeCount = 2;
 
-        m_ScreenQuad =
-            m_Context->createVertexArray(basicVertexDesc).value();
+        m_ScreenQuad = m_Context->createVertexArray(basicVertexDesc).value();
         m_Shader =
             m_Context->createShader(vertexSource, fragmentSource).value();
-        m_PostProcessShader = 
-            m_Context->createShader(framebufferVertexSource, framebufferFragmentSource).value();
+        m_PostProcessShader = m_Context
+                                  ->createShader(framebufferVertexSource,
+                                                 framebufferFragmentSource)
+                                  .value();
     }
-    void onUIRender() override { 
+    void onUIRender() override {
         if (ImGui::Begin("Post Process")) {
-            const char *effects[] = { "Invert", "Grayscale", "Sharpen" };
-            ImGui::Combo("Current Effect", &m_PostProcessMode, effects, IM_ARRAYSIZE(effects));
-            ImGui::End();
+            const char *effects[] = {"Invert", "Grayscale", "Sharpen"};
+            ImGui::Combo("Current Effect", &m_PostProcessMode, effects,
+                         IM_ARRAYSIZE(effects));
         }
+        ImGui::End();
     }
     void onRender() override {
         SYN::gfx::gl::Viewport vp;

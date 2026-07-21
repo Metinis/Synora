@@ -15,6 +15,7 @@ void SYN::Window::init(const WindowConfig &config) {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, settings.versionMajor);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, settings.versionMinor);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
     } else {
         // no api if vulkan
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -46,4 +47,10 @@ void SYN::Window::disableCursor() {
 }
 void SYN::Window::enableCursor() {
     glfwSetInputMode(m_Window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+}
+
+std::tuple<uint32_t, uint32_t> SYN::Window::getScreenSize() const {
+    int w, h;
+    glfwGetWindowSize(m_Window, &w, &h);
+    return std::make_tuple(w, h);
 }

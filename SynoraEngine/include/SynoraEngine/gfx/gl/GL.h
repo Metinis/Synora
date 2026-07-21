@@ -34,7 +34,9 @@ enum class TextureFormat : uint8_t {
     RG8,
     R8,
     Depth24,
-    Depth24Stencil8
+    Depth24Stencil8,
+    SRGB,
+    SRGBA
 };
 enum class PrimitiveTopology : uint8_t { Triangles, Lines, Points };
 
@@ -43,6 +45,10 @@ enum class VertexFormat : uint8_t {
     Float2,
     Float3,
     Float4,
+    Int1,
+    Int2,
+    Int3,
+    Int4
 };
 
 enum class UniformType : uint8_t {
@@ -61,18 +67,27 @@ enum class UniformType : uint8_t {
     Mat4x4
 };
 
+// Used by renderer's uber shader
+enum class ShaderFeatures : uint32_t {
+    Normal = 1,
+    MetallicRoughness = 1 << 1,
+    Skinned = 1 << 2
+};
+
+enum class AntiAliasMode { None, FXAA, MSAA_2x, MSAA_4x, MSAA_8x };
+
 template <typename T> struct Handle {
     uint32_t index;
     uint32_t generation;
 };
 
-template <typename ResourceType> class GLResourceRegistry {
+template <typename ResourceType> class ResourceRegistry {
   public:
     using HandleType = Handle<ResourceType>;
 
   public:
-    GLResourceRegistry() { m_Slots.emplace_back(Slot{{}, 0, false}); }
-    ~GLResourceRegistry() {
+    ResourceRegistry() { m_Slots.emplace_back(Slot{{}, 0, false}); }
+    ~ResourceRegistry() {
         m_Slots.clear();
         m_FreeSlots.clear();
     }
@@ -199,6 +214,7 @@ struct TextureDesc {
     uint32_t height;
     TextureFormat format;
     uint32_t mipLevel = 1;
+    uint32_t sampleCount = 1;
 };
 
 struct SamplerDesc {
@@ -209,10 +225,10 @@ struct SamplerDesc {
 };
 
 struct RenderbufferDesc {
-    TextureFormat format;           
+    TextureFormat format;
     uint32_t width;
     uint32_t height;
-    uint32_t sampleCount = 1; 
+    uint32_t sampleCount = 1;
 };
 
 struct AttachmentDesc {
@@ -278,6 +294,105 @@ struct VertexArrayDesc {
     std::array<VertexAttribDesc, MAX_VERTEX_ATTRIBUTES> attributes;
     uint32_t attributeCount;
     IndexType indexType = IndexType::Unsigned32;
+};
+
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 uv;
+    glm::vec4 tangent;
+    glm::ivec4 boneIndices = glm::ivec4(0);
+    glm::vec4 boneWeights = glm::vec4(0);
+};
+
+// For renderer
+struct TextureData {
+    TextureDesc info;
+    std::span<uint8_t> data;
+    std::string sourcePath;
+};
+
+struct MaterialData {
+    std::optional<TextureData> albedoData;
+    std::optional<TextureData> normalData;
+    std::optional<TextureData> metallicRoughnessData;
+
+    float metallic = 1.0f;
+    float roughness = 1.0f;
+    glm::vec4 tint = glm::vec4(1.0f);
+};
+
+struct Material {
+    std::optional<Handle<Texture>> albedo;
+    std::optional<Handle<Texture>> normalMap;
+    std::optional<Handle<Texture>> metallicRoughnessMap;
+    std::optional<Handle<Sampler>> sampler;
+
+    float metallic = 0.0f;
+    float roughness = 0.0f;
+    glm::vec4 tint = glm::vec4(1.0f);
+};
+
+struct MaterialOverride {
+    uint32_t meshIndex;
+    Material material;
+};
+
+struct Camera {
+    glm::vec3 position;
+    glm::vec3 target;
+    glm::vec3 up = {0, 1, 0};
+    float fovYDegrees = 60.0f;
+    float nearPlane = 0.1f;
+    float farPlane = 500.0f;
+};
+
+struct DirectionalLight {
+    glm::vec3 direction =
+        glm::vec3(1.0, 0.0, 0.0); // normalized, pointing FROM light TO scene
+    glm::vec3 color = glm::vec3(1.0f);
+    float intensity = 1.0f;
+    bool castsShadows = true;
+};
+
+struct RendererConfig {
+    AntiAliasMode aaMode = AntiAliasMode::MSAA_4x;
+    int shadowMapResolution = 2048;
+    float shadowDistance = 50.0f; // frustum-fit range from camera
+    float exposure = 1.0f;
+    bool bloomEnabled = true;
+    float bloomThreshold = 1.0f;
+};
+
+struct MeshData {
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    MaterialData material;
+    glm::mat4 localTransform = glm::mat4(1.0);
+
+    bool hasSkin;
+};
+
+struct ModelData {
+    std::vector<MeshData> meshes;
+};
+
+struct Mesh {
+    Handle<VertexArray> vao;
+    Handle<Buffer> vbo;
+    Handle<Buffer> ebo;
+
+    Handle<Shader> shader;
+
+    Material material;
+
+    uint32_t indexCount;
+
+    glm::mat4 localTransform;
+};
+
+struct Model {
+    std::vector<Mesh> meshes;
 };
 
 class Pass {
@@ -360,7 +475,8 @@ class Context {
                        TextureFormat format, const void *data);
     void deleteTexture(Handle<Texture> textureHandle);
 
-    std::optional<Handle<Renderbuffer>> createRenderbuffer(const RenderbufferDesc& desc);
+    std::optional<Handle<Renderbuffer>>
+    createRenderbuffer(const RenderbufferDesc &desc);
     void deleteRenderbuffer(Handle<Renderbuffer> renderbufferHandle);
 
     std::optional<Handle<Sampler>> createSampler(const SamplerDesc &desc);
@@ -376,6 +492,12 @@ class Context {
     std::optional<Handle<Framebuffer>>
     createFramebuffer(const FramebufferDesc &desc);
     void deleteFramebuffer(Handle<Framebuffer> framebufferHandle);
+
+    // TODO: Allow configuration of defaults: mask(GL_COLOR_BUFFER_BIT),
+    // filter(GL_NEAREST). Currently only for MSAA.
+    void blitFramebuffer(std::optional<Handle<Framebuffer>> readHandle,
+                         std::optional<Handle<Framebuffer>> writeHandle,
+                         Viewport sourceRect, Viewport destRect);
 
     std::optional<Handle<VertexArray>>
     createVertexArray(const VertexArrayDesc &desc);
@@ -407,13 +529,13 @@ class Context {
 
   private:
     friend class Pass;
-    GLResourceRegistry<VertexArray> m_VertexArrayRegistry;
-    GLResourceRegistry<Buffer> m_BufferRegistry;
-    GLResourceRegistry<Shader> m_ShaderRegistry;
-    GLResourceRegistry<Texture> m_TextureRegistry;
-    GLResourceRegistry<Sampler> m_SamplerRegistry;
-    GLResourceRegistry<Framebuffer> m_FramebufferRegistry;
-    GLResourceRegistry<Renderbuffer> m_RenderbufferRegistry;
+    ResourceRegistry<VertexArray> m_VertexArrayRegistry;
+    ResourceRegistry<Buffer> m_BufferRegistry;
+    ResourceRegistry<Shader> m_ShaderRegistry;
+    ResourceRegistry<Texture> m_TextureRegistry;
+    ResourceRegistry<Sampler> m_SamplerRegistry;
+    ResourceRegistry<Framebuffer> m_FramebufferRegistry;
+    ResourceRegistry<Renderbuffer> m_RenderbufferRegistry;
 
     std::vector<uint32_t> m_PendingDeleteFramebuffers;
     std::vector<uint32_t> m_PendingDeleteVertexArrays;
@@ -426,6 +548,79 @@ class Context {
 
   private:
     GLFWwindow *m_Window;
+};
+
+class ShaderCache {
+  public:
+    ShaderCache();
+    Handle<Shader> getShaderHandle(Context &context, uint32_t featureFlags);
+
+  private:
+    std::unordered_map<uint32_t, Handle<Shader>> m_ShaderCache;
+    std::string m_VertexSource;
+    std::string m_FragmentSource;
+};
+
+class Renderer {
+  public:
+    explicit Renderer(const RendererConfig &config);
+    ~Renderer();
+
+    std::optional<Handle<Model>> createModel(Context &context,
+                                             const ModelData &data);
+    void destroyModel(Context &context, Handle<Model> meshHandle);
+
+    void setClearColor(const glm::vec4 &clearColor);
+    void beginFrame(const Camera &camera);
+    void setDirectionalLight(const DirectionalLight &light);
+    void submit(Handle<Model> modelHandle, const glm::mat4 &transform,
+                std::span<const MaterialOverride> materialOverride = {});
+    void endFrame(Context &context); // runs shadow pass -> opaque pass -> post
+                                     // -> writes to default FBO
+
+    void setExposure(float exposure);
+    void setBloomEnabled(bool enabled);
+    void setAntiAliasMode(AntiAliasMode mode);
+
+    void resize(int width, int height);
+
+  private:
+    void bindDirectionalLight(Pass &pass, const DirectionalLight &light);
+
+  private:
+    struct {
+        std::optional<Handle<Framebuffer>> handle;
+        std::optional<Handle<Renderbuffer>> rbAttachment;
+        std::optional<Handle<Texture>> colorAttachment;
+        bool update = true;
+    } m_MsaaFramebuffer;
+
+    void updateMsaaFramebuffer(Context &context);
+
+  private:
+    Camera m_MainCamera;
+    glm::vec4 m_ClearColor;
+    Viewport m_ScreenViewport;
+    DirectionalLight m_DirectionalLight;
+
+    RendererConfig m_RenderConfig;
+
+  private:
+    struct DrawCommand {
+        Handle<Model> modelHandle;
+        glm::mat4 transform;
+        std::span<const MaterialOverride> materialOverride;
+    };
+
+    ShaderCache m_ShaderCache;
+
+    std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
+    std::optional<Handle<Texture>> m_DefaultWhite;
+    std::optional<Handle<Sampler>> m_DefaultSampler;
+
+  private:
+    std::vector<DrawCommand> m_DrawCommandList;
+    ResourceRegistry<Model> m_ModelRegistry;
 };
 
 } // namespace SYN::gfx::gl
