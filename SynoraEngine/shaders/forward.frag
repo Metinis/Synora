@@ -17,6 +17,7 @@ uniform sampler2D u_metallicRoughness;
 uniform vec3 u_cameraPos;
 
 const float PI = 3.14159265359;
+const float MAX_REFLECTION_LOD = 4.0;
 
 struct DirectionalLight {
   vec3 direction;
@@ -32,8 +33,16 @@ uniform sampler2D u_normalMap;
 in mat3 TBN;
 #endif
 
+uniform samplerCube u_irradianceMap;
+uniform samplerCube u_prefilterMap;
+uniform sampler2D u_brdfLUT;
+
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
   return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
+  return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -68,7 +77,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
   return ggx1 * ggx2;
 }
 
-vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
+vec3 getNormal() {
   #ifdef FEATURE_NORMAL
   vec3 mapNormal = texture(u_normalMap, fragTexCoords).xyz;
   mapNormal = normalize(TBN * (mapNormal * 2.f - 1.f));
@@ -77,11 +86,10 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   vec3 normal = normalize(fragNormal);
   #endif
 
-  vec3 lightDir = -light.direction;
-  vec3 viewDir = normalize(u_cameraPos - fragPos);
-  vec3 halfwayDir = normalize(lightDir + viewDir);
-  vec3 radiance = light.color * light.intensity;
+  return normal;
+}
 
+vec2 getMetallicRoughness() {
   float roughness = u_roughness;
   float metallic = u_metallic;
 
@@ -91,6 +99,21 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   #endif
 
   roughness = clamp(roughness, 0.045, 1.0);
+
+  return vec2(metallic, roughness);
+}
+
+vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
+  vec3 lightDir = -light.direction;
+  vec3 viewDir = normalize(u_cameraPos - fragPos);
+  vec3 halfwayDir = normalize(lightDir + viewDir);
+  vec3 radiance = light.color * light.intensity;
+
+  vec2 metallicRoughness = getMetallicRoughness();
+  float metallic = metallicRoughness.x;
+  float roughness = metallicRoughness.y;
+
+  vec3 normal = getNormal();
 
   vec3 F0 = vec3(0.04);
   F0 = mix(F0, objectColor, metallic);
@@ -111,14 +134,52 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   return (kD * objectColor / PI + specular) * radiance * NdotL;
 }
 
+vec3 getAmbientColor(vec3 objectColor) {
+  vec3 normal = getNormal();
+  vec3 viewDir = normalize(u_cameraPos - fragPos);
+
+  vec2 metallicRoughness = getMetallicRoughness();
+  float metallic = metallicRoughness.x;
+  float roughness = metallicRoughness.y;
+
+  vec3 F0 = vec3(0.04);
+  F0 = mix(F0, objectColor, metallic);
+  vec3 kS = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
+  vec3 kD = vec3(1.0) - kS;
+  kD *= (1.0 - metallic);
+
+  vec3 irradiance = texture(u_irradianceMap, normal).rgb;
+  vec3 diffuse = irradiance * objectColor;
+  return kD * diffuse;
+}
+
+vec3 getSpecularColor(vec3 objectColor) {
+  vec3 normal = getNormal();
+  vec3 viewDir = normalize(u_cameraPos - fragPos);
+  vec2 metallicRoughness = getMetallicRoughness();
+
+  float metallic = metallicRoughness.x;
+  float roughness = metallicRoughness.y;
+
+  vec3 F0 = vec3(0.04);
+  F0 = mix(F0, objectColor, metallic);
+
+  vec3 reflectDir = reflect(-viewDir, normal);
+  vec3 prefilterColor = textureLod(u_prefilterMap, reflectDir, roughness * MAX_REFLECTION_LOD).rgb;
+  vec3 F = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
+  vec2 envBRDF = texture(u_brdfLUT, vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
+  vec3 specular = prefilterColor * (F * envBRDF.x + envBRDF.y);
+  return specular;
+}
+
 void main() {
   vec4 albedoTexture = texture(u_albedoTexture, fragTexCoords);
   if (albedoTexture.a < 0.1) discard;
   vec3 objectColor = vec3(vec4(u_tint, 1.0) * albedoTexture);
 
   vec3 Lo = applyDirectionalLight(u_light, objectColor);
-  vec3 ambient = vec3(0.03) * objectColor;
-  vec3 finalColor = ambient + Lo;
+
+  vec3 finalColor = getAmbientColor(objectColor) + getSpecularColor(objectColor) + Lo;
 
   fragColor = vec4(finalColor, 1.0);
 }

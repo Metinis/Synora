@@ -470,11 +470,11 @@ class GraphicsScene : public SYN::ILayer {
             glm::vec3 cameraPos =
                 glm::vec3(cosf(time) * 0.5, 0.45, sinf(time) * 0.5f);
 
-            view = glm::lookAt(cameraPos, glm::vec3(0.0),
-                               glm::vec3(0.0, 1.0, 0.0));
+            view = glm::lookAtRH(cameraPos, glm::vec3(0.0),
+                                 glm::vec3(0.0, 1.0, 0.0));
 
-            projection =
-                glm::perspective(90.0f, (float)w / (float)h, 0.01f, 100.0f);
+            projection = glm::perspectiveRH_NO(90.0f, (float)w / (float)h,
+                                               0.01f, 100.0f);
 
             pass.usePipeline(pipeline);
             for (int i = 0; i < m_VertexArrays.size(); ++i) {

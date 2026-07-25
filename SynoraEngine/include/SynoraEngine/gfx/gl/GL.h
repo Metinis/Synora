@@ -15,6 +15,8 @@ struct GLFWwindow;
 namespace SYN::gfx::gl {
 
 constexpr uint32_t MAX_VERTEX_ATTRIBUTES = 16;
+constexpr float MIN_GAMMA = 1.8f;
+constexpr float MAX_GAMMA = 2.6f;
 
 enum class BufferType : uint8_t { Vertex, Index, Uniform };
 enum class MemoryUsage : uint8_t { GpuOnly, CpuToGPU };
@@ -36,9 +38,17 @@ enum class TextureFormat : uint8_t {
     Depth24,
     Depth24Stencil8,
     SRGB,
-    SRGBA
+    SRGBA,
+    RG16F,
+    RG32F,
+    RGB16F,
+    RGBA16F,
+    RGB32F,
+    RGBA32F
 };
 enum class PrimitiveTopology : uint8_t { Triangles, Lines, Points };
+
+enum class TextureType : uint8_t { Tex2D, Cubemap };
 
 enum class VertexFormat : uint8_t {
     Float1,
@@ -170,6 +180,7 @@ struct Buffer {
 
 struct Texture {
     uint32_t id = 0;
+    TextureType type;
 };
 
 struct Sampler {
@@ -215,6 +226,7 @@ struct TextureDesc {
     TextureFormat format;
     uint32_t mipLevel = 1;
     uint32_t sampleCount = 1;
+    TextureType type = TextureType::Tex2D;
 };
 
 struct SamplerDesc {
@@ -222,6 +234,7 @@ struct SamplerDesc {
     SampleFilter magFilter = SampleFilter::Linear;
     WrapMode wrapU = WrapMode::Repeat;
     WrapMode wrapV = WrapMode::Repeat;
+    WrapMode wrapW = WrapMode::Repeat;
 };
 
 struct RenderbufferDesc {
@@ -395,6 +408,12 @@ struct Model {
     std::vector<Mesh> meshes;
 };
 
+struct Environment {
+    Handle<Texture> cubemap;
+    std::optional<Handle<Texture>> irradianceMap = std::nullopt;
+    std::optional<Handle<Texture>> prefilteredMap = std::nullopt;
+};
+
 class Pass {
   public:
     ~Pass();
@@ -472,7 +491,10 @@ class Context {
     createTexture(const TextureDesc &desc, const void *initialData = nullptr);
     void updateTexture(Handle<Texture> textureHandle, uint32_t mipLevel,
                        uint32_t x, uint32_t y, uint32_t width, uint32_t height,
-                       TextureFormat format, const void *data);
+                       uint32_t face = 0,
+                       TextureFormat format = TextureFormat::RGBA8,
+                       const void *data = nullptr);
+    void generateMipmap(Handle<Texture> textureHandle);
     void deleteTexture(Handle<Texture> textureHandle);
 
     std::optional<Handle<Renderbuffer>>
@@ -492,6 +514,10 @@ class Context {
     std::optional<Handle<Framebuffer>>
     createFramebuffer(const FramebufferDesc &desc);
     void deleteFramebuffer(Handle<Framebuffer> framebufferHandle);
+
+    void setColorAttachment(Handle<Framebuffer> handle, uint32_t index,
+                            Handle<Texture> texture, uint32_t mip = 0,
+                            std::optional<uint32_t> layer = std::nullopt);
 
     // TODO: Allow configuration of defaults: mask(GL_COLOR_BUFFER_BIT),
     // filter(GL_NEAREST). Currently only for MSAA.
@@ -566,8 +592,34 @@ class Renderer {
     explicit Renderer(const RendererConfig &config);
     ~Renderer();
 
+    void init(Context &context);
+
     std::optional<Handle<Model>> createModel(Context &context,
                                              const ModelData &data);
+    // Cubemap faces must be RGBA8!
+    Handle<Texture> loadCubemap(Context &context,
+                                const std::array<uint8_t *, 6> &faces,
+                                uint32_t width, uint32_t height);
+
+    // Must be HDR
+    Handle<Texture> loadCubemapFromEquirectangularTexture(Context &context,
+                                                          float *data,
+                                                          uint32_t width,
+                                                          uint32_t height);
+
+    // hdrMap must be a cubemap
+    Handle<Texture> createIrradianceMap(Context &context,
+                                        Handle<Texture> hdrMap);
+
+    Handle<Texture> createPrefilteredEnvironmentMap(Context &context,
+                                                    Handle<Texture> hdrMap);
+
+    // TODO: Just wrte to disk
+    Handle<Texture> createBRDFLut(Context &context);
+
+    // If no environment is set just use the renderer clear color
+    void setEnvironment(std::optional<Environment> environment);
+
     void destroyModel(Context &context, Handle<Model> meshHandle);
 
     void setClearColor(const glm::vec4 &clearColor);
@@ -577,6 +629,9 @@ class Renderer {
                 std::span<const MaterialOverride> materialOverride = {});
     void endFrame(Context &context); // runs shadow pass -> opaque pass -> post
                                      // -> writes to default FBO
+
+    // Clamped between MIN_GAMMA and MAX_GAMMA
+    void setGamma(float gamma);
 
     void setExposure(float exposure);
     void setBloomEnabled(bool enabled);
@@ -597,11 +652,43 @@ class Renderer {
 
     void updateMsaaFramebuffer(Context &context);
 
+    struct {
+        std::optional<Handle<Framebuffer>> handle;
+        std::optional<Handle<Texture>> colorAttachment;
+        Handle<Sampler> colorSampler;
+        bool update = true;
+    } m_HdrFramebuffer;
+
+    void createHdrShader(Context &context);
+    std::optional<Handle<Shader>> m_HdrShader;
+
+    void updateHdrFramebuffer(Context &context);
+
+    void createScreenQuad(Context &context);
+    void createSkybox(Context &context);
+    void createIrradianceShader(Context &context);
+    void createPrefilterShader(Context &context);
+    void createBRDFLutShader(Context &context);
+    void createDefaultPrefilterMap(Context &context);
+
+    std::optional<Handle<VertexArray>> m_ScreenQuad;
+    std::optional<Handle<VertexArray>> m_SkyboxCube;
+
+    float m_Exposure = 1.0f;
+    float m_Gamma = 2.2f;
+
   private:
     Camera m_MainCamera;
     glm::vec4 m_ClearColor;
     Viewport m_ScreenViewport;
     DirectionalLight m_DirectionalLight;
+
+    std::optional<Environment> m_Environment;
+    std::optional<Handle<Shader>> m_SkyboxShader;
+    std::optional<Handle<Shader>> m_EquirectangularToCubemapShader;
+    std::optional<Handle<Shader>> m_IrradianceShader;
+    std::optional<Handle<Shader>> m_PrefilterShader;
+    std::optional<Handle<Shader>> m_BRDFLutShader;
 
     RendererConfig m_RenderConfig;
 
@@ -609,14 +696,21 @@ class Renderer {
     struct DrawCommand {
         Handle<Model> modelHandle;
         glm::mat4 transform;
-        std::span<const MaterialOverride> materialOverride;
+        std::vector<MaterialOverride> materialOverride;
     };
 
     ShaderCache m_ShaderCache;
 
     std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
-    std::optional<Handle<Texture>> m_DefaultWhite;
+    Handle<Texture> m_DefaultWhite;
+    Handle<Texture> m_DefaultPrefilterMap;
+    Handle<Texture> m_DefaultIrradianceMap;
+    Handle<Texture> m_BRDFLut;
+
+    std::optional<Handle<Sampler>> m_DefaultModelSampler;
     std::optional<Handle<Sampler>> m_DefaultSampler;
+    std::optional<Handle<Sampler>> m_CubemapSampler;
+    std::optional<Handle<Sampler>> m_MipmapCubeSampler;
 
   private:
     std::vector<DrawCommand> m_DrawCommandList;

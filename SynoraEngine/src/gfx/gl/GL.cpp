@@ -56,6 +56,18 @@ GLenum getInternalTextureFormat(SYN::gfx::gl::TextureFormat format) {
         return GL_SRGB8;
     case SYN::gfx::gl::TextureFormat::SRGBA:
         return GL_SRGB8_ALPHA8;
+    case SYN::gfx::gl::TextureFormat::RG16F:
+        return GL_RG16F;
+    case SYN::gfx::gl::TextureFormat::RG32F:
+        return GL_RG32F;
+    case SYN::gfx::gl::TextureFormat::RGB16F:
+        return GL_RGB16F;
+    case SYN::gfx::gl::TextureFormat::RGBA16F:
+        return GL_RGBA16F;
+    case SYN::gfx::gl::TextureFormat::RGB32F:
+        return GL_RGB32F;
+    case SYN::gfx::gl::TextureFormat::RGBA32F:
+        return GL_RGBA32F;
     }
 }
 
@@ -77,7 +89,52 @@ GLenum getTextureFormat(SYN::gfx::gl::TextureFormat format) {
         return GL_RGB;
     case SYN::gfx::gl::TextureFormat::SRGBA:
         return GL_RGBA;
+    case SYN::gfx::gl::TextureFormat::RG16F:
+        return GL_RG;
+    case SYN::gfx::gl::TextureFormat::RG32F:
+        return GL_RG;
+    case SYN::gfx::gl::TextureFormat::RGB16F:
+        return GL_RGB;
+    case SYN::gfx::gl::TextureFormat::RGBA16F:
+        return GL_RGBA;
+    case SYN::gfx::gl::TextureFormat::RGB32F:
+        return GL_RGB;
+    case SYN::gfx::gl::TextureFormat::RGBA32F:
+        return GL_RGBA;
     }
+}
+
+GLenum getTextureDataTypeFromFormat(SYN::gfx::gl::TextureFormat format) {
+    GLenum dataType = GL_UNSIGNED_BYTE;
+
+    switch (format) {
+    case SYN::gfx::gl::TextureFormat::Depth24:
+        dataType = GL_FLOAT;
+        break;
+    case SYN::gfx::gl::TextureFormat::Depth24Stencil8:
+        dataType = GL_UNSIGNED_INT_24_8;
+        break;
+    case SYN::gfx::gl::TextureFormat::RGB16F:
+        dataType = GL_FLOAT;
+        break;
+    case SYN::gfx::gl::TextureFormat::RGB32F:
+        dataType = GL_FLOAT;
+        break;
+    case SYN::gfx::gl::TextureFormat::RGBA16F:
+        dataType = GL_FLOAT;
+        break;
+    case SYN::gfx::gl::TextureFormat::RGBA32F:
+        dataType = GL_FLOAT;
+        break;
+    case SYN::gfx::gl::TextureFormat::RG16F:
+        dataType = GL_FLOAT;
+    case SYN::gfx::gl::TextureFormat::RG32F:
+        dataType = GL_FLOAT;
+    default:
+        break;
+    }
+
+    return dataType;
 }
 
 void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0) {
@@ -324,6 +381,8 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
                "Framebuffer in render pass doesn't exist!");
 
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.value().id);
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     GLbitfield clearMask = 0;
@@ -462,6 +521,37 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
     }
 
     return m_FramebufferRegistry.createHandle(framebuffer);
+}
+
+void SYN::gfx::gl::Context::setColorAttachment(Handle<Framebuffer> handle,
+                                               uint32_t index,
+                                               Handle<Texture> texture,
+                                               uint32_t mip,
+                                               std::optional<uint32_t> layer) {
+    std::optional<Framebuffer> framebuffer =
+        m_FramebufferRegistry.getResource(handle);
+    if (!framebuffer.has_value())
+        return;
+    std::optional<Texture> textureOpt = m_TextureRegistry.getResource(texture);
+    if (!textureOpt.has_value())
+        return;
+
+    uint32_t framebufferId = framebuffer.value().id;
+    uint32_t textureId = textureOpt.value().id;
+
+    if (layer.has_value()) {
+        glNamedFramebufferTextureLayer(framebufferId,
+                                       GL_COLOR_ATTACHMENT0 + index, textureId,
+                                       mip, layer.value());
+    } else {
+        glNamedFramebufferTexture(framebufferId, GL_COLOR_ATTACHMENT0 + index,
+                                  textureId, mip);
+    }
+
+    if (glCheckNamedFramebufferStatus(framebufferId, GL_FRAMEBUFFER) !=
+        GL_FRAMEBUFFER_COMPLETE) {
+        spdlog::error("Unable to set color attachment for framebuffer!");
+    }
 }
 
 void SYN::gfx::gl::Context::deleteFramebuffer(
@@ -923,35 +1013,43 @@ SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
 
     GLenum internalFormat = getInternalTextureFormat(desc.format);
     GLenum format = getTextureFormat(desc.format);
-    GLenum dataType = GL_UNSIGNED_BYTE;
-    switch (desc.format) {
-    case TextureFormat::Depth24:
-        dataType = GL_FLOAT;
-        break;
-    case TextureFormat::Depth24Stencil8:
-        dataType = GL_UNSIGNED_INT_24_8;
-        break;
-    default:
-        break;
+    GLenum dataType = getTextureDataTypeFromFormat(desc.format);
+
+    if (desc.type == TextureType::Tex2D) {
+        if (desc.sampleCount > 1) {
+            glCreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &texture.id);
+            glTextureStorage2DMultisample(texture.id, desc.sampleCount,
+                                          internalFormat, desc.width,
+                                          desc.height, GL_TRUE);
+        } else {
+            glCreateTextures(GL_TEXTURE_2D, 1, &texture.id);
+            glTextureStorage2D(texture.id, desc.mipLevel, internalFormat,
+                               desc.width, desc.height);
+        }
+
+        if (initialData != nullptr) {
+            glTextureSubImage2D(texture.id, 0, 0, 0, desc.width, desc.height,
+                                format, dataType, initialData);
+        }
     }
 
-    if (desc.sampleCount > 1) {
-        glCreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &texture.id);
-        glTextureStorage2DMultisample(texture.id, desc.sampleCount,
-                                      internalFormat, desc.width, desc.height,
-                                      GL_TRUE);
-    } else {
-        glCreateTextures(GL_TEXTURE_2D, 1, &texture.id);
+    if (desc.type == TextureType::Cubemap) {
+        glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &texture.id);
+        assert(desc.width == desc.height &&
+               "Width and height must be the same for cubemap textures!");
         glTextureStorage2D(texture.id, desc.mipLevel, internalFormat,
                            desc.width, desc.height);
+        if (initialData != nullptr) {
+            glTextureSubImage3D(texture.id, 0, 0, 0, 0, desc.width, desc.height,
+                                6, format, dataType, initialData);
+        }
     }
-
-    glTextureSubImage2D(texture.id, 0, 0, 0, desc.width, desc.height, format,
-                        dataType, initialData);
 
     if (desc.mipLevel > 1) {
         glGenerateTextureMipmap(texture.id);
     }
+
+    texture.type = desc.type;
 
     return m_TextureRegistry.createHandle(texture);
 }
@@ -1006,6 +1104,8 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
                         getWrapFormat(desc.wrapU));
     glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T,
                         getWrapFormat(desc.wrapV));
+    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_R,
+                        getWrapFormat(desc.wrapW));
 
     // TODO: Allow setting anisotropy level
     float maxAniso = 0.0f;
@@ -1049,7 +1149,8 @@ void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
 void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
                                           uint32_t mipLevel, uint32_t x,
                                           uint32_t y, uint32_t width,
-                                          uint32_t height, TextureFormat format,
+                                          uint32_t height, uint32_t face,
+                                          TextureFormat format,
                                           const void *data) {
     std::optional<Texture> textureOpt =
         m_TextureRegistry.getResource(textureHandle);
@@ -1059,39 +1160,29 @@ void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
 
     Texture texture = textureOpt.value();
 
-    GLenum glFormat;
-    GLenum dataType = GL_UNSIGNED_BYTE;
-    switch (format) {
-    case TextureFormat::RGBA8:
-        glFormat = GL_RGBA;
-        break;
-    case TextureFormat::RGB8:
-        glFormat = GL_RGB;
-        break;
-    case TextureFormat::RG8:
-        glFormat = GL_RG;
-        break;
-    case TextureFormat::R8:
-        glFormat = GL_RED;
-        break;
-    case TextureFormat::Depth24:
-        glFormat = GL_DEPTH_COMPONENT;
-        dataType = GL_FLOAT;
-        break;
-    case TextureFormat::Depth24Stencil8:
-        glFormat = GL_DEPTH_STENCIL;
-        dataType = GL_UNSIGNED_INT_24_8;
-        break;
-    case SYN::gfx::gl::TextureFormat::SRGB:
-        glFormat = GL_SRGB;
-        break;
-    case SYN::gfx::gl::TextureFormat::SRGBA:
-        glFormat = GL_SRGB_ALPHA;
-        break;
-    }
+    GLenum glFormat = getTextureFormat(format);
+    GLenum dataType = getTextureDataTypeFromFormat(format);
 
-    glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
-                        dataType, data);
+    if (texture.type == TextureType::Tex2D) {
+        glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
+                            dataType, data);
+    }
+    if (texture.type == TextureType::Cubemap) {
+        glTextureSubImage3D(texture.id, mipLevel, x, y, face, width, height, 1,
+                            glFormat, dataType, data);
+    }
+}
+
+void SYN::gfx::gl::Context::generateMipmap(Handle<Texture> textureHandle) {
+    std::optional<Texture> textureOpt =
+        m_TextureRegistry.getResource(textureHandle);
+
+    if (!textureOpt.has_value())
+        return;
+
+    Texture texture = textureOpt.value();
+
+    glGenerateTextureMipmap(texture.id);
 }
 
 void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
@@ -1111,14 +1202,14 @@ SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
 SYN::gfx::gl::Renderer::~Renderer() {}
 
 SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
-createDefaultWhiteTexture(SYN::gfx::gl::Context &context) {
-    uint8_t whitePixel[4] = {255, 255, 255, 255};
+createDefaultColoredTexture(SYN::gfx::gl::Context &context,
+                            std::array<uint8_t, 4> color) {
     SYN::gfx::gl::TextureDesc desc{
         .width = 1,
         .height = 1,
-        .format = SYN::gfx::gl::TextureFormat::RGBA8,
+        .format = SYN::gfx::gl::TextureFormat::SRGBA,
     };
-    return context.createTexture(desc, &whitePixel[0]).value();
+    return context.createTexture(desc, &color[0]).value();
 }
 
 int getMipLevel(int width, int height) {
@@ -1279,20 +1370,226 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
             createMesh(context, meshData, m_TextureCache, m_ShaderCache));
         Mesh &mesh = model.meshes.back();
         if (!mesh.material.albedo) {
-            if (!m_DefaultWhite)
-                m_DefaultWhite = createDefaultWhiteTexture(context);
             mesh.material.albedo = m_DefaultWhite;
         }
-        if (!m_DefaultSampler) {
-            m_DefaultSampler = context.createSampler(
+        if (!m_DefaultModelSampler) {
+            m_DefaultModelSampler = context.createSampler(
                 {SampleFilter::Linear_Mipmap_Linear, SampleFilter::Linear,
                  WrapMode::Repeat, WrapMode::Repeat});
         }
-        mesh.material.sampler = m_DefaultSampler;
+        mesh.material.sampler = m_DefaultModelSampler;
     }
     return m_ModelRegistry.createHandle(model);
 }
 
+// TODO: Clean up environment function!
+// Order of faces: Right, Left, Top, Bottom, Back, Front
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+SYN::gfx::gl::Renderer::loadCubemap(Context &context,
+                                    const std::array<uint8_t *, 6> &faces,
+                                    uint32_t width, uint32_t height) {
+    Handle<Texture> cubemap =
+        context
+            .createTexture({width, height, TextureFormat::SRGBA, 1, 1,
+                            TextureType::Cubemap})
+            .value();
+    for (uint32_t i = 0; i < faces.size(); ++i) {
+        context.updateTexture(cubemap, 0, 0, 0, width, height, i,
+                              TextureFormat::SRGBA, faces.at(i));
+    }
+
+    return cubemap;
+}
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+SYN::gfx::gl::Renderer::loadCubemapFromEquirectangularTexture(Context &context,
+                                                              float *data,
+                                                              uint32_t width,
+                                                              uint32_t height) {
+    Handle<Texture> envCubemap =
+        context
+            .createTexture(
+                {512, 512, TextureFormat::RGBA16F, 10, 1, TextureType::Cubemap})
+            .value();
+
+    Handle<Texture> hdrTexture =
+        context.createTexture({width, height, TextureFormat::RGBA16F}, data)
+            .value();
+
+    Handle<Framebuffer> equirectangularProjection =
+        context.createFramebuffer({std::array{AttachmentDesc{envCubemap}}})
+            .value();
+
+    Handle<Sampler> mipSampler =
+        context
+            .createSampler({SampleFilter::Linear_Mipmap_Linear,
+                            SampleFilter::Linear, WrapMode::ClampToEdge,
+                            WrapMode::ClampToEdge, WrapMode::ClampToEdge})
+            .value();
+
+    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
+    glm::mat4 captureProjection =
+        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+    glm::mat4 captureViews[] = {
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, 1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, -1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f))};
+
+    PipelineState pipeline;
+    pipeline.shader = m_EquirectangularToCubemapShader.value();
+    for (uint32_t i = 0; i < 6; ++i) {
+        context.setColorAttachment(equirectangularProjection, 0, envCubemap, 0,
+                                   i);
+        Pass pass =
+            context.beginPass({equirectangularProjection, glm::vec4(1.0f),
+                               false, false, Viewport{0, 0, 512, 512}});
+
+        pass.usePipeline(pipeline);
+        pass.bindTexture(0, hdrTexture, mipSampler);
+        pass.bindUniform("u_ViewProjection",
+                         captureProjection * captureViews[i]);
+        pass.bindUniform("u_equirectangularMap", 0);
+        pass.bindVertexArray(m_SkyboxCube.value());
+        pass.draw(36);
+    }
+
+    context.generateMipmap(envCubemap);
+
+    context.deleteTexture(hdrTexture);
+    context.deleteFramebuffer(equirectangularProjection);
+    context.deleteSampler(mipSampler);
+
+    return envCubemap;
+}
+
+void SYN::gfx::gl::Renderer::createIrradianceShader(Context &context) {
+    if (m_IrradianceShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/gl_skybox.vert");
+    if (!vertexFile) {
+        spdlog::error("OpenGL renderer could not open vertex shader (Skybox).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/gl_irradiance.frag");
+    if (!fragmentFile) {
+        spdlog::error(
+            "OpenGL renderer could not open fragment shader (Irradiance).");
+        return;
+    }
+
+    m_IrradianceShader =
+        context
+            .createShader(
+                std::string(std::istreambuf_iterator<char>(vertexFile),
+                            std::istreambuf_iterator<char>()),
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+
+    float irradianceData[] = {0.3f, 0.3f, 0.3f, 1.0f};
+    m_DefaultIrradianceMap = context
+                                 .createTexture({1, 1, TextureFormat::RGBA16F,
+                                                 1, 1, TextureType::Cubemap})
+                                 .value();
+    for (uint32_t i = 0; i < 6; ++i) {
+        context.updateTexture(m_DefaultIrradianceMap, 0, 0, 0, 1, 1, i,
+                              TextureFormat::RGBA16F, &irradianceData[0]);
+    }
+}
+
+void SYN::gfx::gl::Renderer::createPrefilterShader(Context &context) {
+    if (m_PrefilterShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/gl_skybox.vert");
+    if (!vertexFile) {
+        spdlog::error("OpenGL renderer could not open vertex shader (Skybox).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/gl_prefiltered_env.frag");
+    if (!fragmentFile) {
+        spdlog::error("OpenGL renderer could not open fragment shader "
+                      "(Prefiltered map).");
+        return;
+    }
+
+    m_PrefilterShader =
+        context
+            .createShader(
+                std::string(std::istreambuf_iterator<char>(vertexFile),
+                            std::istreambuf_iterator<char>()),
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+}
+
+void SYN::gfx::gl::Renderer::createBRDFLutShader(Context &context) {
+    if (m_BRDFLutShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/hdr.vert");
+    if (!vertexFile) {
+        spdlog::error("OpenGL renderer could not open vertex shader (HDR).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/gl_brdf_lut.frag");
+    if (!fragmentFile) {
+        spdlog::error("OpenGL renderer could not open fragment shader "
+                      "(BRDF LUT).");
+        return;
+    }
+
+    m_BRDFLutShader =
+        context
+            .createShader(
+                std::string(std::istreambuf_iterator<char>(vertexFile),
+                            std::istreambuf_iterator<char>()),
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+}
+
+void SYN::gfx::gl::Renderer::createDefaultPrefilterMap(Context &context) {
+    float irradianceData[] = {0.0f, 0.0f, 0.0f, 0.0f};
+    m_DefaultPrefilterMap = context
+                                .createTexture({1, 1, TextureFormat::RGBA16F, 1,
+                                                1, TextureType::Cubemap})
+                                .value();
+}
+
+void SYN::gfx::gl::Renderer::init(Context &context) {
+    createScreenQuad(context);
+    createHdrShader(context);
+    createSkybox(context);
+    createIrradianceShader(context);
+    createPrefilterShader(context);
+    createBRDFLutShader(context);
+
+    m_DefaultWhite = createDefaultColoredTexture(context, {255, 255, 255, 255});
+    createDefaultPrefilterMap(context);
+
+    m_BRDFLut = createBRDFLut(context);
+    m_DefaultSampler = context.createSampler({}).value();
+
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+}
+
+void SYN::gfx::gl::Renderer::setEnvironment(
+    std::optional<Environment> environment) {
+    m_Environment = environment;
+}
+
+// TODO: (Implement this!)
 void SYN::gfx::gl::Renderer::destroyModel(Context &context,
                                           Handle<Model> meshHandle) {}
 
@@ -1309,7 +1606,10 @@ void SYN::gfx::gl::Renderer::setDirectionalLight(
 void SYN::gfx::gl::Renderer::submit(
     Handle<Model> modelHandle, const glm::mat4 &transform,
     std::span<const MaterialOverride> materialOverride) {
-    m_DrawCommandList.emplace_back(modelHandle, transform, materialOverride);
+    m_DrawCommandList.emplace_back(
+        modelHandle, transform,
+        std::vector<MaterialOverride>(materialOverride.begin(),
+                                      materialOverride.end()));
 }
 
 void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
@@ -1331,9 +1631,9 @@ void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
     uint32_t samples = 1;
     switch (m_RenderConfig.aaMode) {
     case AntiAliasMode::None:
-        return;
+        break;
     case AntiAliasMode::FXAA:
-        return;
+        break;
     case AntiAliasMode::MSAA_2x:
         samples = 2;
         break;
@@ -1355,7 +1655,7 @@ void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
     m_MsaaFramebuffer.colorAttachment =
         context
             .createTexture({m_ScreenViewport.width, m_ScreenViewport.height,
-                            TextureFormat::RGBA8, 1, samples})
+                            TextureFormat::RGBA16F, 1, samples})
             .value();
 
     m_MsaaFramebuffer.handle =
@@ -1367,28 +1667,377 @@ void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
             .value();
 }
 
-void SYN::gfx::gl::Renderer::endFrame(Context &context) {
-    glm::mat4 viewMatrix = glm::lookAt(m_MainCamera.position,
-                                       m_MainCamera.target, m_MainCamera.up);
+void SYN::gfx::gl::Renderer::updateHdrFramebuffer(Context &context) {
+    if (!m_HdrFramebuffer.update)
+        return;
 
-    glm::mat4 projMatrix = glm::perspective(
+    m_HdrFramebuffer.update = false;
+
+    if (m_HdrFramebuffer.colorAttachment) {
+        context.deleteTexture(m_HdrFramebuffer.colorAttachment.value());
+    }
+    if (m_HdrFramebuffer.handle) {
+        context.deleteFramebuffer(m_HdrFramebuffer.handle.value());
+    }
+
+    m_HdrFramebuffer.colorAttachment =
+        context
+            .createTexture({m_ScreenViewport.width, m_ScreenViewport.height,
+                            TextureFormat::RGBA16F})
+            .value();
+
+    m_HdrFramebuffer.handle =
+        context
+            .createFramebuffer({
+                std::array{
+                    AttachmentDesc{m_HdrFramebuffer.colorAttachment.value()}},
+            })
+            .value();
+}
+
+void SYN::gfx::gl::Renderer::createScreenQuad(Context &context) {
+    if (m_ScreenQuad.has_value()) {
+        return;
+    }
+
+    float vertices[] = {-1.0, 1.0,  0.0, 1.0, 1.0, 1.0,  1.0, 1.0,
+                        -1.0, -1.0, 0.0, 0.0, 1.0, -1.0, 1.0, 0.0};
+
+    uint16_t indices[] = {0, 1, 2, 2, 3, 1};
+
+    Handle<Buffer> vbo =
+        context
+            .createBuffer(
+                {BufferType::Vertex, MemoryUsage::CpuToGPU, sizeof(vertices)},
+                vertices)
+            .value();
+
+    Handle<Buffer> ebo =
+        context
+            .createBuffer(
+                {BufferType::Index, MemoryUsage::CpuToGPU, sizeof(indices)},
+                indices)
+            .value();
+
+    m_ScreenQuad =
+        context
+            .createVertexArray(
+                {vbo,
+                 sizeof(float) * 4,
+                 ebo,
+                 {VertexAttribDesc{0, VertexFormat::Float2, 0},
+                  VertexAttribDesc{1, VertexFormat::Float2, sizeof(float) * 2}},
+                 2,
+                 IndexType::Unsigned16})
+            .value();
+
+    m_HdrFramebuffer.colorSampler = context.createSampler({}).value();
+}
+
+void SYN::gfx::gl::Renderer::createHdrShader(Context &context) {
+    if (m_HdrShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/hdr.vert");
+    if (!vertexFile) {
+        spdlog::error("OpenGL renderer could not open vertex shader (HDR).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/hdr.frag");
+    if (!fragmentFile) {
+        spdlog::error("OpenGL renderer could not open fragment shader (HDR).");
+        return;
+    }
+
+    m_HdrShader =
+        context
+            .createShader(
+                std::string(std::istreambuf_iterator<char>(vertexFile),
+                            std::istreambuf_iterator<char>()),
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+}
+
+void SYN::gfx::gl::Renderer::createSkybox(Context &context) {
+    if (m_SkyboxShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/gl_skybox.vert");
+    if (!vertexFile) {
+        spdlog::error("OpenGL renderer could not open vertex shader (Skybox).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/gl_skybox.frag");
+    if (!fragmentFile) {
+        spdlog::error(
+            "OpenGL renderer could not open fragment shader (Skybox).");
+        return;
+    }
+
+    std::string vertexSrc =
+        std::string(std::istreambuf_iterator<char>(vertexFile),
+                    std::istreambuf_iterator<char>());
+
+    m_SkyboxShader =
+        context
+            .createShader(
+                vertexSrc,
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+
+    if (!m_EquirectangularToCubemapShader.has_value()) {
+        fragmentFile =
+            std::fstream("resources/shaders/equirectangularToCubemap.frag");
+        if (!fragmentFile) {
+            spdlog::error("OpenGL renderer could not open fragment shader "
+                          "(Equirectangular to Cubemap).");
+            return;
+        }
+
+        m_EquirectangularToCubemapShader =
+            context
+                .createShader(
+                    vertexSrc,
+                    std::string(std::istreambuf_iterator<char>(fragmentFile),
+                                std::istreambuf_iterator<char>()))
+                .value();
+    }
+
+    if (m_SkyboxCube.has_value())
+        return;
+
+    // https://learnopengl.com/code_viewer.php?code=advanced/cubemaps_skybox_data
+    float skyboxVertices[] = {
+        -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f,
+        1.0f,  -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f,
+
+        -1.0f, -1.0f, 1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  -1.0f,
+        -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f, 1.0f,
+
+        1.0f,  -1.0f, -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f, -1.0f,
+
+        -1.0f, -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,  1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f, -1.0f, 1.0f,
+
+        -1.0f, 1.0f,  -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,  1.0f,  1.0f,
+        1.0f,  1.0f,  1.0f,  -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f,  -1.0f,
+
+        -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, -1.0f,
+        1.0f,  -1.0f, -1.0f, -1.0f, -1.0f, 1.0f,  1.0f,  -1.0f, 1.0f};
+
+    Handle<Buffer> m_VertexBuffer =
+        context
+            .createBuffer({BufferType::Vertex, MemoryUsage::CpuToGPU,
+                           sizeof(skyboxVertices)},
+                          skyboxVertices)
+            .value();
+
+    m_SkyboxCube =
+        context
+            .createVertexArray({m_VertexBuffer,
+                                sizeof(float) * 3,
+                                {},
+                                {VertexAttribDesc{0, VertexFormat::Float3, 0}},
+                                1})
+            .value();
+
+    if (m_CubemapSampler.has_value())
+        return;
+
+    m_CubemapSampler = context
+                           .createSampler({
+                               SampleFilter::Linear,
+                               SampleFilter::Linear,
+                               WrapMode::ClampToEdge,
+                               WrapMode::ClampToEdge,
+                               WrapMode::ClampToEdge,
+                           })
+                           .value();
+
+    m_MipmapCubeSampler = context
+                              .createSampler({
+                                  SampleFilter::Linear_Mipmap_Linear,
+                                  SampleFilter::Linear,
+                                  WrapMode::ClampToEdge,
+                                  WrapMode::ClampToEdge,
+                                  WrapMode::ClampToEdge,
+                              })
+                              .value();
+}
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+SYN::gfx::gl::Renderer::createIrradianceMap(Context &context,
+                                            Handle<Texture> hdrMap) {
+    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
+    glm::mat4 captureProjection =
+        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+    glm::mat4 captureViews[] = {
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, 1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, -1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f))};
+
+    constexpr uint32_t mapResolution = 32;
+    Handle<Texture> irradianceMap =
+        context
+            .createTexture({mapResolution, mapResolution,
+                            TextureFormat::RGBA16F, 1, 1, TextureType::Cubemap})
+            .value();
+    Handle<Framebuffer> captureFramebuffer =
+        context.createFramebuffer({std::array{AttachmentDesc{irradianceMap}}})
+            .value();
+
+    Handle<Sampler> mipSampler =
+        context
+            .createSampler({SampleFilter::Linear_Mipmap_Linear,
+                            SampleFilter::Linear, WrapMode::ClampToEdge,
+                            WrapMode::ClampToEdge, WrapMode::ClampToEdge})
+            .value();
+
+    PipelineState pipeline;
+    pipeline.shader = m_IrradianceShader.value();
+    for (uint32_t i = 0; i < 6; ++i) {
+        context.setColorAttachment(captureFramebuffer, 0, irradianceMap, 0, i);
+        Pass pass =
+            context.beginPass({captureFramebuffer, glm::vec4(1.0), false, false,
+                               Viewport{0, 0, mapResolution, mapResolution}});
+        pass.usePipeline(pipeline);
+        pass.bindTexture(0, hdrMap, mipSampler);
+        pass.bindUniform("u_hdrMap", 0);
+        pass.bindUniform("u_ViewProjection",
+                         captureProjection * captureViews[i]);
+        pass.bindVertexArray(m_SkyboxCube.value());
+        pass.draw(36);
+    }
+
+    context.deleteFramebuffer(captureFramebuffer);
+    context.deleteSampler(mipSampler);
+
+    return irradianceMap;
+}
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+SYN::gfx::gl::Renderer::createPrefilteredEnvironmentMap(
+    Context &context, Handle<Texture> hdrMap) {
+    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
+    glm::mat4 captureProjection =
+        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+    glm::mat4 captureViews[] = {
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, 1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, -1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f))};
+
+    uint32_t maxMipCount = 5;
+
+    constexpr uint32_t mapResolution = 128;
+    Handle<Texture> prefilteredMap =
+        context
+            .createTexture({mapResolution, mapResolution,
+                            TextureFormat::RGBA16F, maxMipCount, 1,
+                            TextureType::Cubemap})
+            .value();
+
+    Handle<Framebuffer> captureFramebuffer =
+        context.createFramebuffer({std::array{AttachmentDesc{prefilteredMap}}})
+            .value();
+
+    Handle<Sampler> mipSampler =
+        context
+            .createSampler({SampleFilter::Linear_Mipmap_Linear,
+                            SampleFilter::Linear, WrapMode::ClampToEdge,
+                            WrapMode::ClampToEdge, WrapMode::ClampToEdge})
+            .value();
+
+    PipelineState pipeline;
+    pipeline.shader = m_PrefilterShader.value();
+
+    for (uint32_t i = 0; i < maxMipCount; ++i) {
+        uint32_t mipSize =
+            (uint32_t)((float)mapResolution * std::pow(0.5f, (float)i));
+        for (int j = 0; j < 6; ++j) {
+            context.setColorAttachment(captureFramebuffer, 0, prefilteredMap, i,
+                                       j);
+            Pass pass =
+                context.beginPass({captureFramebuffer, glm::vec4(1.0), false,
+                                   false, Viewport{0, 0, mipSize, mipSize}});
+
+            pass.usePipeline(pipeline);
+            pass.bindTexture(0, hdrMap, mipSampler);
+            pass.bindUniform("u_hdrMap", 0);
+            pass.bindUniform("u_ViewProjection",
+                             captureProjection * captureViews[j]);
+            float roughness = (float)i / (float)(maxMipCount - 1);
+            pass.bindUniform("u_roughness", roughness);
+            pass.bindVertexArray(m_SkyboxCube.value());
+            pass.draw(36);
+        }
+    }
+
+    context.deleteFramebuffer(captureFramebuffer);
+    context.deleteSampler(mipSampler);
+
+    return prefilteredMap;
+}
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
+    Handle<Texture> brdfLUT =
+        context.createTexture({512, 512, TextureFormat::RG16F}).value();
+
+    Handle<Framebuffer> captureFb =
+        context.createFramebuffer({std::array{AttachmentDesc{brdfLUT}}})
+            .value();
+
+    PipelineState pipeline;
+    pipeline.shader = m_BRDFLutShader.value();
+
+    Pass pass = context.beginPass(
+        {captureFb, glm::vec4(1.0f), false, false, Viewport{0, 0, 512, 512}});
+    pass.usePipeline(pipeline);
+    pass.bindVertexArray(m_ScreenQuad.value());
+    pass.drawIndexed(6);
+
+    context.deleteFramebuffer(captureFb);
+
+    return brdfLUT;
+}
+
+void SYN::gfx::gl::Renderer::endFrame(Context &context) {
+    glm::mat4 viewMatrix = glm::lookAtRH(m_MainCamera.position,
+                                         m_MainCamera.target, m_MainCamera.up);
+
+    glm::mat4 projMatrix = glm::perspectiveRH_NO(
         glm::radians(m_MainCamera.fovYDegrees),
         (float)m_ScreenViewport.width / m_ScreenViewport.height,
         m_MainCamera.nearPlane, m_MainCamera.farPlane);
 
-    bool msaaActive = m_RenderConfig.aaMode >= AntiAliasMode::MSAA_2x &&
-                      m_RenderConfig.aaMode <= AntiAliasMode::MSAA_8x;
-
-    if (msaaActive) {
-        updateMsaaFramebuffer(context);
-        glDisable(GL_FRAMEBUFFER_SRGB);
-    }
+    updateMsaaFramebuffer(context);
+    updateHdrFramebuffer(context);
 
     // Main render pass
     {
-        Pass pass = context.beginPass(
-            {msaaActive ? m_MsaaFramebuffer.handle : std::nullopt, m_ClearColor,
-             true, false, m_ScreenViewport});
+        Pass pass = context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor,
+                                       true, false, m_ScreenViewport});
         PipelineState pipeline;
 
         for (const DrawCommand &cmd : m_DrawCommandList) {
@@ -1442,6 +2091,33 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     pass.bindUniform("u_metallicRoughness", 2);
                 }
 
+                if (m_Environment.has_value() &&
+                    m_Environment.value().irradianceMap.has_value()) {
+                    pass.bindTexture(
+                        3, m_Environment.value().irradianceMap.value(),
+                        m_CubemapSampler.value());
+                    pass.bindUniform("u_irradianceMap", 3);
+                } else {
+                    pass.bindTexture(3, m_DefaultIrradianceMap,
+                                     m_CubemapSampler.value());
+                    pass.bindUniform("u_irradianceMap", 3);
+                }
+
+                if (m_Environment.has_value() &&
+                    m_Environment.value().prefilteredMap.has_value()) {
+                    pass.bindTexture(
+                        4, m_Environment.value().prefilteredMap.value(),
+                        m_MipmapCubeSampler.value());
+                    pass.bindUniform("u_prefilterMap", 4);
+                } else {
+                    pass.bindTexture(4, m_DefaultPrefilterMap,
+                                     m_MipmapCubeSampler.value());
+                    pass.bindUniform("u_prefilterMap", 4);
+                }
+
+                pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
+                pass.bindUniform("u_brdfLUT", 5);
+
                 pass.bindUniform("u_cameraPos", m_MainCamera.position.x,
                                  m_MainCamera.position.y,
                                  m_MainCamera.position.z);
@@ -1452,27 +2128,72 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                 pass.drawIndexed(mesh.indexCount);
             }
         }
+
+        if (m_Environment.has_value()) {
+            glDepthFunc(GL_LEQUAL);
+            Environment currentEnvironment = m_Environment.value();
+            pipeline.shader = m_SkyboxShader.value();
+            pass.usePipeline(pipeline);
+
+            pass.bindTexture(0, currentEnvironment.cubemap,
+                             m_CubemapSampler.value());
+            pass.bindUniform("u_skybox", 0);
+            pass.bindUniform("u_ViewProjection",
+                             projMatrix * glm::mat4(glm::mat3(viewMatrix)));
+            pass.bindVertexArray(m_SkyboxCube.value());
+            pass.draw(36);
+        }
+        glDepthFunc(GL_LESS);
     }
 
-    glEnable(GL_FRAMEBUFFER_SRGB);
+    context.blitFramebuffer(m_MsaaFramebuffer.handle, m_HdrFramebuffer.handle,
+                            m_ScreenViewport, m_ScreenViewport);
 
-    Viewport fullView = {0, 0, m_ScreenViewport.width, m_ScreenViewport.height};
-    if (msaaActive) {
-        context.blitFramebuffer(m_MsaaFramebuffer.handle, std::nullopt,
-                                fullView, fullView);
+    {
+        Pass hdrPass = context.beginPass(
+            {std::nullopt, m_ClearColor, false, false, m_ScreenViewport});
+        PipelineState hdrPipeline;
+        hdrPipeline.shader = m_HdrShader.value();
+
+        hdrPass.usePipeline(hdrPipeline);
+
+        hdrPass.bindTexture(0, m_HdrFramebuffer.colorAttachment.value(),
+                            m_HdrFramebuffer.colorSampler);
+        hdrPass.bindUniform("u_hdrBuffer", 0);
+        hdrPass.bindUniform("u_gamma", m_Gamma);
+        hdrPass.bindUniform("u_exposure", m_Exposure);
+
+        hdrPass.bindVertexArray(m_ScreenQuad.value());
+        hdrPass.drawIndexed(6);
     }
 
     m_DrawCommandList.clear();
 }
 
-void SYN::gfx::gl::Renderer::setExposure(float exposure) {}
+void SYN::gfx::gl::Renderer::setGamma(float gamma) {
+    m_Gamma = glm::clamp(gamma, MIN_GAMMA, MAX_GAMMA);
+}
+void SYN::gfx::gl::Renderer::setExposure(float exposure) {
+    if (exposure < 0.0f)
+        exposure = 0.0f;
+    m_Exposure = exposure;
+}
 
 void SYN::gfx::gl::Renderer::setBloomEnabled(bool enabled) {}
 
 void SYN::gfx::gl::Renderer::setAntiAliasMode(AntiAliasMode mode) {
     if (m_RenderConfig.aaMode == mode)
         return;
+
+    // MSAA to non-MSAA needs update
+    if (m_RenderConfig.aaMode >= AntiAliasMode::MSAA_2x &&
+        m_RenderConfig.aaMode <= AntiAliasMode::MSAA_8x) {
+        m_MsaaFramebuffer.update = true;
+    }
+
     m_RenderConfig.aaMode = mode;
+
+    // non-MSAA to MSAA needs update
     if (m_RenderConfig.aaMode >= AntiAliasMode::MSAA_2x &&
         m_RenderConfig.aaMode <= AntiAliasMode::MSAA_8x) {
         m_MsaaFramebuffer.update = true;
@@ -1485,6 +2206,7 @@ void SYN::gfx::gl::Renderer::resize(int width, int height) {
     m_ScreenViewport.width = width;
     m_ScreenViewport.height = height;
     m_MsaaFramebuffer.update = true;
+    m_HdrFramebuffer.update = true;
 }
 
 void SYN::gfx::gl::Renderer::setClearColor(const glm::vec4 &clearColor) {
@@ -1504,12 +2226,14 @@ void SYN::gfx::gl::Renderer::bindDirectionalLight(
 SYN::gfx::gl::ShaderCache::ShaderCache() {
     std::fstream vertexFile("resources/shaders/forward.vert");
     if (!vertexFile) {
-        spdlog::error("OpenGL renderer could not open vertex shader.");
+        spdlog::error(
+            "OpenGL renderer could not open vertex shader. (FORWARD)");
         return;
     }
     std::fstream fragmentFile("resources/shaders/forward.frag");
     if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader.");
+        spdlog::error(
+            "OpenGL renderer could not open fragment shader. (FORWARD)");
         return;
     }
     m_VertexSource = std::string(std::istreambuf_iterator<char>(vertexFile),

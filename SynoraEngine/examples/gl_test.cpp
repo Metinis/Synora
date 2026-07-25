@@ -127,9 +127,9 @@ int main(void) {
     image_data =
         stbi_load("resources/textures/missing_texture.png", &x, &y, &nrC, 0);
 
-    glContext.updateTexture(texture, 0, 100, 100, x, y,
+    glContext.updateTexture(texture, 0, 100, 100, x, y, 0,
                             gl::TextureFormat::RGBA8, image_data);
-    glContext.updateTexture(texture, 0, 500, 500, x, y,
+    glContext.updateTexture(texture, 0, 500, 500, x, y, 0,
                             gl::TextureFormat::RGBA8, image_data);
 
     stbi_image_free(image_data);
