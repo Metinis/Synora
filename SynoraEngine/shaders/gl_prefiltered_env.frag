@@ -56,6 +56,10 @@ void main() {
   const uint SAMPLE_COUNT = 1024u;
   float totalWeight = 0.0;
   vec3 prefilteredColor = vec3(0.0);
+
+  float resolution = textureSize(u_hdrMap, 0).x;
+  float saTexel = 4.0 * PI / (6.0 * resolution * resolution);
+
   for (uint i = 0u; i < SAMPLE_COUNT; ++i) {
     vec2 Xi = Hammersley(i, SAMPLE_COUNT);
     vec3 halfwayDir = ImportanceSampleGGX(Xi, normal, u_roughness);
@@ -66,15 +70,12 @@ void main() {
       float NdotH = max(dot(normal, halfwayDir), 0.0);
       float HdotV = max(dot(halfwayDir, viewDir), 0.0);
       float D = DistributionGGX(NdotH, u_roughness);
-      float pdf = (D * NdotH / (4.0 * HdotV)) + 0.0001;
+      float pdf = D * 0.25f;
 
-      float resolution = 512.0;
-      float saTexel = 4.0 * PI / (6.0 * resolution * resolution);
-      float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 0.0001);
-
-      float mipLevel = u_roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel);
-
+      float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
+      float mipLevel = u_roughness == 0.0 ? 0.0 : max(0.5 * log2(saSample / saTexel), 0.0);
       prefilteredColor += textureLod(u_hdrMap, lightDir, mipLevel).rgb * NdotL;
+
       totalWeight += NdotL;
     }
   }

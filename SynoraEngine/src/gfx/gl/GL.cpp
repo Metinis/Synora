@@ -1947,7 +1947,7 @@ SYN::gfx::gl::Renderer::createPrefilteredEnvironmentMap(
         glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
                       glm::vec3(0.0f, -1.0f, 0.0f))};
 
-    uint32_t maxMipCount = 5;
+    uint32_t maxMipCount = 8;
 
     constexpr uint32_t mapResolution = 128;
     Handle<Texture> prefilteredMap =

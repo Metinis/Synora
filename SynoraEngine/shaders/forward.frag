@@ -17,7 +17,7 @@ uniform sampler2D u_metallicRoughness;
 uniform vec3 u_cameraPos;
 
 const float PI = 3.14159265359;
-const float MAX_REFLECTION_LOD = 4.0;
+const float MAX_REFLECTION_LOD = 8.0;
 
 struct DirectionalLight {
   vec3 direction;
@@ -75,6 +75,17 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
   float ggx1 = GeometrySchlickGGX(NdotL, roughness);
 
   return ggx1 * ggx2;
+}
+
+float filterRoughness(vec3 N, float roughness) {
+  const float SIGMA2 = 0.25; // screen-space filter variance
+  const float KAPPA = 0.18; // max added roughness (clamp)
+  vec3 dndx = dFdx(N);
+  vec3 dndy = dFdy(N);
+  float variance = SIGMA2 * (dot(dndx, dndx) + dot(dndy, dndy));
+  float kernelA2 = min(2.0 * variance, KAPPA);
+  float a2 = roughness * roughness;
+  return sqrt(clamp(a2 + kernelA2, 0.0, 1.0));
 }
 
 vec3 getNormal() {
@@ -137,25 +148,6 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
 vec3 getAmbientColor(vec3 objectColor) {
   vec3 normal = getNormal();
   vec3 viewDir = normalize(u_cameraPos - fragPos);
-
-  vec2 metallicRoughness = getMetallicRoughness();
-  float metallic = metallicRoughness.x;
-  float roughness = metallicRoughness.y;
-
-  vec3 F0 = vec3(0.04);
-  F0 = mix(F0, objectColor, metallic);
-  vec3 kS = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
-  vec3 kD = vec3(1.0) - kS;
-  kD *= (1.0 - metallic);
-
-  vec3 irradiance = texture(u_irradianceMap, normal).rgb;
-  vec3 diffuse = irradiance * objectColor;
-  return kD * diffuse;
-}
-
-vec3 getSpecularColor(vec3 objectColor) {
-  vec3 normal = getNormal();
-  vec3 viewDir = normalize(u_cameraPos - fragPos);
   vec2 metallicRoughness = getMetallicRoughness();
 
   float metallic = metallicRoughness.x;
@@ -165,11 +157,20 @@ vec3 getSpecularColor(vec3 objectColor) {
   F0 = mix(F0, objectColor, metallic);
 
   vec3 reflectDir = reflect(-viewDir, normal);
-  vec3 prefilterColor = textureLod(u_prefilterMap, reflectDir, roughness * MAX_REFLECTION_LOD).rgb;
+  vec3 radiance = textureLod(u_prefilterMap, reflectDir, roughness * MAX_REFLECTION_LOD).rgb;
+  vec3 irradiance = texture(u_irradianceMap, normal).rgb;
+
   vec3 F = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
+
   vec2 envBRDF = texture(u_brdfLUT, vec2(max(dot(normal, viewDir), 0.0), roughness)).rg;
-  vec3 specular = prefilterColor * (F * envBRDF.x + envBRDF.y);
-  return specular;
+
+  float ems = 1.0 - (envBRDF.x + envBRDF.y);
+  vec3 fssEss = F * envBRDF.x + envBRDF.y;
+  vec3 fAvg = F0 + (1.0 - F0) / 21.0;
+  vec3 fmsEms = ems * fssEss * fAvg / (1.0 - fAvg * ems);
+  vec3 kd = objectColor * (1.0 - metallic) * (1.0 - fssEss - fmsEms);
+
+  return fssEss * radiance + (kd + fmsEms) * irradiance;
 }
 
 void main() {
@@ -179,7 +180,7 @@ void main() {
 
   vec3 Lo = applyDirectionalLight(u_light, objectColor);
 
-  vec3 finalColor = getAmbientColor(objectColor) + getSpecularColor(objectColor) + Lo;
+  vec3 finalColor = getAmbientColor(objectColor) + Lo;
 
   fragColor = vec4(finalColor, 1.0);
 }
