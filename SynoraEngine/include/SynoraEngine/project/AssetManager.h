@@ -7,9 +7,14 @@
 #include "UUID.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
-
 #include "assimp/material.h"
 #include <assimp/Importer.hpp>
+
+#ifdef SYN_LOG_ASSETS
+    #define SYN_LOG_ASSET(...) spdlog::debug(__VA_ARGS__)
+#else
+    #define SYN_LOG_ASSET(...)
+#endif
 
 struct aiNode;
 struct aiMesh;
@@ -40,7 +45,9 @@ class AssetManager {
         UUID id = generateUUID();
         m_AssetMap[id].data = asset;
         // generate mesh data if we added one
+#ifdef SYN_LOG_ASSETS
         spdlog::debug("Asset added: {}", id);
+#endif
         return id;
     }
 
@@ -50,8 +57,11 @@ class AssetManager {
     void createAsset(T asset, UUID id) {
         m_AssetMap[id].data = asset;
         // generate model data if we added one
+#ifdef SYN_LOG_ASSETS
         spdlog::debug("Asset created: %d", id);
+#endif
     }
+
 
     template <typename T>
         requires isAsset<T>

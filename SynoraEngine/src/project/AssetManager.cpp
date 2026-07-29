@@ -26,7 +26,7 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
     if (m_LoadedUUIDMap.contains(path)) {
         return m_LoadedUUIDMap[path];
     }
-    spdlog::debug("Loading {}", path);
+    SYN_LOG_ASSET("Loading {}", path);
 
     int imageWidth{};
     int imageHeight{};
@@ -56,7 +56,7 @@ SYN::UUID SYN::AssetManager::loadTexture(const std::string &path) {
 
 void SYN::AssetManager::addRef(UUID id) {
     if (m_AssetMap.contains(id)) {
-        spdlog::debug("Asset Manager: {} Ref increased", id);
+        SYN_LOG_ASSET("Asset Manager: {} Ref increased", id);
         if (m_AssetMap[id].ref == 0) {
             // add to renderer if an entity uses it
             auto asset = m_AssetMap[id].data;
@@ -72,7 +72,7 @@ void SYN::AssetManager::addRef(UUID id) {
 
 void SYN::AssetManager::removeRef(UUID id) {
     if (m_AssetMap.contains(id)) {
-        spdlog::debug("Asset Manager: {} Ref decreased", id);
+        SYN_LOG_ASSET("Asset Manager: {} Ref decreased", id);
         m_AssetMap[id].ref--;
         if (m_AssetMap[id].ref == 0) {
             // remove from renderer
@@ -91,10 +91,10 @@ SYN::UUID SYN::AssetManager::loadRawTexture(stbi_uc *data, uint32_t width,
                                             uint32_t height,
                                             const std::string &name) {
     if (m_LoadedUUIDMap.contains(name)) {
-        spdlog::debug("{} was already loaded, cache hit", name);
+        SYN_LOG_ASSET("{} was already loaded, cache hit", name);
         return m_LoadedUUIDMap[name];
     }
-    spdlog::debug("Loading {}", name);
+    SYN_LOG_ASSET("Loading {}", name);
 
     TextureData textureData{
         .width = width,
@@ -113,7 +113,7 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
     if (m_LoadedUUIDMap.contains(name)) {
         return m_LoadedUUIDMap[name];
     }
-    spdlog::debug("Loading {}", name);
+    SYN_LOG_ASSET("Loading {}", name);
 
     int imageWidth{};
     int imageHeight{};
@@ -144,8 +144,7 @@ SYN::UUID SYN::AssetManager::loadTexture(stbi_uc *data, uint32_t size,
 
 void SYN::AssetManager::loadModel(Scene *scene,
                                   const std::filesystem::path &path) {
-    spdlog::debug("Loading {}", path.c_str());
-
+    SYN_LOG_ASSET("Loading {}", path.c_str());
     const aiScene *aiScene{m_Importer.ReadFile(
         path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
                   aiProcess_SortByPType)};

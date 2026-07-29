@@ -28,6 +28,7 @@ class Application {
     void run();
     void shutdown();
     static Application &get() { return *s_Instance; }
+    EngineContext* getCtx() { return &m_EngineContext; }
     virtual ~Application();
 
     std::unique_ptr<Input> &GetInput();

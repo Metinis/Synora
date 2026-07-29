@@ -1,18 +1,21 @@
 #include "SynoraEngine/scene/Scene.h"
 
 #include "../../include/SynoraEngine/renderer/Renderer.h"
-#include "SynoraEngine/core/Input.h"
-#include "SynoraEngine/core/InputContext.h"
-#include "SynoraEngine/core/InputTypes.h"
-#include "SynoraEngine/core/Window.h"
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/scene/Components.h"
 #include "glm/ext.hpp"
-#include "imgui.h"
 #include "renderer/backends/vulkan/Backend.h"
 #include "spdlog/spdlog.h"
+#include <dlfcn.h>
+
+#ifdef SYN_LOG_ENTITY
+    #define SYN_LOG_ENTITY(...) spdlog::debug(__VA_ARGS__)
+#else
+    #define SYN_LOG_ENTITY(...)
+#endif
 
 using namespace SYN;
+namespace fs = std::filesystem;
 
 Scene::Scene() {}
 
@@ -58,10 +61,10 @@ void Scene::onDettach() { spdlog::debug("Scene: Detached"); }
 
 void Scene::onRender() {
     for (auto &e : getEntities<MeshComp>()) {
-        auto &modelComp = e.getComponent<MeshComp>();
+        auto &meshComp = e.getComponent<MeshComp>();
         auto &tc = e.getComponent<TransformComp>();
 
-        m_Renderer->drawMesh(modelComp.id, tc.worldMatrix);
+        m_Renderer->drawMesh(meshComp.id, tc.worldMatrix);
     }
 }
 
@@ -98,6 +101,38 @@ bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {
             break;
     }
     return false;
+}
+//returns success/failure
+bool Scene::loadAllSystems(const std::filesystem::path &path) {
+    //load dlls from path if it exists
+    std::vector<fs::path> libraries;
+
+
+    for (const auto& entry : fs::directory_iterator(path)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".so") {
+            libraries.emplace_back(entry.path());
+            spdlog::debug("Loaded system {}", entry.path().string());
+            void* handle = dlopen(entry.path().c_str(), RTLD_NOW | RTLD_LOCAL);
+
+            if (!handle) {
+                spdlog::error("Failed to load {}: {}", entry.path().c_str(), dlerror());
+                return false;
+            }
+
+            auto create = (ISystem*(*)(EngineContext*))dlsym(handle, "createSystem");
+            //todo assign destroySystem to unique ptr
+
+            std::unique_ptr<ISystem> system(create(Application::get().getCtx()));
+            system->onLoad();
+            m_Systems.push_back(std::move(system));
+
+            spdlog::info("Loaded {}", entry.path().c_str());
+
+        }
+    }
+
+
+    return true;
 }
 
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
@@ -189,7 +224,7 @@ Entity Scene::createEntity(const std::string &tag) {
     auto ent = Entity(&m_SceneState, m_SceneState.registry.create());
     auto id = generateUUID();
     ent.addComponent<UUIDComp>(id);
-    spdlog::debug("Creating entity {}", id);
+    SYN_LOG_ENTITY("Creating entity {}", id);
     ent.addComponent<TagComp>(TagComp{.tag = tag});
     ent.addComponent<TransformComp>();
     m_EntityCache.push_back(ent);
@@ -215,7 +250,7 @@ void Scene::removeEntity(Entity entity) {
         removeEntity(child);
     }
 
-    spdlog::debug("Removing entity {}", entity.getUUID());
+    SYN_LOG_ENTITY("Removing entity {}", entity.getUUID());
     m_SceneState.registry.destroy(entity.getHandle());
 
     m_EntityCache.clear();

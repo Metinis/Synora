@@ -1,4 +1,6 @@
 #pragma once
+#include "ISystem.h"
+
 #include <entt/entt.hpp>
 
 #include "../renderer/Renderer.h"
@@ -24,6 +26,8 @@ class Scene : public ILayer {
     void onUIRender() override {};
     Entity getEntity(UUID id);
     bool isDescendantOf(Entity parent, Entity possibleChild);
+
+    bool loadAllSystems(const std::filesystem::path& path);
 
     bool isValidEntity(Entity entity);
     void onUUIDRemoved(entt::registry& reg, entt::entity e); //same as removing entity
@@ -52,6 +56,8 @@ class Scene : public ILayer {
     std::vector<std::function<void()>> m_OnUpdate;
     std::unordered_map<UUID, Entity> m_EntityUUIDCache;
     std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update
+
+    std::vector<std::unique_ptr<ISystem>> m_Systems{};
 
     friend class Entity;
 };
