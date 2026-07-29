@@ -120,7 +120,9 @@ void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
     Entity ent(&m_SceneState.registry, e);
     if (ent.hasComponent<TransformComp>()) {
-        m_SceneState.registry.get<TransformComp>(e).depth = 0;
+        auto& tc = m_SceneState.registry.get<TransformComp>(e);
+        tc.depth = 0;
+        tc.setLocalMatrix(tc.worldMatrix);
         std::ranges::sort(m_EntityCache, [&](Entity a, Entity b) {
             return a.getComponent<TransformComp>().depth <
                    b.getComponent<TransformComp>().depth;
