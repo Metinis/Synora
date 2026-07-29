@@ -67,14 +67,37 @@ void Scene::onRender() {
 
 void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
+    UUID id = comp.id;
 
-    m_OnUpdate.push_back([&]() { m_AssetManager->addRef(comp.id); });
+    m_OnUpdate.emplace_back([this, id]() {
+        m_AssetManager->addRef(id);
+    });
 }
 
 void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
+    UUID id = comp.id;
 
-    m_OnUpdate.push_back([&]() { m_AssetManager->removeRef(comp.id); });
+    m_OnUpdate.emplace_back([this, id]() {
+        m_AssetManager->removeRef(id);
+    });
+}
+
+bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {
+    if (!possibleChild.hasComponent<ParentComp>())
+        return false;
+
+    auto current = possibleChild;
+    while (current.hasComponent<ParentComp>()) {
+        auto pid = current.getComponent<ParentComp>().id;
+        if (pid == parent.getComponent<UUIDComp>().id)
+            return true;
+
+        current = getEntity(pid);
+        if (!current.isValid())
+            break;
+    }
+    return false;
 }
 
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
@@ -97,7 +120,9 @@ void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
     Entity ent(&m_SceneState.registry, e);
     if (ent.hasComponent<TransformComp>()) {
-        m_SceneState.registry.get<TransformComp>(e).depth = 0;
+        auto& tc = m_SceneState.registry.get<TransformComp>(e);
+        tc.depth = 0;
+        tc.setLocalMatrix(tc.worldMatrix);
         std::ranges::sort(m_EntityCache, [&](Entity a, Entity b) {
             return a.getComponent<TransformComp>().depth <
                    b.getComponent<TransformComp>().depth;

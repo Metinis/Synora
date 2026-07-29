@@ -18,6 +18,11 @@ namespace SYN {
 
         explicit Entity(entt::registry *registry, entt::entity handle);
 
+        void addParent(const ParentComp &pc); //TODO when adding parent, preserve transforms
+        //ParentComp& addParent(UUID parentID);
+
+        //void removeParent();
+
         template<typename T>
         T &getComponent() {
             return m_Registry->get<T>(m_Handle);

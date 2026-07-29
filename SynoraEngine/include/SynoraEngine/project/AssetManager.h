@@ -67,6 +67,18 @@ class AssetManager {
         return nullptr;
     }
 
+    template <typename T>
+    requires isAsset<T>
+    std::vector<UUID> getAssets() {
+        std::vector<UUID> assets{};
+        for (auto& a : m_AssetMap) {
+            if (std::holds_alternative<T>(m_AssetMap[a.first].data)) {
+                assets.push_back(a.first);
+            }
+        }
+        return assets;
+    }
+
     ~AssetManager() = default;
 
   private:
@@ -85,12 +97,10 @@ class AssetManager {
                      const std::string &modelPath);
 
     MeshData processMesh(const aiMesh *mesh, const aiScene *scene,
-                         const std::string &modelPath,
-                         const aiMatrix4x4 &transform);
+                         const std::string &modelPath);
 
     void processNode(Scene *scene, Entity parent, aiNode *node,
-                     const aiScene *aiScene, const std::string &modelPath,
-                     const aiMatrix4x4 &parentTransform);
+                     const aiScene *aiScene, const std::string &modelPath);
 
     std::optional<SYN::UUID> loadMaterial(const aiMesh *mesh,
                                           const aiScene *scene,

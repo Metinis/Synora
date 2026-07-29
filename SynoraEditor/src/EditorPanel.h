@@ -8,9 +8,13 @@ namespace SYN {
 struct EngineContext;
 }
 namespace SYE {
-class ScenePanel : public SYN::ILayer {
+struct PendingReparent {
+    SYN::UUID child;
+    SYN::UUID newParent; //null UUID = unparent
+};
+class EditorPanel : public SYN::ILayer {
 public:
-    ScenePanel() = default;
+    EditorPanel() = default;
     void init(SYN::EngineContext* ctx);
     void onUIRender() override;
     void onAttach() override  {};
@@ -18,10 +22,14 @@ public:
     void onRender() override  {};
     void onUpdate(float dt) override {};
     void drawEntityNode(SYN::Entity entity, std::vector<SYN::Entity>& deletionQueue);
+    void onScenePanelRender();
+    void onInspectorPanelRender();
 
-    ~ScenePanel() override;
+    ~EditorPanel() override;
 private:
-    SYN::Scene* m_Scene;
-    SYN::AssetManager* m_AssetManager;
+    SYN::Entity m_SelectedEntity{};
+    SYN::Scene* m_Scene{};
+    SYN::AssetManager* m_AssetManager{};
+    std::optional<PendingReparent> m_PendingReparent;
 };
 }
