@@ -1,6 +1,7 @@
 set(CMAKE_CXX_STANDARD 23)
 
 set (APPLE_COMPILE_DEFINITIONS)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON) #for scripts to work
 
 if(APPLE)
     # This is to enable VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME to make moltenvk work

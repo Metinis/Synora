@@ -37,3 +37,6 @@ struct CameraComp {
     float farPlane = 100.f;
     bool isPrimary;
 };
+struct Test {
+    int i{};
+};

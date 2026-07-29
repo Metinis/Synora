@@ -53,6 +53,11 @@ void Scene::onUpdate(float dt) {
             tc.worldMatrix = local;
         }
     }
+
+    //update systems
+    for (auto& system : m_Systems) {
+        system->onUpdate(dt);
+    }
 }
 
 void Scene::onAttach() { spdlog::debug("Scene: Attached"); }
@@ -119,10 +124,11 @@ bool Scene::loadAllSystems(const std::filesystem::path &path) {
                 return false;
             }
 
-            auto create = (ISystem*(*)(EngineContext*))dlsym(handle, "createSystem");
+            auto create = (ISystem*(*)())dlsym(handle, "createSystem");
             //todo assign destroySystem to unique ptr
 
-            std::unique_ptr<ISystem> system(create(Application::get().getCtx()));
+            std::unique_ptr<ISystem> system(create());
+            system->init(Application::get().getCtx());
             system->onLoad();
             m_Systems.push_back(std::move(system));
 
@@ -206,6 +212,8 @@ void Scene::init(EngineContext *ctx) {
     c.nearPlane = 0.1;
     c.farPlane = 100.f;
     c.isPrimary = true;
+
+    cam.addComponent<Test>();
 
     auto e1 = createEntity("Parent Entity");
     auto e2 = createEntity("Parent Child Entity");
