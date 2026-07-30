@@ -258,7 +258,7 @@ class GraphicsScene : public SYN::ILayer {
                 m_Renderer.setDirectionalLight(m_Light);
             }
             if (ImGui::SliderFloat("Intensity", &m_Light.intensity, 0.0f,
-                                   10.0f)) {
+                                   10000.0f)) {
                 m_Renderer.setDirectionalLight(m_Light);
             }
             if (ImGui::Checkbox("Cast shadow", &m_Light.castsShadows)) {

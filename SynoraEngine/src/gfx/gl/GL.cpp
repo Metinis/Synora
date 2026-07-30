@@ -515,6 +515,11 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
         }
     }
 
+    if (desc.colorAttachments.empty()) {
+        glNamedFramebufferDrawBuffer(framebuffer.id, GL_NONE);
+        glNamedFramebufferReadBuffer(framebuffer.id, GL_NONE);
+    }
+
     if (glCheckNamedFramebufferStatus(framebuffer.id, GL_FRAMEBUFFER) !=
         GL_FRAMEBUFFER_COMPLETE) {
         return std::nullopt;
@@ -551,6 +556,35 @@ void SYN::gfx::gl::Context::setColorAttachment(Handle<Framebuffer> handle,
     if (glCheckNamedFramebufferStatus(framebufferId, GL_FRAMEBUFFER) !=
         GL_FRAMEBUFFER_COMPLETE) {
         spdlog::error("Unable to set color attachment for framebuffer!");
+    }
+}
+
+void SYN::gfx::gl::Context::setDepthAttachment(Handle<Framebuffer> handle,
+                                               Handle<Texture> texture,
+                                               uint32_t mip,
+                                               std::optional<uint32_t> layer) {
+    std::optional<Framebuffer> framebuffer =
+        m_FramebufferRegistry.getResource(handle);
+    if (!framebuffer.has_value())
+        return;
+    std::optional<Texture> textureOpt = m_TextureRegistry.getResource(texture);
+    if (!textureOpt.has_value())
+        return;
+
+    uint32_t framebufferId = framebuffer.value().id;
+    uint32_t textureId = textureOpt.value().id;
+
+    if (layer.has_value()) {
+        glNamedFramebufferTextureLayer(framebufferId, GL_DEPTH_ATTACHMENT,
+                                       textureId, mip, layer.value());
+    } else {
+        glNamedFramebufferTexture(framebufferId, GL_DEPTH_ATTACHMENT, textureId,
+                                  mip);
+    }
+
+    if (glCheckNamedFramebufferStatus(framebufferId, GL_FRAMEBUFFER) !=
+        GL_FRAMEBUFFER_COMPLETE) {
+        spdlog::error("Unable to set depth attachment for framebuffer!");
     }
 }
 
@@ -1045,6 +1079,16 @@ SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
         }
     }
 
+    if (desc.type == TextureType::Tex2DArray) {
+        glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &texture.id);
+        glTextureStorage3D(texture.id, desc.mipLevel, internalFormat,
+                           desc.width, desc.height, desc.arraySize);
+        if (initialData != nullptr) {
+            glTextureSubImage3D(texture.id, 0, 0, 0, 0, desc.width, desc.height,
+                                desc.arraySize, format, dataType, initialData);
+        }
+    }
+
     if (desc.mipLevel > 1) {
         glGenerateTextureMipmap(texture.id);
     }
@@ -1090,6 +1134,8 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
             return GL_CLAMP_TO_EDGE;
         case WrapMode::Repeat:
             return GL_REPEAT;
+        case WrapMode::ClampToBorder:
+            return GL_CLAMP_TO_BORDER;
         default:
             return GL_MIRRORED_REPEAT;
         }
@@ -1106,6 +1152,8 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
                         getWrapFormat(desc.wrapV));
     glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_R,
                         getWrapFormat(desc.wrapW));
+    glSamplerParameterfv(sampler.id, GL_TEXTURE_BORDER_COLOR,
+                         &desc.borderColor[0]);
 
     // TODO: Allow setting anisotropy level
     float maxAniso = 0.0f;
@@ -1167,7 +1215,8 @@ void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
         glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
                             dataType, data);
     }
-    if (texture.type == TextureType::Cubemap) {
+    if (texture.type == TextureType::Cubemap ||
+        texture.type == TextureType::Tex2DArray) {
         glTextureSubImage3D(texture.id, mipLevel, x, y, face, width, height, 1,
                             glFormat, dataType, data);
     }
@@ -1197,6 +1246,7 @@ void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
 
 SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
     m_RenderConfig = config;
+    setExposure(glm::max(0.0f, config.exposure));
 }
 
 SYN::gfx::gl::Renderer::~Renderer() {}
@@ -1567,6 +1617,33 @@ void SYN::gfx::gl::Renderer::createDefaultPrefilterMap(Context &context) {
                                 .value();
 }
 
+void SYN::gfx::gl::Renderer::createShadowmapShader(Context &context) {
+    if (m_ShadowMapShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/gl_depth_map.vert");
+    if (!vertexFile) {
+        spdlog::error(
+            "OpenGL renderer could not open vertex shader (Depth map).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/gl_depth_map.frag");
+    if (!fragmentFile) {
+        spdlog::error("OpenGL renderer could not open fragment shader "
+                      "(Depth map).");
+        return;
+    }
+
+    m_ShadowMapShader =
+        context
+            .createShader(
+                std::string(std::istreambuf_iterator<char>(vertexFile),
+                            std::istreambuf_iterator<char>()),
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+}
+
 void SYN::gfx::gl::Renderer::init(Context &context) {
     createScreenQuad(context);
     createHdrShader(context);
@@ -1574,6 +1651,55 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     createIrradianceShader(context);
     createPrefilterShader(context);
     createBRDFLutShader(context);
+    createShadowmapShader(context);
+
+    uint32_t shadowmapResolution = m_RenderConfig.shadowMapResolution;
+    m_Shadowmap.depthTexture = context
+                                   .createTexture({
+                                       shadowmapResolution,
+                                       shadowmapResolution,
+                                       TextureFormat::Depth24,
+                                   })
+                                   .value();
+    m_Shadowmap.handle =
+        context
+            .createFramebuffer(
+                {{}, AttachmentDesc{m_Shadowmap.depthTexture}, true})
+            .value();
+
+    m_Shadowmap.shadowSampler = context
+                                    .createSampler({
+                                        SampleFilter::Nearest,
+                                        SampleFilter::Nearest,
+                                        WrapMode::ClampToBorder,
+                                        WrapMode::ClampToBorder,
+                                    })
+                                    .value();
+
+    m_CascadedShadowmap.depthTexture =
+        context
+            .createTexture({shadowmapResolution, shadowmapResolution,
+                            TextureFormat::Depth24, 1, 1,
+                            TextureType::Tex2DArray, m_CascadedShadowmap.count})
+            .value();
+
+    m_CascadedShadowmap.handle =
+        context
+            .createFramebuffer(
+                {{}, AttachmentDesc{m_CascadedShadowmap.depthTexture}, true})
+            .value();
+
+    m_CascadedShadowmap.shadowSampler = context
+                                            .createSampler({
+                                                SampleFilter::Nearest,
+                                                SampleFilter::Nearest,
+                                                WrapMode::ClampToBorder,
+                                                WrapMode::ClampToBorder,
+                                            })
+                                            .value();
+
+    m_CascadedShadowmap.planeDistances.resize(m_CascadedShadowmap.count);
+    m_CascadedShadowmap.lightSpaceMatrices.resize(m_CascadedShadowmap.count);
 
     m_DefaultWhite = createDefaultColoredTexture(context, {255, 255, 255, 255});
     createDefaultPrefilterMap(context);
@@ -2034,6 +2160,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     updateMsaaFramebuffer(context);
     updateHdrFramebuffer(context);
 
+    drawDirectionalCSM(context, m_CascadedShadowmap.handle, m_DirectionalLight);
+
     // Main render pass
     {
         Pass pass = context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor,
@@ -2069,6 +2197,23 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                                  material.tint.b);
                 pass.bindUniform("u_metallic", material.metallic);
                 pass.bindUniform("u_roughness", material.roughness);
+
+                pass.bindTexture(6, m_CascadedShadowmap.depthTexture,
+                                 m_CascadedShadowmap.shadowSampler);
+                pass.bindUniform("u_shadowMap", 6);
+                for (int i = 0;
+                     i < m_CascadedShadowmap.lightSpaceMatrices.size(); ++i) {
+                    pass.bindUniform(std::format("u_lightSpaceMatrices[{}]", i),
+                                     m_CascadedShadowmap.lightSpaceMatrices[i]);
+                }
+                for (int i = 0; i < m_CascadedShadowmap.planeDistances.size();
+                     ++i) {
+                    pass.bindUniform(
+                        std::format("u_cascadePlaneDistances[{}]", i),
+                        m_CascadedShadowmap.planeDistances[i]);
+                }
+                pass.bindUniform("u_View", viewMatrix);
+
                 bindDirectionalLight(pass, m_DirectionalLight);
 
                 Handle<Sampler> sampler = material.sampler.has_value()
@@ -2264,4 +2409,189 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
     m_ShaderCache[featureFlags] =
         context.createShader(fullVertexSrc, fullFragmentSrc).value();
     return m_ShaderCache.at(featureFlags);
+}
+
+std::vector<glm::vec4>
+SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
+    glm::mat4 viewMatrix =
+        glm::lookAtRH(camera.position, camera.target, camera.up);
+
+    glm::mat4 projMatrix = glm::perspectiveRH_NO(
+        glm::radians(camera.fovYDegrees),
+        (float)m_ScreenViewport.width / m_ScreenViewport.height,
+        camera.nearPlane, camera.farPlane);
+
+    glm::mat4 viewProjectionInverse = glm::inverse(projMatrix * viewMatrix);
+    std::vector<glm::vec4> frustumCorners;
+    frustumCorners.reserve(8);
+    for (int x = 0; x < 2; ++x) {
+        for (int y = 0; y < 2; ++y) {
+            for (int z = 0; z < 2; ++z) {
+                glm::vec4 p(x * 2 - 1, y * 2 - 1, z * 2 - 1, 1.0f);
+                p = viewProjectionInverse * p;
+                p /= p.w;
+                frustumCorners.push_back(p);
+            }
+        }
+    }
+    return frustumCorners;
+}
+
+glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
+    const DirectionalLight &light, const Camera &camera) {
+    std::vector<glm::vec4> corners = getFrustumCornersWorldSpace(camera);
+    glm::vec3 center(0.0f);
+    for (const glm::vec4 &p : corners) {
+        center += glm::vec3(p);
+    }
+    center /= corners.size();
+
+    float bound = glm::max(glm::length(corners[0] - corners[7]),
+                           glm::length(corners[1] - corners[7]));
+
+    float halfBound = bound * 0.5f;
+
+    glm::mat4 lightViewMatrix = glm::lookAtRH(center - light.direction, center,
+                                              glm::vec3(0.0f, 1.0f, 0.0f));
+
+    float minZ = std::numeric_limits<float>().max();
+    float maxZ = std::numeric_limits<float>().lowest();
+
+    for (const glm::vec4 &p : corners) {
+        glm::vec3 pLight = lightViewMatrix * p;
+        minZ = glm::min(minZ, pLight.z);
+        maxZ = glm::max(maxZ, pLight.z);
+    }
+
+    minZ -= bound;
+    maxZ += bound;
+
+    glm::mat4 lightProjection = glm::orthoRH_NO(
+        -halfBound, halfBound, -halfBound, halfBound, -maxZ, -minZ);
+
+    float res = m_RenderConfig.shadowMapResolution;
+    glm::mat4 shadowMatrix = lightProjection * lightViewMatrix;
+    glm::vec4 shadowOrigin = shadowMatrix * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    shadowOrigin *= res * 0.5f;
+    glm::vec4 rounded = glm::round(shadowOrigin);
+    glm::vec4 offset = (rounded - shadowOrigin) * (2.0f / res);
+    offset.z = 0.0f;
+    offset.w = 0.0f;
+    lightProjection[3] += offset;
+
+    return lightProjection * lightViewMatrix;
+}
+
+glm::mat4 SYN::gfx::gl::Renderer::calculateLightSpaceMatrix(
+    const DirectionalLight &light) {
+    Camera camera = m_MainCamera;
+    camera.nearPlane = 0.1f;
+    camera.farPlane = 10.0f;
+    return calculateTightLightFrustum(light, camera);
+}
+
+void SYN::gfx::gl::Renderer::drawDirectionalShadowMap(
+    Context &context, Handle<Framebuffer> shadowmap,
+    const DirectionalLight &light) {
+
+    glm::mat4 lightSpaceMatrix = calculateLightSpaceMatrix(light);
+
+    uint32_t shadowResolution = m_RenderConfig.shadowMapResolution;
+    Pass pass =
+        context.beginPass({shadowmap, std::nullopt, true, false,
+                           Viewport{0, 0, shadowResolution, shadowResolution}});
+    PipelineState pipeline;
+    pipeline.shader = m_ShadowMapShader.value();
+    pass.usePipeline(pipeline);
+
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.875, 2.375);
+
+    pass.bindUniform("u_lightSpaceMatrix", lightSpaceMatrix);
+    for (const DrawCommand &cmd : m_DrawCommandList) {
+        Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
+        for (const Mesh &mesh : model.meshes) {
+            Handle<Sampler> sampler =
+                mesh.material.sampler.value_or(m_DefaultSampler.value());
+
+            Handle<Texture> albedo =
+                mesh.material.albedo.value_or(m_DefaultWhite);
+
+            pass.bindTexture(0, albedo, sampler);
+            pass.bindUniform("u_albedoTexture", 0);
+            pass.bindUniform("u_modelMatrix",
+                             cmd.transform * mesh.localTransform);
+            pass.bindVertexArray(mesh.vao);
+            pass.drawIndexed(mesh.indexCount);
+        }
+    }
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+}
+
+void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
+                                                Handle<Framebuffer> shadowmap,
+                                                const DirectionalLight &light) {
+    Camera camera = m_MainCamera;
+
+    std::vector<float> splits(m_CascadedShadowmap.count + 1);
+    splits[0] = camera.nearPlane;
+    float shadowDist = m_RenderConfig.shadowDistance;
+    splits[m_CascadedShadowmap.count] = shadowDist;
+    float numMaps = m_CascadedShadowmap.count;
+    for (uint32_t i = 1; i < numMaps; ++i) {
+        float t = i / (float)numMaps;
+        float logC =
+            camera.nearPlane * glm::pow(shadowDist / camera.nearPlane, t);
+        float uniformC = camera.nearPlane + (shadowDist - camera.nearPlane) * t;
+        splits[i] = glm::mix(uniformC, logC, 0.5f);
+    }
+
+    for (uint32_t i = 0; i < numMaps; ++i) {
+        camera.nearPlane = splits[i];
+        camera.farPlane = splits[i + 1];
+        m_CascadedShadowmap.lightSpaceMatrices[i] =
+            calculateTightLightFrustum(light, camera);
+        m_CascadedShadowmap.planeDistances[i] = splits[i + 1];
+    }
+
+    uint32_t shadowResolution = m_RenderConfig.shadowMapResolution;
+
+    PipelineState pipeline;
+    pipeline.shader = m_ShadowMapShader.value();
+
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.875, 2.375);
+
+    for (uint32_t i = 0; i < m_CascadedShadowmap.count; ++i) {
+        context.setDepthAttachment(m_CascadedShadowmap.handle,
+                                   m_CascadedShadowmap.depthTexture, 0, i);
+        Pass pass = context.beginPass(
+            {m_CascadedShadowmap.handle, std::nullopt, true, false,
+             Viewport{0, 0, shadowResolution, shadowResolution}});
+
+        pass.usePipeline(pipeline);
+        pass.bindUniform("u_lightSpaceMatrix",
+                         m_CascadedShadowmap.lightSpaceMatrices[i]);
+
+        for (const DrawCommand &cmd : m_DrawCommandList) {
+            Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
+            for (const Mesh &mesh : model.meshes) {
+                Handle<Sampler> sampler =
+                    mesh.material.sampler.value_or(m_DefaultSampler.value());
+
+                Handle<Texture> albedo =
+                    mesh.material.albedo.value_or(m_DefaultWhite);
+
+                pass.bindTexture(0, albedo, sampler);
+                pass.bindUniform("u_albedoTexture", 0);
+                pass.bindUniform("u_modelMatrix",
+                                 cmd.transform * mesh.localTransform);
+                pass.bindVertexArray(mesh.vao);
+                pass.drawIndexed(mesh.indexCount);
+            }
+        }
+    }
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
 }

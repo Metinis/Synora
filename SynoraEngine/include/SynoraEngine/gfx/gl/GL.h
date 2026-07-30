@@ -29,7 +29,12 @@ enum class SampleFilter : uint8_t {
     Nearest_Mipmap_Nearest,
     Linear_Mipmap_Linear,
 };
-enum class WrapMode : uint8_t { ClampToEdge, Repeat, MirroredRepeat };
+enum class WrapMode : uint8_t {
+    ClampToEdge,
+    Repeat,
+    MirroredRepeat,
+    ClampToBorder
+};
 enum class TextureFormat : uint8_t {
     RGBA8,
     RGB8,
@@ -48,7 +53,7 @@ enum class TextureFormat : uint8_t {
 };
 enum class PrimitiveTopology : uint8_t { Triangles, Lines, Points };
 
-enum class TextureType : uint8_t { Tex2D, Cubemap };
+enum class TextureType : uint8_t { Tex2D, Cubemap, Tex2DArray };
 
 enum class VertexFormat : uint8_t {
     Float1,
@@ -227,6 +232,7 @@ struct TextureDesc {
     uint32_t mipLevel = 1;
     uint32_t sampleCount = 1;
     TextureType type = TextureType::Tex2D;
+    uint32_t arraySize = 0;
 };
 
 struct SamplerDesc {
@@ -235,6 +241,7 @@ struct SamplerDesc {
     WrapMode wrapU = WrapMode::Repeat;
     WrapMode wrapV = WrapMode::Repeat;
     WrapMode wrapW = WrapMode::Repeat;
+    glm::vec4 borderColor = glm::vec4(1.0f);
 };
 
 struct RenderbufferDesc {
@@ -519,6 +526,10 @@ class Context {
                             Handle<Texture> texture, uint32_t mip = 0,
                             std::optional<uint32_t> layer = std::nullopt);
 
+    void setDepthAttachment(Handle<Framebuffer> handle, Handle<Texture> texture,
+                            uint32_t mip = 0,
+                            std::optional<uint32_t> layer = std::nullopt);
+
     // TODO: Allow configuration of defaults: mask(GL_COLOR_BUFFER_BIT),
     // filter(GL_NEAREST). Currently only for MSAA.
     void blitFramebuffer(std::optional<Handle<Framebuffer>> readHandle,
@@ -711,6 +722,37 @@ class Renderer {
     std::optional<Handle<Sampler>> m_DefaultSampler;
     std::optional<Handle<Sampler>> m_CubemapSampler;
     std::optional<Handle<Sampler>> m_MipmapCubeSampler;
+
+  private:
+    void drawDirectionalShadowMap(Context &context,
+                                  Handle<Framebuffer> shadowmap,
+                                  const DirectionalLight &light);
+    void drawDirectionalCSM(Context &context, Handle<Framebuffer> shadowmap,
+                            const DirectionalLight &light);
+    // Only for single directional light source.
+    // Will change when more lights are supported.
+    struct {
+        Handle<Framebuffer> handle;
+        Handle<Texture> depthTexture;
+        Handle<Sampler> shadowSampler;
+    } m_Shadowmap;
+
+    struct {
+        Handle<Framebuffer> handle;
+        Handle<Texture> depthTexture;
+        Handle<Sampler> shadowSampler;
+        uint32_t count = 3;
+        std::vector<float> planeDistances;
+        std::vector<glm::mat4> lightSpaceMatrices;
+    } m_CascadedShadowmap;
+
+    std::optional<Handle<Shader>> m_ShadowMapShader;
+    void createShadowmapShader(Context &context);
+
+    std::vector<glm::vec4> getFrustumCornersWorldSpace(const Camera &camera);
+    glm::mat4 calculateTightLightFrustum(const DirectionalLight &light,
+                                         const Camera &camera);
+    glm::mat4 calculateLightSpaceMatrix(const DirectionalLight &light);
 
   private:
     std::vector<DrawCommand> m_DrawCommandList;

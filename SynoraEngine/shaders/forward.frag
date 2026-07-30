@@ -27,6 +27,10 @@ struct DirectionalLight {
 };
 
 uniform DirectionalLight u_light;
+uniform sampler2DArray u_shadowMap;
+uniform mat4 u_View;
+uniform mat4 u_lightSpaceMatrices[3];
+uniform float u_cascadePlaneDistances[3];
 
 #ifdef FEATURE_NORMAL
 uniform sampler2D u_normalMap;
@@ -77,27 +81,45 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
   return ggx1 * ggx2;
 }
 
-float filterRoughness(vec3 N, float roughness) {
-  const float SIGMA2 = 0.25; // screen-space filter variance
-  const float KAPPA = 0.18; // max added roughness (clamp)
-  vec3 dndx = dFdx(N);
-  vec3 dndy = dFdy(N);
-  float variance = SIGMA2 * (dot(dndx, dndx) + dot(dndy, dndy));
-  float kernelA2 = min(2.0 * variance, KAPPA);
-  float a2 = roughness * roughness;
-  return sqrt(clamp(a2 + kernelA2, 0.0, 1.0));
-}
-
-vec3 getNormal() {
+// No variance without normal map
+vec3 getNormalAvg() {
   #ifdef FEATURE_NORMAL
-  vec3 mapNormal = texture(u_normalMap, fragTexCoords).xyz;
-  mapNormal = normalize(TBN * (mapNormal * 2.f - 1.f));
+  vec3 mapNormal = texture(u_normalMap, fragTexCoords).xyz * 2.f - 1.f;
   vec3 normal = mapNormal;
   #else
   vec3 normal = normalize(fragNormal);
   #endif
 
   return normal;
+}
+
+vec3 getNormal() {
+  #ifdef FEATURE_NORMAL
+  vec3 mapNormal = texture(u_normalMap, fragTexCoords).xyz * 2.f - 1.f;
+  vec3 normal = normalize(TBN * mapNormal);
+  #else
+  vec3 normal = normalize(fragNormal);
+  #endif
+
+  return normal;
+}
+
+float roughnessAA(vec3 normal, float roughness) {
+  float sigma = 0.5;
+  float sigma2 = sigma * sigma;
+  float kappa = 0.4;
+
+  vec3 dndu = dFdx(normal), dndv = dFdy(normal);
+
+  float variance = sigma2 * (dot(dndu, dndu) + dot(dndv, dndv));
+
+  vec3 Na = getNormalAvg();
+  float toksvigVariance = 1 - dot(Na, Na);
+
+  float roughness2 = roughness * roughness;
+  float kernelRoughness2 = min(2.0 * variance + toksvigVariance, kappa);
+
+  return sqrt(clamp(roughness2 + kernelRoughness2, 0.0, 1.0));
 }
 
 vec2 getMetallicRoughness() {
@@ -109,9 +131,80 @@ vec2 getMetallicRoughness() {
   metallic *= texture(u_metallicRoughness, fragTexCoords).b;
   #endif
 
-  roughness = clamp(roughness, 0.045, 1.0);
+  roughness = clamp(roughness, 0.08, 1.0);
 
   return vec2(metallic, roughness);
+}
+
+vec2 poissonDisk[16] = vec2[](
+    vec2(-0.94201624, -0.39906216),
+    vec2(0.94558609, -0.76890725),
+    vec2(-0.094184101, -0.92938870),
+    vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432),
+    vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543, 0.27676845),
+    vec2(0.97484398, 0.75648379),
+    vec2(0.44323325, -0.97511554),
+    vec2(0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023),
+    vec2(0.79197514, 0.19090188),
+    vec2(-0.24188840, 0.99706507),
+    vec2(-0.81409955, 0.91437590),
+    vec2(0.19984126, 0.78641367),
+    vec2(0.14383161, -0.14100790)
+  );
+
+// Returns a random number based on a vec3 and an int.
+float random(vec3 seed, int i) {
+  vec4 seed4 = vec4(seed, i);
+  float dot_product = dot(seed4, vec4(12.9898, 78.233, 45.164, 94.673));
+  return fract(sin(dot_product) * 43758.5453);
+}
+
+float getShadow(vec3 lightDir) {
+  vec4 fragPosViewSpace = u_View * vec4(fragPos, 1.0);
+  float depth = abs(fragPosViewSpace.z);
+
+  int layer = 2;
+  for (int i = 0; i < 3; ++i) {
+    if (depth < u_cascadePlaneDistances[i]) {
+      layer = i;
+      break;
+    }
+  }
+  vec4 lightSpaceFragPos = u_lightSpaceMatrices[layer] * vec4(fragPos, 1.0);
+
+  vec3 p = lightSpaceFragPos.xyz / lightSpaceFragPos.w;
+  p = p * 0.5 + 0.5;
+
+  if (p.z > 1.0) return 0.0f;
+
+  float currentDepth = p.z;
+
+  int maxSamples = 16;
+  int nrSamples = 0;
+  float shadow = 0.0f;
+  vec2 texelSize = 1.0 / vec2(textureSize(u_shadowMap, 0));
+  float spread = 1.0f;
+
+  float angle = random(floor(fragPos.xyz * 1000.0), 0) * 2.0 * PI;
+  float s = sin(angle), c = cos(angle);
+
+  for (int i = 0; i < maxSamples; ++i) {
+    ++nrSamples;
+    vec2 rotatedDisk = vec2(
+        poissonDisk[i].x * c - poissonDisk[i].y * s,
+        poissonDisk[i].x * s + poissonDisk[i].y * c
+      );
+    float closestDepth = texture(u_shadowMap, vec3(vec2(p.xy + rotatedDisk * spread * texelSize), layer)).r;
+    shadow += currentDepth > closestDepth ? 1.0 : 0.0f;
+    if (i == 3 && (shadow == 0 || shadow == 4.0f)) break;
+  }
+
+  shadow /= nrSamples;
+
+  return shadow;
 }
 
 vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
@@ -120,11 +213,11 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   vec3 halfwayDir = normalize(lightDir + viewDir);
   vec3 radiance = light.color * light.intensity;
 
+  vec3 normal = getNormal();
+
   vec2 metallicRoughness = getMetallicRoughness();
   float metallic = metallicRoughness.x;
-  float roughness = metallicRoughness.y;
-
-  vec3 normal = getNormal();
+  float roughness = roughnessAA(normal, metallicRoughness.y);
 
   vec3 F0 = vec3(0.04);
   F0 = mix(F0, objectColor, metallic);
@@ -142,7 +235,7 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   vec3 specular = numerator / denominator;
 
   float NdotL = max(dot(normal, lightDir), 0.0);
-  return (kD * objectColor / PI + specular) * radiance * NdotL;
+  return (kD * objectColor / PI + specular) * radiance * NdotL * (1.0 - getShadow(lightDir));
 }
 
 vec3 getAmbientColor(vec3 objectColor) {
@@ -151,7 +244,7 @@ vec3 getAmbientColor(vec3 objectColor) {
   vec2 metallicRoughness = getMetallicRoughness();
 
   float metallic = metallicRoughness.x;
-  float roughness = metallicRoughness.y;
+  float roughness = roughnessAA(normal, metallicRoughness.y);
 
   vec3 F0 = vec3(0.04);
   F0 = mix(F0, objectColor, metallic);
