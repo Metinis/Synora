@@ -15,7 +15,6 @@
 #endif
 
 using namespace SYN;
-namespace fs = std::filesystem;
 
 Scene::Scene() {}
 
@@ -54,15 +53,13 @@ void Scene::onUpdate(float dt) {
         }
     }
 
-    //update systems
-    for (auto& system : m_Systems) {
-        system->onUpdate(dt);
-    }
+    //m_ScriptManager.update(dt);
+
 }
 
 void Scene::onAttach() { spdlog::debug("Scene: Attached"); }
 
-void Scene::onDettach() { spdlog::debug("Scene: Detached"); }
+void Scene::onDetach() { spdlog::debug("Scene: Detached"); }
 
 void Scene::onRender() {
     for (auto &e : getEntities<MeshComp>()) {
@@ -106,39 +103,6 @@ bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {
             break;
     }
     return false;
-}
-//returns success/failure
-bool Scene::loadAllSystems(const std::filesystem::path &path) {
-    //load dlls from path if it exists
-    std::vector<fs::path> libraries;
-
-
-    for (const auto& entry : fs::directory_iterator(path)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".so") {
-            libraries.emplace_back(entry.path());
-            spdlog::debug("Loaded system {}", entry.path().string());
-            void* handle = dlopen(entry.path().c_str(), RTLD_NOW | RTLD_LOCAL);
-
-            if (!handle) {
-                spdlog::error("Failed to load {}: {}", entry.path().c_str(), dlerror());
-                return false;
-            }
-
-            auto create = (ISystem*(*)())dlsym(handle, "createSystem");
-            //todo assign destroySystem to unique ptr
-
-            std::unique_ptr<ISystem> system(create());
-            system->init(Application::get().getCtx());
-            system->onLoad();
-            m_Systems.push_back(std::move(system));
-
-            spdlog::info("Loaded {}", entry.path().c_str());
-
-        }
-    }
-
-
-    return true;
 }
 
 void Scene::onParentAdded(entt::registry &reg, entt::entity e) {

@@ -26,6 +26,7 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../include
   ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/tinyfiledialogs
   ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/stb
+  ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/efsw
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../src
   ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/imgui
@@ -45,6 +46,7 @@ target_link_libraries(
   assimp
   imgui
   tinyfiledialogs
+  efsw
 )
 
 # This is to make the projection matrices in glm work with vulkan

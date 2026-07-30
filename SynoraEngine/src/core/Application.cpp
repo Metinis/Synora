@@ -8,12 +8,10 @@
 #include "scene/CameraSystem.h"
 #include <GLFW/glfw3.h>
 #include <SynoraEngine/core/Application.h>
-
-#include "../../../SynoraSandbox/cmake-build-debug/_deps/synoraengine-src/SynoraEngine/3rdparty/tinyfiledialogs/tinyfiledialogs.h"
-
 #include <SynoraEngine/core/Input.h>
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
+#include "scene/ScriptManager.h"
 
 using namespace SYN;
 
@@ -26,6 +24,8 @@ Application::Application() {
     m_EngineContext.renderer = std::make_unique<Renderer>();
     m_EngineContext.scene = std::make_unique<Scene>();
     m_EngineContext.cameraSystem = std::make_unique<CameraSystem>();
+    m_EngineContext.scriptManager = std::make_unique<ScriptManager>();
+    m_EngineContext.fileWatcher = std::make_unique<efsw::FileWatcher>();
 
     ProjectConfig projectConfig{
         .resourceRoot = "", // todo add root
@@ -45,17 +45,13 @@ void Application::init() {
     m_EngineContext.renderer->init(&m_EngineContext);
     m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
     m_EngineContext.scene->init(&m_EngineContext);
-
-    std::string currentDir = std::filesystem::current_path().string();
-    if (const char *folder = tinyfd_selectFolderDialog("Select Game Folder",
-                                                       currentDir.c_str())) {
-        m_EngineContext.scene->loadAllSystems(folder);
-    }
-
+    m_EngineContext.scriptManager->init(&m_EngineContext);
     m_EngineContext.cameraSystem->init(&m_EngineContext);
+    m_EngineContext.fileWatcher->watch();
 
     m_Layers.push_back(m_EngineContext.scene.get());
     m_Layers.push_back(m_EngineContext.cameraSystem.get());
+    m_Layers.push_back(m_EngineContext.scriptManager.get());
 }
 
 void Application::run() {

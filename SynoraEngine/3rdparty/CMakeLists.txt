@@ -22,6 +22,7 @@ add_subdirectory(JoltPhysics/Build)
 add_subdirectory(glm)
 add_subdirectory(VulkanMemoryAllocator)
 add_subdirectory(assimp)
+add_subdirectory(efsw)
 
 add_library(imgui STATIC
         imgui/imgui.cpp

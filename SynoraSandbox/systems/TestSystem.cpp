@@ -19,3 +19,7 @@ void TestSystem::onUnload() {
 extern "C" SYN::ISystem* createSystem() {
     return new TestSystem();
 }
+
+extern "C" void destroySystem(SYN::ISystem* system) {
+    delete system;
+}

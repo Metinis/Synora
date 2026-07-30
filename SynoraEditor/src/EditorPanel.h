@@ -18,7 +18,7 @@ public:
     void init(SYN::EngineContext* ctx);
     void onUIRender() override;
     void onAttach() override  {};
-    void onDettach() override  {};
+    void onDetach() override  {};
     void onRender() override  {};
     void onUpdate(float dt) override {};
     void drawEntityNode(SYN::Entity entity, std::vector<SYN::Entity>& deletionQueue);

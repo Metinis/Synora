@@ -15,3 +15,7 @@ extern "C" {
     SYN::ISystem* createSystem();
 }
 
+extern "C" {
+    void destroySystem(SYN::ISystem* system);
+}
+

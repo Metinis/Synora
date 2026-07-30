@@ -11,7 +11,7 @@ namespace SYN {
         Entity getCameraEntity();
         Camera getCamera();
         void onAttach() override;
-        void onDettach() override;
+        void onDetach() override;
         void onUpdate(float dt) override;
         void onRender() override;
         void onUIRender() override;

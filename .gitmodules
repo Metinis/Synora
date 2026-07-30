@@ -28,3 +28,6 @@
 [submodule "SynoraEngine/3rdparty/imgui"]
 	path = SynoraEngine/3rdparty/imgui
 	url = https://github.com/ocornut/imgui
+[submodule "SynoraEngine/3rdparty/efsw"]
+	path = SynoraEngine/3rdparty/efsw
+	url = https://github.com/SpartanJ/efsw

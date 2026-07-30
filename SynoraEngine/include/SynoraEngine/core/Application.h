@@ -1,6 +1,7 @@
 #pragma once
 #include "Layer.h"
 #include "SynoraEngine/project/Project.h"
+#include "efsw/efsw.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 
 
@@ -10,8 +11,7 @@ class Input;
 class Renderer;
 class Scene;
 class CameraSystem;
-
-
+class ScriptManager;
 
 struct EngineContext {
     std::unique_ptr<Window> window;
@@ -19,6 +19,8 @@ struct EngineContext {
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<Scene> scene;
     std::unique_ptr<CameraSystem> cameraSystem;
+    std::unique_ptr<ScriptManager> scriptManager;
+    std::unique_ptr<efsw::FileWatcher> fileWatcher;
     ProjectConfig projectConfig;
 };
 class Application {

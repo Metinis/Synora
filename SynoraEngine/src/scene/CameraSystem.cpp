@@ -54,7 +54,7 @@ SYN::Camera SYN::CameraSystem::getCamera() {
 
 void SYN::CameraSystem::onAttach() { spdlog::debug("Camera System: Attached"); }
 
-void SYN::CameraSystem::onDettach() {
+void SYN::CameraSystem::onDetach() {
     spdlog::debug("Camera System: Detached");
 }
 

@@ -11,15 +11,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
-# Find all systems
 file(GLOB_RECURSE SYSTEM_SOURCES
         CONFIGURE_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/systems/*.cpp
 )
 
 
-# Engine dependency
 if(NOT TARGET SynoraEngine)
 
     include(FetchContent)
@@ -35,13 +32,12 @@ if(NOT TARGET SynoraEngine)
 endif()
 
 
+set(SYSTEM_MANIFEST "")
+
 foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
 
     get_filename_component(SYSTEM_NAME ${SYSTEM_FILE} NAME_WE)
     get_filename_component(SYSTEM_DIR ${SYSTEM_FILE} DIRECTORY)
-
-    message(STATUS "Creating DLL: ${SYSTEM_NAME}")
-    message(STATUS "Output: ${SYSTEM_DIR}")
 
     add_library(${SYSTEM_NAME} SHARED
             ${SYSTEM_FILE}
@@ -49,17 +45,6 @@ foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
 
     set_target_properties(${SYSTEM_NAME} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY ${SYSTEM_DIR}
-    )
-
-    target_include_directories(${SYSTEM_NAME}
-            PUBLIC
-            ${CMAKE_CURRENT_SOURCE_DIR}
-            ${CMAKE_CURRENT_SOURCE_DIR}/systems
-    )
-
-    target_link_libraries(${SYSTEM_NAME}
-            PRIVATE
-            SynoraEngine
     )
 
     if(WIN32)
@@ -73,4 +58,34 @@ foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
         )
     endif()
 
+    target_include_directories(${SYSTEM_NAME}
+            PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/systems
+    )
+
+    target_link_libraries(${SYSTEM_NAME}
+            PRIVATE
+            SynoraEngine
+    )
+
+    string(APPEND SYSTEM_MANIFEST
+            "    {
+        \"name\": \"${SYSTEM_NAME}\",
+        \"source\": \"${SYSTEM_FILE}\",
+        \"library\": \"$<TARGET_FILE:${SYSTEM_NAME}>\"
+    },\n"
+    )
+
 endforeach()
+
+string(REGEX REPLACE ",\n$" "\n" SYSTEM_MANIFEST "${SYSTEM_MANIFEST}")
+
+file(GENERATE
+        OUTPUT "${CMAKE_BINARY_DIR}/systems.json"
+        CONTENT
+        "[
+${SYSTEM_MANIFEST}
+]
+"
+)
