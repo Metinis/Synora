@@ -2,7 +2,7 @@
 #include "SynoraEngine/core/Application.h"
 
 namespace SYE {
-class ScenePanel;
+class EditorPanel;
 
 class EditorApp : public SYN::Application {
     public:
@@ -10,6 +10,6 @@ class EditorApp : public SYN::Application {
     void init() override;
     ~EditorApp() override;
     private:
-    std::unique_ptr<ScenePanel> m_ScenePanel{};
+    std::unique_ptr<EditorPanel> m_ScenePanel{};
     };
 }

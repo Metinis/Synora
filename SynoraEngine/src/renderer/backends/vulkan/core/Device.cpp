@@ -37,7 +37,7 @@ Device VK::createDevice(VkInstance instance, VkSurfaceKHR surface) {
         .shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
         .shaderStorageBufferArrayNonUniformIndexing = VK_TRUE,
         .shaderStorageImageArrayNonUniformIndexing = VK_TRUE,
-        .descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE,
+        //.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE, //sry my gtx1070ti doesnt support
         .descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
         .descriptorBindingStorageImageUpdateAfterBind = VK_TRUE,
         .descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE,
@@ -125,7 +125,7 @@ VkPhysicalDevice selectPhysicalDevice(VkInstance instance,
             features12.shaderSampledImageArrayNonUniformIndexing &&
             features12.shaderStorageBufferArrayNonUniformIndexing &&
             features12.shaderStorageImageArrayNonUniformIndexing &&
-            features12.descriptorBindingUniformBufferUpdateAfterBind &&
+            //features12.descriptorBindingUniformBufferUpdateAfterBind && sry my 1070ti doesn't support
             features12.descriptorBindingSampledImageUpdateAfterBind &&
             features12.descriptorBindingStorageImageUpdateAfterBind &&
             features12.descriptorBindingStorageBufferUpdateAfterBind &&
@@ -146,15 +146,19 @@ VkPhysicalDevice selectPhysicalDevice(VkInstance instance,
         uint32_t currentDeviceScore{};
         switch (physicalDeviceProps.deviceType) {
         case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+            spdlog::debug("Found discrete GPU");
             currentDeviceScore += 10000;
             break;
         case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+            spdlog::debug("Found integrated GPU");
             currentDeviceScore += 1000;
             break;
         case VK_PHYSICAL_DEVICE_TYPE_CPU:
+            spdlog::debug("Found CPU");
             currentDeviceScore += 100;
             break;
         case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+            spdlog::debug("Found Virtual GPU");
             currentDeviceScore += 10;
             break;
         default:

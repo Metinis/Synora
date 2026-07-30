@@ -23,8 +23,6 @@ struct TextureData {
 struct MeshData {
     std::vector<Vertex> vertices; // these are relative to some parent
     std::vector<uint32_t> indices;
-    glm::mat4 localTransform; // brings vertices from relative to parent to
-                              // relative to world space
 
     TextureData *albedo;
     TextureData *metallicRoughness;

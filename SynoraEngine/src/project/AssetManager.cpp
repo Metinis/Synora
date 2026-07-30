@@ -5,8 +5,10 @@
 #include "assimp/material.h"
 #include "assimp/mesh.h"
 #include "assimp/postprocess.h"
+#include "glm/gtx/matrix_decompose.hpp"
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+
 
 void SYN::AssetManager::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
@@ -63,7 +65,7 @@ void SYN::AssetManager::addRef(UUID id) {
             }
         }
         m_AssetMap[id].ref++;
-    } else {
+    } else if (id != 0){
         spdlog::warn("Asset Manager: Could not add ref {}, asset missing", id);
     }
 }
@@ -79,7 +81,7 @@ void SYN::AssetManager::removeRef(UUID id) {
                 m_Renderer->removeMesh(id);
             }
         }
-    } else {
+    } else if (id != 0){
         spdlog::warn("Asset Manager: Could not remove ref {}, asset missing",
                      id);
     }
@@ -154,12 +156,10 @@ void SYN::AssetManager::loadModel(Scene *scene,
     }
 
     std::vector<MeshData> meshes{};
-    aiMatrix4x4 origin{};
-    aiIdentityMatrix4(&origin);
     Entity parent = scene->createEntity();
     // std::string entName = path.substr(0, path.find_last_of('/'));
     parent.getComponent<TagComp>() = TagComp{.tag = path.stem().string()};
-    processNode(scene, parent, aiScene->mRootNode, aiScene, path, origin);
+    processNode(scene, parent, aiScene->mRootNode, aiScene, path);
 }
 
 SYN::AssetManager::Material
@@ -208,15 +208,8 @@ SYN::AssetManager::processMaterials(const aiMesh *mesh, const aiScene *scene,
 
 SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
                                              const aiScene *scene,
-                                             const std::string &modelPath,
-                                             const aiMatrix4x4 &transform) {
-    SYN::MeshData processedMesh{
-        .localTransform =
-            glm::mat4(transform.a1, transform.b1, transform.c1, transform.d1,
-                      transform.a2, transform.b2, transform.c2, transform.d2,
-                      transform.a3, transform.b3, transform.c3, transform.d3,
-                      transform.a4, transform.b4, transform.c4, transform.d4),
-    };
+                                             const std::string &modelPath) {
+    SYN::MeshData processedMesh{};
 
     Material material{processMaterials(mesh, scene, modelPath)};
 
@@ -271,11 +264,26 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
 }
 void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
                                     const aiScene *aiScene,
-                                    const std::string &modelPath,
-                                    const aiMatrix4x4 &parentTransform) {
-    aiMatrix4x4 transform = parentTransform * node->mTransformation;
+                                    const std::string &modelPath) {
+    aiMatrix4x4 transform = node->mTransformation;
+
+    auto transformm = glm::mat4(transform.a1, transform.b1, transform.c1, transform.d1,
+                      transform.a2, transform.b2, transform.c2, transform.d2,
+                      transform.a3, transform.b3, transform.c3, transform.d3,
+                      transform.a4, transform.b4, transform.c4, transform.d4);
+
+    glm::vec3 scale;
+    glm::quat rotation;
+    glm::vec3 translation;
+    glm::vec3 skew;
+    glm::vec4 perspective;
+
+    glm::decompose(transformm, scale, rotation, translation, skew, perspective);
 
     auto childEntity = scene->createEntity(node->mName.C_Str());
+    childEntity.getComponent<TransformComp>().position = translation;
+    childEntity.getComponent<TransformComp>().rotation = rotation;
+    childEntity.getComponent<TransformComp>().scale = scale;
     childEntity.addComponent<ParentComp>(
         ParentComp{.id = parent.getComponent<UUIDComp>().id});
 
@@ -283,7 +291,7 @@ void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
         aiMesh *mesh = aiScene->mMeshes[node->mMeshes[i]];
         UUID uuid{generateUUID()};
         m_AssetMap[uuid].data =
-            processMesh(mesh, aiScene, modelPath, transform);
+            processMesh(mesh, aiScene, modelPath);
         m_LoadedUUIDMap[modelPath] = uuid;
         Entity meshEnt = scene->createEntity(mesh->mName.C_Str());
         meshEnt.addComponent<MeshComp>(MeshComp{.id = uuid});
@@ -292,8 +300,7 @@ void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
     }
 
     for (size_t i{}; i < node->mNumChildren; i++) {
-        processNode(scene, childEntity, node->mChildren[i], aiScene, modelPath,
-                    transform);
+        processNode(scene, childEntity, node->mChildren[i], aiScene, modelPath);
     }
 }
 

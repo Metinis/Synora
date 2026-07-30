@@ -2,7 +2,8 @@
 #include "Layer.h"
 #include "SynoraEngine/gfx/gl/GL.h"
 #include "SynoraEngine/project/Project.h"
-#include "WindowConfig.h"
+#define GLM_ENABLE_EXPERIMENTAL
+
 
 namespace SYN {
 class Window;

@@ -23,6 +23,7 @@ class Scene : public ILayer {
     void onRender() override;
     void onUIRender() override {};
     Entity getEntity(UUID id);
+    bool isDescendantOf(Entity parent, Entity possibleChild);
 
     bool isValidEntity(Entity entity);
     void onUUIDRemoved(entt::registry& reg, entt::entity e); //same as removing entity
