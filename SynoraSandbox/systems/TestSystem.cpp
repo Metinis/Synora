@@ -9,7 +9,7 @@ void TestSystem::onLoad() {
 }
 void TestSystem::onUpdate(float dt) {
     for (auto e : m_Ctx->scene->getEntities<Test>()) {
-        e.getComponent<TransformComp>().position.x += 1.0f * dt;
+        //e.getComponent<TransformComp>().position.x += 1.0f * dt;
     }
 }
 void TestSystem::onUnload() {

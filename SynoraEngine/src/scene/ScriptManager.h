@@ -9,6 +9,10 @@ struct System {
     std::filesystem::path libraryPath{};
     std::unique_ptr<ISystem, void(*)(ISystem*)> system;
 };
+struct PendingReload {
+    std::filesystem::path path;
+    float timer;
+};
 class ScriptManager : public ILayer {
 public:
     ScriptManager() = default;
@@ -24,11 +28,13 @@ private:
     bool initAllSystems(const std::filesystem::path& path);
     void loadAllSystems();
     void loadSystem(ISystem* system);
+    void reloadSystem(const std::string& path);
     void unloadSystem(ISystem* system);
     void unloadAllSystems();
     void handleFileChanged(const std::string &path, efsw::Action action);
 
     std::unordered_map<std::string, System> m_Systems;
+    std::vector<PendingReload> m_PendingReloads;
     FileListener m_Listener;
     EngineContext* m_Ctx{};
 };

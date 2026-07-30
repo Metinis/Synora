@@ -41,24 +41,6 @@ void ScriptManager::init(EngineContext *ctx) {
 void ScriptManager::onAttach() {
     loadAllSystems();
 }
-void ScriptManager::onUpdate(float dt) {
-    for (auto& system : m_Systems) {
-        system.second.system->onUpdate(dt);
-    }
-}
-void ScriptManager::onDetach() {
-    unloadAllSystems();
-}
-void ScriptManager::loadAllSystems() {
-    for (auto& system : m_Systems) {
-        loadSystem(system.second.system.get());
-    }
-}
-void ScriptManager::unloadAllSystems() {
-    for (auto& system : m_Systems) {
-        unloadSystem(system.second.system.get());
-    }
-}
 static void dllUnloadSystem(System& system) {
     system.system.reset();
 
@@ -90,6 +72,64 @@ static System dllLoadSystem(const std::filesystem::path &path, EngineContext *ct
 
     return sys;
 }
+void ScriptManager::reloadSystem(const std::string& path) {
+    auto& system = m_Systems.at(path);
+    dllUnloadSystem(system);
+
+    //use a new path to avoid caching and windows issues
+    static uint64_t reloadCounter = 0;
+
+    const auto& original = path;
+    std::filesystem::path fsPath(path);
+    auto cacheDir = fsPath.parent_path() / ".hotreload";
+    std::filesystem::create_directories(cacheDir);
+
+    auto loaded = cacheDir /
+        (fsPath.stem().string() +
+         "_reload_" +
+         std::to_string(reloadCounter++) +
+         fsPath.extension().string());
+
+    std::filesystem::copy_file(
+        original,
+        loaded,
+        std::filesystem::copy_options::overwrite_existing);
+
+    auto sys = dllLoadSystem(loaded.c_str(), m_Ctx);
+    loadSystem(sys.system.get());
+    //use the original path
+    m_Systems.insert_or_assign(path, std::move(sys));
+}
+void ScriptManager::onUpdate(float dt) {
+    for(auto it = m_PendingReloads.begin(); it != m_PendingReloads.end();) {
+        it->timer -= dt;
+
+        if(it->timer <= 0.0f) {
+            reloadSystem(it->path);
+            it = m_PendingReloads.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+    for (auto& system : m_Systems) {
+        system.second.system->onUpdate(dt);
+    }
+}
+void ScriptManager::onDetach() {
+    unloadAllSystems();
+}
+void ScriptManager::loadAllSystems() {
+    for (auto& system : m_Systems) {
+        loadSystem(system.second.system.get());
+    }
+}
+void ScriptManager::unloadAllSystems() {
+    for (auto& system : m_Systems) {
+        unloadSystem(system.second.system.get());
+    }
+}
+
 void ScriptManager::handleFileChanged(const std::string &path, efsw::Action action) {
     bool isDLL = path.ends_with(".so") || path.ends_with(".dll") || path.ends_with(".dylib");
     bool isSource = path.ends_with(".cpp");
@@ -104,35 +144,9 @@ void ScriptManager::handleFileChanged(const std::string &path, efsw::Action acti
             spdlog::error("Path not mapped! {}", path.c_str());
             return;
         }
-        auto& system = m_Systems.at(path);
-        dllUnloadSystem(system);
+        m_PendingReloads.push_back({.path = path, .timer = 0.25f});
+        return;
 
-        //use a new path to avoid caching and windows issues
-        static uint64_t reloadCounter = 0;
-
-        const auto& original = path;
-        std::filesystem::path fsPath(path);
-        auto cacheDir = fsPath.parent_path() / ".hotreload";
-        std::filesystem::create_directories(cacheDir);
-
-        auto loaded = cacheDir /
-            (fsPath.stem().string() +
-             "_reload_" +
-             std::to_string(reloadCounter++) +
-             fsPath.extension().string());
-
-        std::filesystem::copy_file(
-            original,
-            loaded,
-            std::filesystem::copy_options::overwrite_existing);
-
-        auto sys = dllLoadSystem(loaded.c_str(), m_Ctx);
-        loadSystem(sys.system.get());
-
-        //std::filesystem::remove_all(cacheDir);
-
-        //use the original path
-        m_Systems.insert_or_assign(path, std::move(sys));
     }
     if (action == efsw::Action::Modified && isSource) {
         //build dll if file is changed
