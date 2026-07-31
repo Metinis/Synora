@@ -29,8 +29,12 @@ struct DirectionalLight {
 uniform DirectionalLight u_light;
 uniform sampler2DArray u_shadowMap;
 uniform mat4 u_View;
-uniform mat4 u_lightSpaceMatrices[3];
-uniform float u_cascadePlaneDistances[3];
+
+#define CASCADE_COUNT 4
+
+uniform mat4 u_lightSpaceMatrices[CASCADE_COUNT];
+uniform float u_cascadePlaneDistances[CASCADE_COUNT];
+uniform float u_cascadeTexelWorldSize[CASCADE_COUNT];
 
 #ifdef FEATURE_NORMAL
 uniform sampler2D u_normalMap;
@@ -162,18 +166,23 @@ float random(vec3 seed, int i) {
   return fract(sin(dot_product) * 43758.5453);
 }
 
-float getShadow(vec3 lightDir) {
+int getCascadeLayer() {
   vec4 fragPosViewSpace = u_View * vec4(fragPos, 1.0);
   float depth = abs(fragPosViewSpace.z);
 
-  int layer = 2;
-  for (int i = 0; i < 3; ++i) {
+  int layer = CASCADE_COUNT - 1;
+  for (int i = 0; i < CASCADE_COUNT; ++i) {
     if (depth < u_cascadePlaneDistances[i]) {
       layer = i;
       break;
     }
   }
-  vec4 lightSpaceFragPos = u_lightSpaceMatrices[layer] * vec4(fragPos, 1.0);
+  return layer;
+}
+
+float sampleCascade(int layer) {
+  vec3 offsetPos = fragPos + normalize(fragNormal) * u_cascadeTexelWorldSize[layer] * 3.0f;
+  vec4 lightSpaceFragPos = u_lightSpaceMatrices[layer] * vec4(offsetPos, 1.0);
 
   vec3 p = lightSpaceFragPos.xyz / lightSpaceFragPos.w;
   p = p * 0.5 + 0.5;
@@ -186,7 +195,7 @@ float getShadow(vec3 lightDir) {
   int nrSamples = 0;
   float shadow = 0.0f;
   vec2 texelSize = 1.0 / vec2(textureSize(u_shadowMap, 0));
-  float spread = 1.0f;
+  float spread = 0.01 / u_cascadeTexelWorldSize[layer];
 
   float angle = random(floor(fragPos.xyz * 1000.0), 0) * 2.0 * PI;
   float s = sin(angle), c = cos(angle);
@@ -203,6 +212,27 @@ float getShadow(vec3 lightDir) {
   }
 
   shadow /= nrSamples;
+
+  return shadow;
+}
+
+float getShadow() {
+  int currentLayer = getCascadeLayer();
+  float shadow = sampleCascade(currentLayer);
+
+  vec4 fragPosViewSpace = u_View * vec4(fragPos, 1.0);
+  float depth = abs(fragPosViewSpace.z);
+
+  float splitStart = (currentLayer == 0) ? 0.0 : u_cascadePlaneDistances[currentLayer - 1];
+  float splitEnd = u_cascadePlaneDistances[currentLayer];
+
+  float band = (splitEnd - splitStart) * 0.25;
+  float blend = smoothstep(splitEnd - band, splitEnd, depth);
+
+  if (blend > 0.0f && currentLayer + 1 < CASCADE_COUNT) {
+    float nextShadow = sampleCascade(currentLayer + 1);
+    shadow = mix(shadow, nextShadow, blend);
+  }
 
   return shadow;
 }
@@ -235,7 +265,8 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   vec3 specular = numerator / denominator;
 
   float NdotL = max(dot(normal, lightDir), 0.0);
-  return (kD * objectColor / PI + specular) * radiance * NdotL * (1.0 - getShadow(lightDir));
+
+  return (kD * objectColor / PI + specular) * radiance * NdotL * (1.0 - getShadow());
 }
 
 vec3 getAmbientColor(vec3 objectColor) {
@@ -272,6 +303,13 @@ void main() {
   vec3 objectColor = vec3(vec4(u_tint, 1.0) * albedoTexture);
 
   vec3 Lo = applyDirectionalLight(u_light, objectColor);
+
+  vec3 cascadeColors[4] = {
+      vec3(1.0, 0.0, 0.0) * 0.1f,
+      vec3(0.0, 1.0, 0.0) * 0.1f,
+      vec3(0.0, 0.0, 1.0) * 0.1f,
+      vec3(1.0, 1.0, 0.0) * 0.1f,
+    };
 
   vec3 finalColor = getAmbientColor(objectColor) + Lo;
 

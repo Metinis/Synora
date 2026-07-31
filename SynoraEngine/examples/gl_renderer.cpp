@@ -29,6 +29,8 @@ class GraphicsScene : public SYN::ILayer {
 
         m_Renderer.init(*m_Context);
 
+        m_CSMLayers = m_Renderer.getCSMTextures(*m_Context);
+
         gl::ModelData waltuhModelData =
             gl::loadModelData("resources/assets/waltuh.glb").value();
         m_Waltuh = m_Renderer.createModel(*m_Context, waltuhModelData).value();
@@ -169,6 +171,9 @@ class GraphicsScene : public SYN::ILayer {
         m_Renderer.setClearColor({0.48, 0.68, 0.54, 1.0});
         m_Renderer.beginFrame(m_Camera);
         m_Renderer.submit(m_Cabin, glm::mat4(1.0));
+        m_Renderer.submit(
+            m_Waltuh,
+            glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 0.0f)));
 
         m_Renderer.endFrame(*m_Context);
     }
@@ -273,6 +278,33 @@ class GraphicsScene : public SYN::ILayer {
             ImGui::SliderFloat("Metalness", &m_Metalness, 0.0, 1.0);
         }
         ImGui::End();
+
+        if (ImGui::Begin("CSM Debug")) {
+            const float tileSize = 256.0f;
+            const float spacing = ImGui::GetStyle().ItemSpacing.x;
+            const float availWidth = ImGui::GetContentRegionAvail().x;
+            int perRow = (int)((availWidth + spacing) / (tileSize + spacing));
+            if (perRow < 1)
+                perRow = 1;
+
+            for (size_t i = 0; i < m_CSMLayers.size(); ++i) {
+                if (i % perRow != 0)
+                    ImGui::SameLine();
+
+                ImGui::BeginGroup();
+                ImGui::Text("Cascade %zu", i);
+                ImGui::Image((ImTextureID)(intptr_t)m_CSMLayers[i],
+                             ImVec2(tileSize, tileSize), ImVec2(0, 1),
+                             ImVec2(1, 0));
+                ImGui::EndGroup();
+            }
+
+            if (ImGui::SliderFloat("CSM Distance", &m_CSMDistance, 0.001f,
+                                   500.0f)) {
+                m_Renderer.setCSMDistance(m_CSMDistance);
+            }
+        }
+        ImGui::End();
     }
 
   private:
@@ -284,6 +316,9 @@ class GraphicsScene : public SYN::ILayer {
     gl::Handle<gl::Model> m_Cabin;
     gl::Handle<gl::Model> m_Sphere;
     std::array<gl::Environment, 4> m_Environments;
+
+    float m_CSMDistance = 20.0f;
+    std::vector<uint32_t> m_CSMLayers;
 
     int m_EnvironmentIdx = 0;
     gl::Camera m_Camera;

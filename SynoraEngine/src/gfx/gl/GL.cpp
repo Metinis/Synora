@@ -1098,6 +1098,18 @@ SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
     return m_TextureRegistry.createHandle(texture);
 }
 
+std::optional<uint32_t>
+SYN::gfx::gl::Context::getTextureId(Handle<Texture> textureHandle) {
+    std::optional<Texture> textureOpt =
+        m_TextureRegistry.getResource(textureHandle);
+
+    if (!textureOpt.has_value())
+        return std::nullopt;
+
+    Texture texture = textureOpt.value();
+    return texture.id;
+}
+
 void SYN::gfx::gl::Context::deleteTexture(Handle<Texture> textureHandle) {
     std::optional<Texture> textureOpt =
         m_TextureRegistry.getResource(textureHandle);
@@ -1700,6 +1712,7 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
 
     m_CascadedShadowmap.planeDistances.resize(m_CascadedShadowmap.count);
     m_CascadedShadowmap.lightSpaceMatrices.resize(m_CascadedShadowmap.count);
+    m_CascadedShadowmap.cascadeTexelWorldSize.resize(m_CascadedShadowmap.count);
 
     m_DefaultWhite = createDefaultColoredTexture(context, {255, 255, 255, 255});
     createDefaultPrefilterMap(context);
@@ -2201,16 +2214,15 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                 pass.bindTexture(6, m_CascadedShadowmap.depthTexture,
                                  m_CascadedShadowmap.shadowSampler);
                 pass.bindUniform("u_shadowMap", 6);
-                for (int i = 0;
-                     i < m_CascadedShadowmap.lightSpaceMatrices.size(); ++i) {
+                for (int i = 0; i < m_CascadedShadowmap.count; ++i) {
                     pass.bindUniform(std::format("u_lightSpaceMatrices[{}]", i),
                                      m_CascadedShadowmap.lightSpaceMatrices[i]);
-                }
-                for (int i = 0; i < m_CascadedShadowmap.planeDistances.size();
-                     ++i) {
                     pass.bindUniform(
                         std::format("u_cascadePlaneDistances[{}]", i),
                         m_CascadedShadowmap.planeDistances[i]);
+                    pass.bindUniform(
+                        std::format("u_cascadeTexelWorldSize[{}]", i),
+                        m_CascadedShadowmap.cascadeTexelWorldSize[i]);
                 }
                 pass.bindUniform("u_View", viewMatrix);
 
@@ -2438,7 +2450,7 @@ SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
 }
 
 glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
-    const DirectionalLight &light, const Camera &camera) {
+    const DirectionalLight &light, const Camera &camera, float &texelWorld) {
     std::vector<glm::vec4> corners = getFrustumCornersWorldSpace(camera);
     glm::vec3 center(0.0f);
     for (const glm::vec4 &p : corners) {
@@ -2449,10 +2461,17 @@ glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
     float bound = glm::max(glm::length(corners[0] - corners[7]),
                            glm::length(corners[1] - corners[7]));
 
+    texelWorld = bound / m_RenderConfig.shadowMapResolution;
+
     float halfBound = bound * 0.5f;
 
-    glm::mat4 lightViewMatrix = glm::lookAtRH(center - light.direction, center,
-                                              glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::vec3 up = glm::abs(glm::dot(light.direction,
+                                     glm::vec3(0.0f, 1.0f, 0.0f))) < 0.999f
+                       ? glm::vec3(0.0f, 1.0f, 0.0f)
+                       : glm::vec3(1.0f, 0.0f, 0.0f);
+
+    glm::mat4 lightViewMatrix =
+        glm::lookAtRH(center - light.direction, center, up);
 
     float minZ = std::numeric_limits<float>().max();
     float maxZ = std::numeric_limits<float>().lowest();
@@ -2463,8 +2482,8 @@ glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
         maxZ = glm::max(maxZ, pLight.z);
     }
 
-    minZ -= bound;
-    maxZ += bound;
+    maxZ += halfBound;
+    minZ -= halfBound * 0.5f;
 
     glm::mat4 lightProjection = glm::orthoRH_NO(
         -halfBound, halfBound, -halfBound, halfBound, -maxZ, -minZ);
@@ -2487,7 +2506,8 @@ glm::mat4 SYN::gfx::gl::Renderer::calculateLightSpaceMatrix(
     Camera camera = m_MainCamera;
     camera.nearPlane = 0.1f;
     camera.farPlane = 10.0f;
-    return calculateTightLightFrustum(light, camera);
+    float t;
+    return calculateTightLightFrustum(light, camera, t);
 }
 
 void SYN::gfx::gl::Renderer::drawDirectionalShadowMap(
@@ -2529,6 +2549,10 @@ void SYN::gfx::gl::Renderer::drawDirectionalShadowMap(
     glDisable(GL_POLYGON_OFFSET_FILL);
 }
 
+void SYN::gfx::gl::Renderer::setCSMDistance(float distance) {
+    m_RenderConfig.shadowDistance = glm::max(0.001f, distance);
+}
+
 void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
                                                 Handle<Framebuffer> shadowmap,
                                                 const DirectionalLight &light) {
@@ -2544,14 +2568,14 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
         float logC =
             camera.nearPlane * glm::pow(shadowDist / camera.nearPlane, t);
         float uniformC = camera.nearPlane + (shadowDist - camera.nearPlane) * t;
-        splits[i] = glm::mix(uniformC, logC, 0.5f);
+        splits[i] = glm::mix(uniformC, logC, 0.35f);
     }
 
     for (uint32_t i = 0; i < numMaps; ++i) {
         camera.nearPlane = splits[i];
         camera.farPlane = splits[i + 1];
-        m_CascadedShadowmap.lightSpaceMatrices[i] =
-            calculateTightLightFrustum(light, camera);
+        m_CascadedShadowmap.lightSpaceMatrices[i] = calculateTightLightFrustum(
+            light, camera, m_CascadedShadowmap.cascadeTexelWorldSize[i]);
         m_CascadedShadowmap.planeDistances[i] = splits[i + 1];
     }
 
@@ -2561,7 +2585,8 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
     pipeline.shader = m_ShadowMapShader.value();
 
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.875, 2.375);
+    glEnable(GL_DEPTH_CLAMP);
+    glPolygonOffset(1.875f, 2.375f);
 
     for (uint32_t i = 0; i < m_CascadedShadowmap.count; ++i) {
         context.setDepthAttachment(m_CascadedShadowmap.handle,
@@ -2593,5 +2618,31 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
         }
     }
 
+    glDisable(GL_DEPTH_CLAMP);
     glDisable(GL_POLYGON_OFFSET_FILL);
+}
+
+std::vector<uint32_t> SYN::gfx::gl::Renderer::getCSMTextures(Context &context) {
+    uint32_t id =
+        context.getTextureId(m_CascadedShadowmap.depthTexture).value();
+
+    std::vector<uint32_t> csmLayers;
+    float colors[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    for (uint32_t i = 0; i < m_CascadedShadowmap.count; ++i) {
+        uint32_t newId = 0;
+        glGenTextures(1, &newId);
+        glTextureView(newId, GL_TEXTURE_2D, id, GL_DEPTH_COMPONENT24, 0, 1, i,
+                      1);
+        glTextureParameteri(newId, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        glTextureParameteri(newId, GL_TEXTURE_SWIZZLE_G, GL_RED);
+        glTextureParameteri(newId, GL_TEXTURE_SWIZZLE_B, GL_RED);
+        glTextureParameteri(newId, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTextureParameteri(newId, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTextureParameteri(newId, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTextureParameteri(newId, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        glTextureParameterfv(newId, GL_TEXTURE_BORDER_COLOR, &colors[0]);
+        csmLayers.push_back(newId);
+    }
+
+    return csmLayers;
 }

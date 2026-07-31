@@ -378,7 +378,7 @@ struct DirectionalLight {
 struct RendererConfig {
     AntiAliasMode aaMode = AntiAliasMode::MSAA_4x;
     int shadowMapResolution = 2048;
-    float shadowDistance = 50.0f; // frustum-fit range from camera
+    float shadowDistance = 20.0f; // frustum-fit range from camera
     float exposure = 1.0f;
     bool bloomEnabled = true;
     float bloomThreshold = 1.0f;
@@ -504,6 +504,9 @@ class Context {
     void generateMipmap(Handle<Texture> textureHandle);
     void deleteTexture(Handle<Texture> textureHandle);
 
+    // Main use case is for ImGui debug
+    std::optional<uint32_t> getTextureId(Handle<Texture> textureHandle);
+
     std::optional<Handle<Renderbuffer>>
     createRenderbuffer(const RenderbufferDesc &desc);
     void deleteRenderbuffer(Handle<Renderbuffer> renderbufferHandle);
@@ -605,6 +608,8 @@ class Renderer {
 
     void init(Context &context);
 
+    std::vector<uint32_t> getCSMTextures(Context &context);
+
     std::optional<Handle<Model>> createModel(Context &context,
                                              const ModelData &data);
     // Cubemap faces must be RGBA8!
@@ -643,6 +648,8 @@ class Renderer {
 
     // Clamped between MIN_GAMMA and MAX_GAMMA
     void setGamma(float gamma);
+
+    void setCSMDistance(float distance);
 
     void setExposure(float exposure);
     void setBloomEnabled(bool enabled);
@@ -741,9 +748,10 @@ class Renderer {
         Handle<Framebuffer> handle;
         Handle<Texture> depthTexture;
         Handle<Sampler> shadowSampler;
-        uint32_t count = 3;
+        uint32_t count = 4;
         std::vector<float> planeDistances;
         std::vector<glm::mat4> lightSpaceMatrices;
+        std::vector<float> cascadeTexelWorldSize;
     } m_CascadedShadowmap;
 
     std::optional<Handle<Shader>> m_ShadowMapShader;
@@ -751,7 +759,8 @@ class Renderer {
 
     std::vector<glm::vec4> getFrustumCornersWorldSpace(const Camera &camera);
     glm::mat4 calculateTightLightFrustum(const DirectionalLight &light,
-                                         const Camera &camera);
+                                         const Camera &camera,
+                                         float &texelWorld);
     glm::mat4 calculateLightSpaceMatrix(const DirectionalLight &light);
 
   private:
