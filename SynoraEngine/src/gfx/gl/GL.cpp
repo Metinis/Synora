@@ -1167,6 +1167,12 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
     glSamplerParameterfv(sampler.id, GL_TEXTURE_BORDER_COLOR,
                          &desc.borderColor[0]);
 
+    if (desc.compareMode) {
+        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_MODE,
+                            GL_COMPARE_REF_TO_TEXTURE);
+        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    }
+
     // TODO: Allow setting anisotropy level
     float maxAniso = 0.0f;
     glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
@@ -1701,14 +1707,11 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
                 {{}, AttachmentDesc{m_CascadedShadowmap.depthTexture}, true})
             .value();
 
-    m_CascadedShadowmap.shadowSampler = context
-                                            .createSampler({
-                                                SampleFilter::Nearest,
-                                                SampleFilter::Nearest,
-                                                WrapMode::ClampToBorder,
-                                                WrapMode::ClampToBorder,
-                                            })
-                                            .value();
+    m_CascadedShadowmap.shadowSampler =
+        context
+            .createSampler({SampleFilter::Nearest, SampleFilter::Nearest,
+                            WrapMode::ClampToBorder, WrapMode::ClampToBorder})
+            .value();
 
     m_CascadedShadowmap.planeDistances.resize(m_CascadedShadowmap.count);
     m_CascadedShadowmap.lightSpaceMatrices.resize(m_CascadedShadowmap.count);
@@ -2460,6 +2463,7 @@ glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
 
     float bound = glm::max(glm::length(corners[0] - corners[7]),
                            glm::length(corners[1] - corners[7]));
+    bound = std::ceil(bound * 16.0f) / 16.0f;
 
     texelWorld = bound / m_RenderConfig.shadowMapResolution;
 
@@ -2482,7 +2486,7 @@ glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
         maxZ = glm::max(maxZ, pLight.z);
     }
 
-    maxZ += halfBound;
+    maxZ += halfBound * 3.5f;
     minZ -= halfBound * 0.5f;
 
     glm::mat4 lightProjection = glm::orthoRH_NO(
@@ -2568,7 +2572,7 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
         float logC =
             camera.nearPlane * glm::pow(shadowDist / camera.nearPlane, t);
         float uniformC = camera.nearPlane + (shadowDist - camera.nearPlane) * t;
-        splits[i] = glm::mix(uniformC, logC, 0.35f);
+        splits[i] = glm::mix(uniformC, logC, 0.5f);
     }
 
     for (uint32_t i = 0; i < numMaps; ++i) {
@@ -2586,7 +2590,7 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
 
     glEnable(GL_POLYGON_OFFSET_FILL);
     glEnable(GL_DEPTH_CLAMP);
-    glPolygonOffset(1.875f, 2.375f);
+    glPolygonOffset(2.0f, 2.0f);
 
     for (uint32_t i = 0; i < m_CascadedShadowmap.count; ++i) {
         context.setDepthAttachment(m_CascadedShadowmap.handle,
@@ -2618,8 +2622,8 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
         }
     }
 
-    glDisable(GL_DEPTH_CLAMP);
     glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_DEPTH_CLAMP);
 }
 
 std::vector<uint32_t> SYN::gfx::gl::Renderer::getCSMTextures(Context &context) {

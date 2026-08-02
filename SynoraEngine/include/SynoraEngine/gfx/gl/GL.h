@@ -242,6 +242,7 @@ struct SamplerDesc {
     WrapMode wrapV = WrapMode::Repeat;
     WrapMode wrapW = WrapMode::Repeat;
     glm::vec4 borderColor = glm::vec4(1.0f);
+    float compareMode = false;
 };
 
 struct RenderbufferDesc {
