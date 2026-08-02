@@ -27,7 +27,7 @@ struct DirectionalLight {
 };
 
 uniform DirectionalLight u_light;
-uniform sampler2DArray u_shadowMap;
+uniform sampler2DArrayShadow u_shadowMap;
 uniform mat4 u_View;
 
 #define CASCADE_COUNT 4
@@ -194,12 +194,11 @@ float sampleCascade(vec3 lightDir, int layer, float texelWorldSize) {
 
   float currentDepth = p.z;
 
-  int maxSamples = 16;
+  int maxSamples = 8;
   int nrSamples = 0;
   float shadow = 0.0f;
   vec2 texelSize = 1.0 / vec2(textureSize(u_shadowMap, 0));
-  float spread = 0.009 / texelWorldSize;
-
+  float spread = 0.005 / texelWorldSize;
   float angle = random(floor(fragPos.xyz * 1000.0), 0) * 2.0 * PI;
   float s = sin(angle), c = cos(angle);
 
@@ -210,8 +209,8 @@ float sampleCascade(vec3 lightDir, int layer, float texelWorldSize) {
         poissonDisk[i].x * s + poissonDisk[i].y * c
       );
     vec2 uv = p.xy + rotatedDisk * spread * texelSize;
-    float closestDepth = texture(u_shadowMap, vec3(uv, layer)).r;
-    shadow += float(currentDepth > closestDepth);
+    float result = 1.0 - texture(u_shadowMap, vec4(uv, layer, currentDepth));
+    shadow += result;
     if (i == 3 && (shadow == 0 || shadow == 4.0f)) break;
   }
 

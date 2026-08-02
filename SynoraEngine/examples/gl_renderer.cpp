@@ -135,7 +135,16 @@ class GraphicsScene : public SYN::ILayer {
         stbi_image_free(pz);
         stbi_image_free(nz);
     }
-    void onUpdate(float dt) override {}
+
+    void onUpdate(float dt) override {
+        m_FrameHistory[m_FrameIdx] = dt * 1000.0f; // seconds -> milliseconds
+        (++m_FrameIdx) %= 120;
+
+        m_FrameAvg = 0.0f;
+        for (float history : m_FrameHistory)
+            m_FrameAvg += history;
+        m_FrameAvg /= 120.0f;
+    }
 
     void setCameraRotation() {
         glm::mat3 rotMatrix = glm::mat3(glm::rotate(
@@ -279,6 +288,13 @@ class GraphicsScene : public SYN::ILayer {
         }
         ImGui::End();
 
+        if (ImGui::Begin("Performance")) {
+            ImGui::Text("%.3f ms (%.1f FPS)", m_FrameAvg, 1000.0f / m_FrameAvg);
+            ImGui::PlotLines("Frame ms", m_FrameHistory, 120, m_FrameIdx,
+                             nullptr, 0.0f, 33.3f, ImVec2(0, 80));
+        }
+        ImGui::End();
+
         if (ImGui::Begin("CSM Debug")) {
             const float tileSize = 256.0f;
             const float spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -312,10 +328,15 @@ class GraphicsScene : public SYN::ILayer {
     SYN::Window *m_Window;
     gl::Renderer m_Renderer;
 
+    float m_FrameHistory[120] = {};
+    int m_FrameIdx = 0;
+
     gl::Handle<gl::Model> m_Waltuh;
     gl::Handle<gl::Model> m_Cabin;
     gl::Handle<gl::Model> m_Sphere;
     std::array<gl::Environment, 4> m_Environments;
+
+    float m_FrameAvg = 0.0f;
 
     float m_CSMDistance = 20.0f;
     std::vector<uint32_t> m_CSMLayers;

@@ -1709,8 +1709,9 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
 
     m_CascadedShadowmap.shadowSampler =
         context
-            .createSampler({SampleFilter::Nearest, SampleFilter::Nearest,
-                            WrapMode::ClampToBorder, WrapMode::ClampToBorder})
+            .createSampler({SampleFilter::Linear, SampleFilter::Linear,
+                            WrapMode::ClampToBorder, WrapMode::ClampToBorder,
+                            WrapMode::ClampToBorder, glm::vec4(1.0f), true})
             .value();
 
     m_CascadedShadowmap.planeDistances.resize(m_CascadedShadowmap.count);
