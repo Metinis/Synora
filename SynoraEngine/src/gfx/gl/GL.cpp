@@ -14,6 +14,9 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
+#include <tracy/Tracy.hpp>
+#include <tracy/TracyOpenGL.hpp>
+
 struct {
     using UniformLocations = std::unordered_map<std::string_view, int>;
     std::unordered_map<uint32_t, UniformLocations> shaderUniformCache;
@@ -360,6 +363,8 @@ SYN::gfx::gl::Context::createContext(const ContextInitDesc &desc) {
     ImGui_ImplGlfw_InitForOpenGL(desc.windowHandle, false);
 
     ImGui_ImplOpenGL3_Init("#version 450");
+
+    TracyGpuContext;
 
     return Context(desc);
 }
@@ -1421,11 +1426,11 @@ SYN::gfx::gl::Mesh createMesh(
     mesh.localTransform = meshData.localTransform;
     mesh.material = loadMaterial(context, meshData.material, textureCache);
 
-    mesh.shader = shaderCache.getShaderHandle(
-        context,
-        getShaderFeatures(mesh.material.normalMap.has_value(),
-                          mesh.material.metallicRoughnessMap.has_value(),
-                          meshData.hasSkin));
+    mesh.shaderFeatures = getShaderFeatures(
+        mesh.material.normalMap.has_value(),
+        mesh.material.metallicRoughnessMap.has_value(), meshData.hasSkin);
+
+    mesh.shader = shaderCache.getShaderHandle(context, mesh.shaderFeatures);
 
     return mesh;
 }
@@ -1671,6 +1676,24 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     createBRDFLutShader(context);
     createShadowmapShader(context);
 
+    m_ShadowConstants =
+        context
+            .createBuffer({BufferType::Uniform, MemoryUsage::CpuToGPU,
+                           sizeof(ShadowConstants)})
+            .value();
+
+    m_CameraConstants =
+        context
+            .createBuffer({BufferType::Uniform, MemoryUsage::CpuToGPU,
+                           sizeof(CameraConstants)})
+            .value();
+
+    m_LightConstants =
+        context
+            .createBuffer({BufferType::Uniform, MemoryUsage::CpuToGPU,
+                           sizeof(LightConstants)})
+            .value();
+
     uint32_t shadowmapResolution = m_RenderConfig.shadowMapResolution;
     m_Shadowmap.depthTexture = context
                                    .createTexture({
@@ -1723,6 +1746,13 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
 
     m_BRDFLut = createBRDFLut(context);
     m_DefaultSampler = context.createSampler({}).value();
+
+    {
+        Pass pass = context.beginPass({});
+        pass.bindUniformBuffer(0, m_CameraConstants);
+        pass.bindUniformBuffer(1, m_ShadowConstants);
+        pass.bindUniformBuffer(2, m_LightConstants);
+    }
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 }
@@ -2166,6 +2196,8 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
 }
 
 void SYN::gfx::gl::Renderer::endFrame(Context &context) {
+    glfwSwapInterval(0);
+
     glm::mat4 viewMatrix = glm::lookAtRH(m_MainCamera.position,
                                          m_MainCamera.target, m_MainCamera.up);
 
@@ -2179,89 +2211,78 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
     drawDirectionalCSM(context, m_CascadedShadowmap.handle, m_DirectionalLight);
 
-    // Main render pass
-    {
-        Pass pass = context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor,
-                                       true, false, m_ScreenViewport});
-        PipelineState pipeline;
-
-        for (const DrawCommand &cmd : m_DrawCommandList) {
-            Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
-
-            std::vector<Mesh> meshes = model.meshes;
-
-            for (const MaterialOverride &override : cmd.materialOverride) {
-                Mesh &mesh = meshes.at(override.meshIndex);
-                mesh.material = override.material;
-                if (!mesh.material.albedo) {
-                    mesh.material.albedo = m_DefaultWhite;
-                }
-                mesh.shader = m_ShaderCache.getShaderHandle(
-                    context,
-                    getShaderFeatures(
-                        mesh.material.normalMap.has_value(),
-                        mesh.material.metallicRoughnessMap.has_value(), false));
+    for (const DrawCommand &cmd : m_DrawCommandList) {
+        Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
+        for (const MaterialOverride &override : cmd.materialOverride) {
+            Mesh &mesh = model.meshes.at(override.meshIndex);
+            mesh.material = override.material;
+            if (!mesh.material.albedo) {
+                mesh.material.albedo = m_DefaultWhite;
             }
+            mesh.shader = m_ShaderCache.getShaderHandle(
+                context,
+                getShaderFeatures(
+                    mesh.material.normalMap.has_value(),
+                    mesh.material.metallicRoughnessMap.has_value(), false));
+        }
+        for (const Mesh &mesh : model.meshes) {
+            m_RenderBuckets[mesh.shaderFeatures].push_back(
+                RenderItem{cmd.transform * mesh.localTransform, mesh.material,
+                           mesh.vao, mesh.indexCount});
+        }
+    }
 
-            for (const Mesh &mesh : meshes) {
-                pipeline.shader = mesh.shader;
+    {
+        TracyGpuZone("Forward");
+        ZoneScopedN("Forward");
 
-                const Material &material = mesh.material;
+        // Main render pass
+        {
+            Pass pass =
+                context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor, true,
+                                   false, m_ScreenViewport});
 
-                pass.usePipeline(pipeline);
+            CameraConstants cameraConstants{};
+            cameraConstants.u_viewProjection = projMatrix * viewMatrix;
+            cameraConstants.u_view = viewMatrix;
+            cameraConstants.u_cameraPos = m_MainCamera.position;
 
-                pass.bindUniform("u_tint", material.tint.r, material.tint.g,
-                                 material.tint.b);
-                pass.bindUniform("u_metallic", material.metallic);
-                pass.bindUniform("u_roughness", material.roughness);
+            ShadowConstants shadowConstants{};
 
-                pass.bindTexture(6, m_CascadedShadowmap.depthTexture,
-                                 m_CascadedShadowmap.shadowSampler);
-                pass.bindUniform("u_shadowMap", 6);
-                for (int i = 0; i < m_CascadedShadowmap.count; ++i) {
-                    pass.bindUniform(std::format("u_lightSpaceMatrices[{}]", i),
-                                     m_CascadedShadowmap.lightSpaceMatrices[i]);
-                    pass.bindUniform(
-                        std::format("u_cascadePlaneDistances[{}]", i),
-                        m_CascadedShadowmap.planeDistances[i]);
-                    pass.bindUniform(
-                        std::format("u_cascadeTexelWorldSize[{}]", i),
-                        m_CascadedShadowmap.cascadeTexelWorldSize[i]);
-                }
-                pass.bindUniform("u_View", viewMatrix);
+            std::copy(m_CascadedShadowmap.lightSpaceMatrices.cbegin(),
+                      m_CascadedShadowmap.lightSpaceMatrices.cend(),
+                      &shadowConstants.u_lightSpaceMatrices[0]);
+            std::copy(m_CascadedShadowmap.planeDistances.cbegin(),
+                      m_CascadedShadowmap.planeDistances.cend(),
+                      &shadowConstants.u_cascadePlaneDistances[0]);
+            std::copy(m_CascadedShadowmap.cascadeTexelWorldSize.cbegin(),
+                      m_CascadedShadowmap.cascadeTexelWorldSize.cend(),
+                      &shadowConstants.u_cascadeTexelWorldSize[0]);
 
-                bindDirectionalLight(pass, m_DirectionalLight);
+            LightConstants lightConstants{};
+            lightConstants.direction = m_DirectionalLight.direction;
+            lightConstants.color = m_DirectionalLight.color;
+            lightConstants.intensity = m_DirectionalLight.intensity;
+            lightConstants.castShadow = m_DirectionalLight.castsShadows;
 
-                Handle<Sampler> sampler = material.sampler.has_value()
-                                              ? material.sampler.value()
-                                              : m_DefaultSampler.value();
+            context.updateBuffer(m_CameraConstants, 0, sizeof(CameraConstants),
+                                 &cameraConstants);
 
-                if (material.albedo) {
-                    pass.bindTexture(0, material.albedo.value(), sampler);
-                    pass.bindUniform("u_albedoTexture", 0);
-                }
+            context.updateBuffer(m_ShadowConstants, 0, sizeof(ShadowConstants),
+                                 &shadowConstants);
 
-                if (material.normalMap) {
-                    pass.bindTexture(1, material.normalMap.value(), sampler);
-                    pass.bindUniform("u_normalMap", 1);
-                }
+            context.updateBuffer(m_LightConstants, 0, sizeof(LightConstants),
+                                 &lightConstants);
 
-                if (material.metallicRoughnessMap) {
-                    pass.bindTexture(2, material.metallicRoughnessMap.value(),
-                                     sampler);
-                    pass.bindUniform("u_metallicRoughness", 2);
-                }
-
+            {
                 if (m_Environment.has_value() &&
                     m_Environment.value().irradianceMap.has_value()) {
                     pass.bindTexture(
                         3, m_Environment.value().irradianceMap.value(),
                         m_CubemapSampler.value());
-                    pass.bindUniform("u_irradianceMap", 3);
                 } else {
                     pass.bindTexture(3, m_DefaultIrradianceMap,
                                      m_CubemapSampler.value());
-                    pass.bindUniform("u_irradianceMap", 3);
                 }
 
                 if (m_Environment.has_value() &&
@@ -2269,66 +2290,106 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     pass.bindTexture(
                         4, m_Environment.value().prefilteredMap.value(),
                         m_MipmapCubeSampler.value());
-                    pass.bindUniform("u_prefilterMap", 4);
                 } else {
                     pass.bindTexture(4, m_DefaultPrefilterMap,
                                      m_MipmapCubeSampler.value());
-                    pass.bindUniform("u_prefilterMap", 4);
                 }
 
                 pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
-                pass.bindUniform("u_brdfLUT", 5);
-
-                pass.bindUniform("u_cameraPos", m_MainCamera.position.x,
-                                 m_MainCamera.position.y,
-                                 m_MainCamera.position.z);
-                pass.bindUniform("u_ViewProjection", projMatrix * viewMatrix);
-                pass.bindUniform("u_Model",
-                                 cmd.transform * mesh.localTransform);
-                pass.bindVertexArray(mesh.vao);
-                pass.drawIndexed(mesh.indexCount);
+                pass.bindTexture(6, m_CascadedShadowmap.depthTexture,
+                                 m_CascadedShadowmap.shadowSampler);
             }
+
+            uint32_t renderItemIdx = 0;
+            PipelineState pipeline;
+            for (const std::vector<RenderItem> &renderItems : m_RenderBuckets) {
+                if (renderItems.empty()) {
+                    ++renderItemIdx;
+                    continue;
+                }
+
+                pipeline.shader =
+                    m_ShaderCache.getShaderHandle(context, renderItemIdx);
+                pass.usePipeline(pipeline);
+
+                for (const RenderItem &renderItem : renderItems) {
+                    const Material &material = renderItem.material;
+                    pass.bindUniform("u_tint", material.tint.r, material.tint.g,
+                                     material.tint.b);
+                    pass.bindUniform("u_metallic", material.metallic);
+                    pass.bindUniform("u_roughness", material.roughness);
+
+                    Handle<Sampler> sampler = material.sampler.has_value()
+                                                  ? material.sampler.value()
+                                                  : m_DefaultSampler.value();
+
+                    if (material.albedo) {
+                        pass.bindTexture(0, material.albedo.value(), sampler);
+                    }
+
+                    if (material.normalMap) {
+                        pass.bindTexture(1, material.normalMap.value(),
+                                         sampler);
+                    }
+
+                    if (material.metallicRoughnessMap) {
+                        pass.bindTexture(
+                            2, material.metallicRoughnessMap.value(), sampler);
+                    }
+
+                    pass.bindUniform("u_Model", renderItem.transform);
+                    pass.bindVertexArray(renderItem.vao);
+                    pass.drawIndexed(renderItem.indexCount);
+                }
+                ++renderItemIdx;
+            }
+
+            if (m_Environment.has_value()) {
+                glDepthFunc(GL_LEQUAL);
+                Environment currentEnvironment = m_Environment.value();
+                pipeline.shader = m_SkyboxShader.value();
+                pass.usePipeline(pipeline);
+
+                pass.bindTexture(0, currentEnvironment.cubemap,
+                                 m_CubemapSampler.value());
+                pass.bindUniform("u_skybox", 0);
+                pass.bindUniform("u_ViewProjection",
+                                 projMatrix * glm::mat4(glm::mat3(viewMatrix)));
+                pass.bindVertexArray(m_SkyboxCube.value());
+                pass.draw(36);
+            }
+            glDepthFunc(GL_LESS);
         }
 
-        if (m_Environment.has_value()) {
-            glDepthFunc(GL_LEQUAL);
-            Environment currentEnvironment = m_Environment.value();
-            pipeline.shader = m_SkyboxShader.value();
-            pass.usePipeline(pipeline);
+        context.blitFramebuffer(m_MsaaFramebuffer.handle,
+                                m_HdrFramebuffer.handle, m_ScreenViewport,
+                                m_ScreenViewport);
 
-            pass.bindTexture(0, currentEnvironment.cubemap,
-                             m_CubemapSampler.value());
-            pass.bindUniform("u_skybox", 0);
-            pass.bindUniform("u_ViewProjection",
-                             projMatrix * glm::mat4(glm::mat3(viewMatrix)));
-            pass.bindVertexArray(m_SkyboxCube.value());
-            pass.draw(36);
+        {
+            Pass hdrPass = context.beginPass(
+                {std::nullopt, m_ClearColor, false, false, m_ScreenViewport});
+            PipelineState hdrPipeline;
+            hdrPipeline.shader = m_HdrShader.value();
+
+            hdrPass.usePipeline(hdrPipeline);
+
+            hdrPass.bindTexture(0, m_HdrFramebuffer.colorAttachment.value(),
+                                m_HdrFramebuffer.colorSampler);
+            hdrPass.bindUniform("u_hdrBuffer", 0);
+            hdrPass.bindUniform("u_gamma", m_Gamma);
+            hdrPass.bindUniform("u_exposure", m_Exposure);
+
+            hdrPass.bindVertexArray(m_ScreenQuad.value());
+            hdrPass.drawIndexed(6);
         }
-        glDepthFunc(GL_LESS);
-    }
-
-    context.blitFramebuffer(m_MsaaFramebuffer.handle, m_HdrFramebuffer.handle,
-                            m_ScreenViewport, m_ScreenViewport);
-
-    {
-        Pass hdrPass = context.beginPass(
-            {std::nullopt, m_ClearColor, false, false, m_ScreenViewport});
-        PipelineState hdrPipeline;
-        hdrPipeline.shader = m_HdrShader.value();
-
-        hdrPass.usePipeline(hdrPipeline);
-
-        hdrPass.bindTexture(0, m_HdrFramebuffer.colorAttachment.value(),
-                            m_HdrFramebuffer.colorSampler);
-        hdrPass.bindUniform("u_hdrBuffer", 0);
-        hdrPass.bindUniform("u_gamma", m_Gamma);
-        hdrPass.bindUniform("u_exposure", m_Exposure);
-
-        hdrPass.bindVertexArray(m_ScreenQuad.value());
-        hdrPass.drawIndexed(6);
     }
 
     m_DrawCommandList.clear();
+    for (std::vector<RenderItem> &renderItems : m_RenderBuckets) {
+        renderItems.clear();
+    }
+
+    TracyGpuCollect;
 }
 
 void SYN::gfx::gl::Renderer::setGamma(float gamma) {
@@ -2372,16 +2433,6 @@ void SYN::gfx::gl::Renderer::resize(int width, int height) {
 
 void SYN::gfx::gl::Renderer::setClearColor(const glm::vec4 &clearColor) {
     m_ClearColor = clearColor;
-}
-
-void SYN::gfx::gl::Renderer::bindDirectionalLight(
-    Pass &pass, const DirectionalLight &light) {
-    pass.bindUniform("u_light.direction", light.direction.x, light.direction.y,
-                     light.direction.z);
-    pass.bindUniform("u_light.color", light.color.r, light.color.g,
-                     light.color.b);
-    pass.bindUniform("u_light.intensity", light.intensity);
-    pass.bindUniform("u_light.castShadow", light.castsShadows);
 }
 
 SYN::gfx::gl::ShaderCache::ShaderCache() {
@@ -2455,6 +2506,8 @@ SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
 
 glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
     const DirectionalLight &light, const Camera &camera, float &texelWorld) {
+    ZoneScopedN("Calculate tight light frustum");
+
     std::vector<glm::vec4> corners = getFrustumCornersWorldSpace(camera);
     glm::vec3 center(0.0f);
     for (const glm::vec4 &p : corners) {
@@ -2561,6 +2614,8 @@ void SYN::gfx::gl::Renderer::setCSMDistance(float distance) {
 void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
                                                 Handle<Framebuffer> shadowmap,
                                                 const DirectionalLight &light) {
+    TracyGpuZone("CSM Pass");
+
     Camera camera = m_MainCamera;
 
     std::vector<float> splits(m_CascadedShadowmap.count + 1);

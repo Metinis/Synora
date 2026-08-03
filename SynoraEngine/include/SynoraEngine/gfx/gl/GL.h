@@ -378,7 +378,7 @@ struct DirectionalLight {
 
 struct RendererConfig {
     AntiAliasMode aaMode = AntiAliasMode::MSAA_4x;
-    int shadowMapResolution = 2048;
+    int shadowMapResolution = 1024;
     float shadowDistance = 20.0f; // frustum-fit range from camera
     float exposure = 1.0f;
     bool bloomEnabled = true;
@@ -404,6 +404,7 @@ struct Mesh {
     Handle<Buffer> ebo;
 
     Handle<Shader> shader;
+    uint32_t shaderFeatures;
 
     Material material;
 
@@ -659,9 +660,6 @@ class Renderer {
     void resize(int width, int height);
 
   private:
-    void bindDirectionalLight(Pass &pass, const DirectionalLight &light);
-
-  private:
     struct {
         std::optional<Handle<Framebuffer>> handle;
         std::optional<Handle<Renderbuffer>> rbAttachment;
@@ -749,7 +747,7 @@ class Renderer {
         Handle<Framebuffer> handle;
         Handle<Texture> depthTexture;
         Handle<Sampler> shadowSampler;
-        uint32_t count = 4;
+        uint32_t count = 1;
         std::vector<float> planeDistances;
         std::vector<glm::mat4> lightSpaceMatrices;
         std::vector<float> cascadeTexelWorldSize;
@@ -767,6 +765,40 @@ class Renderer {
   private:
     std::vector<DrawCommand> m_DrawCommandList;
     ResourceRegistry<Model> m_ModelRegistry;
+
+    struct RenderItem {
+        glm::mat4 transform;
+        Material material;
+        Handle<VertexArray> vao;
+        uint32_t indexCount;
+    };
+
+    // Possible permutations of shaders so far
+    // Update as needed or turn into hashmap
+    std::array<std::vector<RenderItem>, 8> m_RenderBuckets;
+
+    struct alignas(16) CameraConstants {
+        glm::mat4 u_viewProjection;
+        glm::mat4 u_view;
+        glm::vec3 u_cameraPos;
+    };
+
+    struct alignas(16) ShadowConstants {
+        std::array<glm::mat4, 1> u_lightSpaceMatrices;
+        glm::vec4 u_cascadePlaneDistances;
+        glm::vec4 u_cascadeTexelWorldSize;
+    };
+
+    struct alignas(16) LightConstants {
+        glm::vec3 direction;
+        alignas(16) glm::vec3 color;
+        float intensity;
+        int32_t castShadow;
+    };
+
+    Handle<Buffer> m_CameraConstants;
+    Handle<Buffer> m_ShadowConstants;
+    Handle<Buffer> m_LightConstants;
 };
 
 } // namespace SYN::gfx::gl
