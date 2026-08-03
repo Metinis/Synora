@@ -5,7 +5,12 @@ layout(location = 3) in vec4 aTangent;
 layout(location = 4) in ivec4 aBoneID;
 layout(location = 5) in vec4 aBoneWeight;
 
-uniform mat4 u_ViewProjection;
+layout(std140, binding = 0) uniform CameraConstants {
+  mat4 u_ViewProjection;
+  mat4 u_View;
+  vec3 u_cameraPos;
+};
+
 uniform mat4 u_Model;
 
 out vec3 fragNormal;

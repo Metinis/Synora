@@ -8,16 +8,31 @@ uniform vec3 u_tint;
 uniform float u_roughness;
 uniform float u_metallic;
 
-uniform sampler2D u_albedoTexture;
-
-#ifdef FEATURE_METALLIC_ROUGHNESS
-uniform sampler2D u_metallicRoughness;
+layout(binding = 0) uniform sampler2D u_albedoTexture;
+#ifdef FEATURE_NORMAL
+layout(binding = 1) uniform sampler2D u_normalMap;
+in mat3 TBN;
 #endif
 
-uniform vec3 u_cameraPos;
+#ifdef FEATURE_METALLIC_ROUGHNESS
+layout(binding = 2) uniform sampler2D u_metallicRoughness;
+#endif
 
 const float PI = 3.14159265359;
 const float MAX_REFLECTION_LOD = 8.0;
+
+layout(std140, binding = 0) uniform CameraConstants {
+  mat4 u_ViewProjection;
+  mat4 u_View;
+  vec3 u_cameraPos;
+};
+
+#define CASCADE_COUNT 1
+layout(std140, binding = 1) uniform ShadowConstants {
+  mat4 u_lightSpaceMatrices[CASCADE_COUNT];
+  vec4 u_cascadePlaneDistances;
+  vec4 u_cascadeTexelWorldSize;
+};
 
 struct DirectionalLight {
   vec3 direction;
@@ -25,25 +40,14 @@ struct DirectionalLight {
   float intensity;
   bool castShadow;
 };
+layout(std140, binding = 2) uniform LightConstants {
+  DirectionalLight u_light;
+};
 
-uniform DirectionalLight u_light;
-uniform sampler2DArrayShadow u_shadowMap;
-uniform mat4 u_View;
-
-#define CASCADE_COUNT 4
-
-uniform mat4 u_lightSpaceMatrices[CASCADE_COUNT];
-uniform float u_cascadePlaneDistances[CASCADE_COUNT];
-uniform float u_cascadeTexelWorldSize[CASCADE_COUNT];
-
-#ifdef FEATURE_NORMAL
-uniform sampler2D u_normalMap;
-in mat3 TBN;
-#endif
-
-uniform samplerCube u_irradianceMap;
-uniform samplerCube u_prefilterMap;
-uniform sampler2D u_brdfLUT;
+layout(binding = 3) uniform samplerCube u_irradianceMap;
+layout(binding = 4) uniform samplerCube u_prefilterMap;
+layout(binding = 5) uniform sampler2D u_brdfLUT;
+layout(binding = 6) uniform sampler2DArrayShadow u_shadowMap;
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
   return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -273,7 +277,7 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   float denominator = 4.0 * max(dot(normal, viewDir), 0.0) * max(dot(normal, lightDir), 0.0) + 0.0001;
   vec3 specular = numerator / denominator;
 
-  return (kD * objectColor / PI + specular) * radiance * NdotL * (1.0 - getShadow(lightDir));
+  return (kD * objectColor / PI + specular) * radiance * NdotL;
 }
 
 vec3 getAmbientColor(vec3 objectColor) {
