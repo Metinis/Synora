@@ -13,6 +13,8 @@
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
 
+#include <tracy/Tracy.hpp>
+
 using namespace SYN;
 
 Application *Application::s_Instance = nullptr;
@@ -102,6 +104,7 @@ void Application::run() {
             context->present();
             context->flushDeferredDeletes();
         }
+        FrameMark;
     }
 }
 

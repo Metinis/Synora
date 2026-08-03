@@ -52,6 +52,7 @@ target_link_libraries(
   imgui
   tinyfiledialogs
   glad
+  TracyClient
 )
 
 # This is to make the projection matrices in glm work with vulkan
