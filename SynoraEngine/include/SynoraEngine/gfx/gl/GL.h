@@ -372,6 +372,7 @@ struct Material {
     std::optional<Handle<Texture>> normalMap;
     std::optional<Handle<Texture>> metallicRoughnessMap;
     std::optional<Handle<Sampler>> sampler;
+    std::optional<SamplerDesc> samplerDesc;
 
     float metallic = 0.0f;
     float roughness = 0.0f;
@@ -538,6 +539,7 @@ class Context {
     void deleteRenderbuffer(Handle<Renderbuffer> renderbufferHandle);
 
     std::optional<Handle<Sampler>> createSampler(const SamplerDesc &desc);
+    void updateSampler(Handle<Sampler> samplerHandle, const SamplerDesc &desc);
     void deleteSampler(Handle<Sampler> samplerHandle);
 
     std::optional<Handle<Shader>> createShader(std::string_view vertexSource,
@@ -571,6 +573,8 @@ class Context {
     void deleteVertexArray(Handle<VertexArray> vertexArrayHandle);
 
     void flushDeferredDeletes();
+
+    void enableVSync(bool vsync);
 
   public:
     Context(Context &&other);
@@ -680,6 +684,7 @@ class Renderer {
     void setExposure(float exposure);
     void setBloomEnabled(bool enabled);
     void setAntiAliasMode(AntiAliasMode mode);
+    void setAnisotropicFiltering(float filter);
 
     void resize(int width, int height);
 
@@ -751,10 +756,13 @@ class Renderer {
     Handle<Texture> m_DefaultIrradianceMap;
     Handle<Texture> m_BRDFLut;
 
-    std::optional<Handle<Sampler>> m_DefaultModelSampler;
+    Handle<Sampler> m_DefaultModelSampler;
     std::optional<Handle<Sampler>> m_DefaultSampler;
     std::optional<Handle<Sampler>> m_CubemapSampler;
     std::optional<Handle<Sampler>> m_MipmapCubeSampler;
+    SamplerDesc m_DefaultModelSamplerDesc;
+    float m_AnisotropicFilter;
+    bool m_AnisotropicUpdate = false;
 
   private:
     void drawDirectionalShadowMap(Context &context,

@@ -27,6 +27,8 @@ class GraphicsScene : public SYN::ILayer {
         m_Context = &engineContext->glContext.value();
         m_Window = engineContext->window.get();
 
+        m_Context->enableVSync(true);
+
         m_Renderer.init(*m_Context);
 
         m_CSMLayers = m_Renderer.getCSMTextures(*m_Context);
@@ -208,7 +210,7 @@ class GraphicsScene : public SYN::ILayer {
                     std::array<gl::MaterialOverride, 1>{gl::MaterialOverride{
                         0,
                         {std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                         metal, rough,
+                         std::nullopt, metal, rough,
                          glm::vec4(m_Color.r, m_Color.g, m_Color.b, 1.0f)}}});
             }
         }
@@ -233,6 +235,30 @@ class GraphicsScene : public SYN::ILayer {
                              IM_ARRAYSIZE(aa))) {
                 m_Renderer.setAntiAliasMode(m_AntiAliasMode);
             }
+
+            const char *anisotropicFiltering[] = {"None", "2x", "4x", "8x",
+                                                  "16x"};
+            if (ImGui::Combo("Anisotropic Filtering", &m_AnisotropicMode,
+                             anisotropicFiltering,
+                             IM_ARRAYSIZE(anisotropicFiltering))) {
+                switch (m_AnisotropicMode) {
+                case 1:
+                    m_Renderer.setAnisotropicFiltering(2.0f);
+                    break;
+                case 2:
+                    m_Renderer.setAnisotropicFiltering(4.0f);
+                    break;
+                case 3:
+                    m_Renderer.setAnisotropicFiltering(8.0f);
+                    break;
+                case 4:
+                    m_Renderer.setAnisotropicFiltering(16.0f);
+                    break;
+                default:
+                    m_Renderer.setAnisotropicFiltering(1.0f);
+                }
+            }
+
             if (ImGui::SliderFloat("Gamma", &m_Gamma, gl::MIN_GAMMA,
                                    gl::MAX_GAMMA)) {
                 m_Renderer.setGamma(m_Gamma);
@@ -357,6 +383,7 @@ class GraphicsScene : public SYN::ILayer {
     int m_RenderModeIdx = 1;
 
     gl::AntiAliasMode m_AntiAliasMode = gl::AntiAliasMode::MSAA_4x;
+    int m_AnisotropicMode = 3;
 
     gl::DirectionalLight m_Light;
 };

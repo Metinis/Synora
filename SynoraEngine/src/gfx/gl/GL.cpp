@@ -20,6 +20,7 @@
 struct {
     using UniformLocations = std::unordered_map<std::string_view, int>;
     std::unordered_map<uint32_t, UniformLocations> shaderUniformCache;
+    float maxAnisotropy;
 } Globals;
 
 // Adds shader uniform to cache if it doesn't exist. Retrieves uniform
@@ -334,6 +335,11 @@ SYN::gfx::gl::Context &SYN::gfx::gl::Context::operator=(Context &&other) {
     return *this;
 }
 
+
+void SYN::gfx::gl::Context::enableVSync(bool vsync) {
+    glfwSwapInterval(vsync);
+}
+
 void SYN::gfx::gl::Context::present() { glfwSwapBuffers(m_Window); }
 
 std::optional<SYN::gfx::gl::Context>
@@ -365,6 +371,8 @@ SYN::gfx::gl::Context::createContext(const ContextInitDesc &desc) {
     ImGui_ImplOpenGL3_Init("#version 450");
 
     TracyGpuContext;
+
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &Globals.maxAnisotropy);
 
     return Context(desc);
 }
@@ -1159,9 +1167,8 @@ void SYN::gfx::gl::Context::deleteTexture(Handle<Texture> textureHandle) {
     m_TextureRegistry.releaseHandle(textureHandle);
 }
 
-std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Sampler>>
-SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
-    Sampler sampler;
+void setSamplerParameters(uint32_t samplerId, const SYN::gfx::gl::SamplerDesc &desc) {
+    using namespace SYN::gfx::gl;
 
     auto getFilterFormat = [](SampleFilter filter) {
         switch (filter) {
@@ -1189,34 +1196,51 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
         }
     };
 
-    glCreateSamplers(1, &sampler.id);
-    glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER,
+    glSamplerParameteri(samplerId, GL_TEXTURE_MIN_FILTER,
                         getFilterFormat(desc.minFilter));
-    glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER,
+    glSamplerParameteri(samplerId, GL_TEXTURE_MAG_FILTER,
                         getFilterFormat(desc.magFilter));
-    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_S,
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_S,
                         getWrapFormat(desc.wrapU));
-    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T,
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_T,
                         getWrapFormat(desc.wrapV));
-    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_R,
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_R,
                         getWrapFormat(desc.wrapW));
-    glSamplerParameterfv(sampler.id, GL_TEXTURE_BORDER_COLOR,
+    glSamplerParameterfv(samplerId, GL_TEXTURE_BORDER_COLOR,
                          &desc.borderColor[0]);
 
     if (desc.compareMode) {
-        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_MODE,
+        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_MODE,
                             GL_COMPARE_REF_TO_TEXTURE);
-        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     }
 
-    if (desc.anisotropicLevel > 1.0f) {
-        float maxAniso = 0.0f;
-        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
-        float aniso = glm::min(maxAniso, desc.anisotropicLevel);
-        glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY, aniso);
-    }
+    float aniso = glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
+    glSamplerParameterf(samplerId, GL_TEXTURE_MAX_ANISOTROPY, aniso);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Sampler>>
+SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
+    Sampler sampler;
+
+    glCreateSamplers(1, &sampler.id);
+
+    setSamplerParameters(sampler.id, desc);
 
     return m_SamplerRegistry.createHandle(sampler);
+}
+
+
+void SYN::gfx::gl::Context::updateSampler(Handle<Sampler> samplerHandle, const SamplerDesc &desc) {
+    std::optional<Sampler> samplerOpt =
+        m_SamplerRegistry.getResource(samplerHandle);
+
+    if (!samplerOpt.has_value())
+        return;
+
+    Sampler sampler = samplerOpt.value();
+    
+    setSamplerParameters(sampler.id, desc);
 }
 
 void SYN::gfx::gl::Context::deleteSampler(Handle<Sampler> samplerHandle) {
@@ -1478,15 +1502,6 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
         if (!mesh.material.albedo) {
             mesh.material.albedo = m_DefaultWhite;
         }
-        if (!m_DefaultModelSampler) {
-            SamplerDesc defaultModelDesc = {SampleFilter::Linear_Mipmap_Linear,
-                                            SampleFilter::Linear,
-                                            WrapMode::Repeat, WrapMode::Repeat};
-            defaultModelDesc.anisotropicLevel = 8.0f;
-
-            m_DefaultModelSampler = context.createSampler(defaultModelDesc);
-        }
-        mesh.material.sampler = m_DefaultModelSampler;
     }
     return m_ModelRegistry.createHandle(model);
 }
@@ -1809,7 +1824,6 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     createDefaultPrefilterMap(context);
 
     m_BRDFLut = createBRDFLut(context);
-    m_DefaultSampler = context.createSampler({}).value();
 
     {
         Pass pass = context.beginPass({});
@@ -1817,6 +1831,13 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
         pass.bindUniformBuffer(1, m_ShadowConstants);
         pass.bindUniformBuffer(2, m_LightConstants);
     }
+
+    m_DefaultModelSamplerDesc = {SampleFilter::Linear_Mipmap_Linear,
+                                    SampleFilter::Linear,
+                                    WrapMode::Repeat, WrapMode::Repeat};
+    m_AnisotropicFilter = 8.0f;
+    m_DefaultModelSamplerDesc.anisotropicLevel = m_AnisotropicFilter;
+    m_DefaultModelSampler = context.createSampler(m_DefaultModelSamplerDesc).value();
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 }
@@ -2260,8 +2281,6 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
 }
 
 void SYN::gfx::gl::Renderer::endFrame(Context &context) {
-    glfwSwapInterval(0);
-
     glm::mat4 viewMatrix = glm::lookAtRH(m_MainCamera.position,
                                          m_MainCamera.target, m_MainCamera.up);
 
@@ -2275,6 +2294,9 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
     drawDirectionalCSM(context, m_CascadedShadowmap.handle, m_DirectionalLight);
 
+    if (m_AnisotropicUpdate) {
+        context.updateSampler(m_DefaultModelSampler, m_DefaultModelSamplerDesc);
+    }
     for (const DrawCommand &cmd : m_DrawCommandList) {
         Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
         for (const MaterialOverride &override : cmd.materialOverride) {
@@ -2290,11 +2312,17 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     mesh.material.metallicRoughnessMap.has_value(), false));
         }
         for (const Mesh &mesh : model.meshes) {
+            if (mesh.material.sampler.has_value() && mesh.material.samplerDesc.has_value() && m_AnisotropicUpdate) {
+                SamplerDesc samplerDesc = mesh.material.samplerDesc.value();
+                samplerDesc.anisotropicLevel = glm::min(samplerDesc.anisotropicLevel, m_AnisotropicFilter);
+                context.updateSampler(mesh.material.sampler.value(), samplerDesc);
+            }
             m_RenderBuckets[mesh.shaderFeatures].push_back(
                 RenderItem{cmd.transform * mesh.localTransform, mesh.material,
                            mesh.vao, mesh.indexCount});
         }
     }
+    m_AnisotropicUpdate = false;
 
     {
         TracyGpuZone("Forward");
@@ -2376,9 +2404,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
                 for (const RenderItem &renderItem : renderItems) {
                     const Material &material = renderItem.material;
-                    Handle<Sampler> sampler = material.sampler.has_value()
-                                                  ? material.sampler.value()
-                                                  : m_DefaultSampler.value();
+                    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
 
                     if (material.albedo) {
                         pass.bindTexture(0, material.albedo.value(), sampler);
@@ -2413,9 +2439,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     pass.bindUniform("u_metallic", material.metallic);
                     pass.bindUniform("u_roughness", material.roughness);
 
-                    Handle<Sampler> sampler = material.sampler.has_value()
-                                                  ? material.sampler.value()
-                                                  : m_DefaultSampler.value();
+                    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
 
                     if (material.albedo) {
                         pass.bindTexture(0, material.albedo.value(), sampler);
@@ -2683,7 +2707,7 @@ void SYN::gfx::gl::Renderer::drawDirectionalShadowMap(
         Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
         for (const Mesh &mesh : model.meshes) {
             Handle<Sampler> sampler =
-                mesh.material.sampler.value_or(m_DefaultSampler.value());
+                mesh.material.sampler.value_or(m_DefaultModelSampler);
 
             Handle<Texture> albedo =
                 mesh.material.albedo.value_or(m_DefaultWhite);
@@ -2756,7 +2780,7 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
             Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
             for (const Mesh &mesh : model.meshes) {
                 Handle<Sampler> sampler =
-                    mesh.material.sampler.value_or(m_DefaultSampler.value());
+                    mesh.material.sampler.value_or(m_DefaultModelSampler);
 
                 Handle<Texture> albedo =
                     mesh.material.albedo.value_or(m_DefaultWhite);
@@ -2797,4 +2821,10 @@ std::vector<uint32_t> SYN::gfx::gl::Renderer::getCSMTextures(Context &context) {
     }
 
     return csmLayers;
+}
+
+void SYN::gfx::gl::Renderer::setAnisotropicFiltering(float filter) {
+    m_AnisotropicFilter = glm::clamp(filter, 1.0f, 16.0f);
+    m_DefaultModelSamplerDesc.anisotropicLevel = m_AnisotropicFilter;
+    m_AnisotropicUpdate = true;
 }
