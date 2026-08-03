@@ -29,6 +29,7 @@ target_include_directories(
   glad/include
 )
 
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 add_subdirectory(assimp)
 
 add_library(imgui STATIC
@@ -61,3 +62,8 @@ target_link_libraries(tinyfiledialogs
         PRIVATE
         glfw
 )
+
+option(SYNORA_ENABLE_PROFILING "Enable Tracy profiler instrumentation" ON)
+set(TRACY_ENABLE ${SYNORA_ENABLE_PROFILING} CACHE BOOL "" FORCE)
+set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+add_subdirectory(tracy)
