@@ -91,6 +91,17 @@ enum class ShaderFeatures : uint32_t {
 
 enum class AntiAliasMode { None, FXAA, MSAA_2x, MSAA_4x, MSAA_8x };
 
+enum class DepthFunc : uint8_t {
+    Always,
+    Never,
+    Less,
+    Equal,
+    LessEqual,
+    Greater,
+    NotEqual,
+    GreaterEqual
+};
+
 template <typename T> struct Handle {
     uint32_t index;
     uint32_t generation;
@@ -242,7 +253,8 @@ struct SamplerDesc {
     WrapMode wrapV = WrapMode::Repeat;
     WrapMode wrapW = WrapMode::Repeat;
     glm::vec4 borderColor = glm::vec4(1.0f);
-    float compareMode = false;
+    bool compareMode = false;
+    float anisotropicLevel = 1.0f;
 };
 
 struct RenderbufferDesc {
@@ -274,8 +286,15 @@ struct PassDesc {
 };
 
 struct DepthState {
-    bool enabled = false;
     bool writeEnabled = true;
+    DepthFunc test = DepthFunc::Less;
+};
+
+struct ColorMask {
+    bool r = true;
+    bool g = true;
+    bool b = true;
+    bool a = true;
 };
 
 struct BlendState {
@@ -297,6 +316,11 @@ struct PipelineState {
 
     // TODO: Elaborate on depth/blend state
     DepthState depth;
+
+    // Determines which channels are written.
+    // NOT for clearing color.
+    ColorMask color;
+
     BlendState blend;
 };
 
@@ -378,7 +402,7 @@ struct DirectionalLight {
 
 struct RendererConfig {
     AntiAliasMode aaMode = AntiAliasMode::MSAA_4x;
-    int shadowMapResolution = 1024;
+    int shadowMapResolution = 2048;
     float shadowDistance = 20.0f; // frustum-fit range from camera
     float exposure = 1.0f;
     bool bloomEnabled = true;
@@ -687,6 +711,7 @@ class Renderer {
     void createPrefilterShader(Context &context);
     void createBRDFLutShader(Context &context);
     void createDefaultPrefilterMap(Context &context);
+    void createZPrepassShader(Context &context);
 
     std::optional<Handle<VertexArray>> m_ScreenQuad;
     std::optional<Handle<VertexArray>> m_SkyboxCube;
@@ -706,6 +731,8 @@ class Renderer {
     std::optional<Handle<Shader>> m_IrradianceShader;
     std::optional<Handle<Shader>> m_PrefilterShader;
     std::optional<Handle<Shader>> m_BRDFLutShader;
+
+    std::optional<Handle<Shader>> m_ZPrepassShader;
 
     RendererConfig m_RenderConfig;
 
@@ -747,7 +774,7 @@ class Renderer {
         Handle<Framebuffer> handle;
         Handle<Texture> depthTexture;
         Handle<Sampler> shadowSampler;
-        uint32_t count = 1;
+        uint32_t count = 4;
         std::vector<float> planeDistances;
         std::vector<glm::mat4> lightSpaceMatrices;
         std::vector<float> cascadeTexelWorldSize;
@@ -784,7 +811,7 @@ class Renderer {
     };
 
     struct alignas(16) ShadowConstants {
-        std::array<glm::mat4, 1> u_lightSpaceMatrices;
+        std::array<glm::mat4, 4> u_lightSpaceMatrices;
         glm::vec4 u_cascadePlaneDistances;
         glm::vec4 u_cascadeTexelWorldSize;
     };

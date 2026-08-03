@@ -1,5 +1,5 @@
 #version 450 core
-uniform sampler2D u_albedoTexture;
+layout(binding = 0) uniform sampler2D u_albedoTexture;
 
 in vec2 fragTexCoords;
 

@@ -983,6 +983,37 @@ void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
         break;
     }
 
+    glDepthMask(pipelineState.depth.writeEnabled);
+    switch (pipelineState.depth.test) {
+    case DepthFunc::Less:
+        glDepthFunc(GL_LESS);
+        break;
+    case DepthFunc::LessEqual:
+        glDepthFunc(GL_LEQUAL);
+        break;
+    case DepthFunc::Greater:
+        glDepthFunc(GL_GREATER);
+        break;
+    case DepthFunc::GreaterEqual:
+        glDepthFunc(GL_GEQUAL);
+        break;
+    case DepthFunc::NotEqual:
+        glDepthFunc(GL_NOTEQUAL);
+        break;
+    case DepthFunc::Equal:
+        glDepthFunc(GL_EQUAL);
+        break;
+    case DepthFunc::Always:
+        glDepthFunc(GL_ALWAYS);
+        break;
+    case DepthFunc::Never:
+        glDepthFunc(GL_NEVER);
+        break;
+    }
+
+    glColorMask(pipelineState.color.r, pipelineState.color.g,
+                pipelineState.color.b, pipelineState.color.a);
+
     m_CurrentDrawTopology = pipelineState.topology;
 
     glUseProgram(shader.program);
@@ -1178,10 +1209,12 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
         glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     }
 
-    // TODO: Allow setting anisotropy level
-    float maxAniso = 0.0f;
-    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
-    glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY, maxAniso);
+    if (desc.anisotropicLevel > 1.0f) {
+        float maxAniso = 0.0f;
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maxAniso);
+        float aniso = glm::min(maxAniso, desc.anisotropicLevel);
+        glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY, aniso);
+    }
 
     return m_SamplerRegistry.createHandle(sampler);
 }
@@ -1446,9 +1479,12 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
             mesh.material.albedo = m_DefaultWhite;
         }
         if (!m_DefaultModelSampler) {
-            m_DefaultModelSampler = context.createSampler(
-                {SampleFilter::Linear_Mipmap_Linear, SampleFilter::Linear,
-                 WrapMode::Repeat, WrapMode::Repeat});
+            SamplerDesc defaultModelDesc = {SampleFilter::Linear_Mipmap_Linear,
+                                            SampleFilter::Linear,
+                                            WrapMode::Repeat, WrapMode::Repeat};
+            defaultModelDesc.anisotropicLevel = 8.0f;
+
+            m_DefaultModelSampler = context.createSampler(defaultModelDesc);
         }
         mesh.material.sampler = m_DefaultModelSampler;
     }
@@ -1667,6 +1703,33 @@ void SYN::gfx::gl::Renderer::createShadowmapShader(Context &context) {
             .value();
 }
 
+void SYN::gfx::gl::Renderer::createZPrepassShader(Context &context) {
+    if (m_ZPrepassShader.has_value())
+        return;
+
+    std::fstream vertexFile("resources/shaders/z_prepass.vert");
+    if (!vertexFile) {
+        spdlog::error(
+            "OpenGL renderer could not open vertex shader (Z Prepass).");
+        return;
+    }
+    std::fstream fragmentFile("resources/shaders/gl_depth_map.frag");
+    if (!fragmentFile) {
+        spdlog::error("OpenGL renderer could not open fragment shader "
+                      "(Z Prepass).");
+        return;
+    }
+
+    m_ZPrepassShader =
+        context
+            .createShader(
+                std::string(std::istreambuf_iterator<char>(vertexFile),
+                            std::istreambuf_iterator<char>()),
+                std::string(std::istreambuf_iterator<char>(fragmentFile),
+                            std::istreambuf_iterator<char>()))
+            .value();
+}
+
 void SYN::gfx::gl::Renderer::init(Context &context) {
     createScreenQuad(context);
     createHdrShader(context);
@@ -1675,6 +1738,7 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     createPrefilterShader(context);
     createBRDFLutShader(context);
     createShadowmapShader(context);
+    createZPrepassShader(context);
 
     m_ShadowConstants =
         context
@@ -2238,10 +2302,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
         // Main render pass
         {
-            Pass pass =
-                context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor, true,
-                                   false, m_ScreenViewport});
-
             CameraConstants cameraConstants{};
             cameraConstants.u_viewProjection = projMatrix * viewMatrix;
             cameraConstants.u_view = viewMatrix;
@@ -2274,34 +2334,68 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             context.updateBuffer(m_LightConstants, 0, sizeof(LightConstants),
                                  &lightConstants);
 
-            {
-                if (m_Environment.has_value() &&
-                    m_Environment.value().irradianceMap.has_value()) {
-                    pass.bindTexture(
-                        3, m_Environment.value().irradianceMap.value(),
-                        m_CubemapSampler.value());
-                } else {
-                    pass.bindTexture(3, m_DefaultIrradianceMap,
-                                     m_CubemapSampler.value());
-                }
-
-                if (m_Environment.has_value() &&
-                    m_Environment.value().prefilteredMap.has_value()) {
-                    pass.bindTexture(
-                        4, m_Environment.value().prefilteredMap.value(),
-                        m_MipmapCubeSampler.value());
-                } else {
-                    pass.bindTexture(4, m_DefaultPrefilterMap,
-                                     m_MipmapCubeSampler.value());
-                }
-
-                pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
-                pass.bindTexture(6, m_CascadedShadowmap.depthTexture,
-                                 m_CascadedShadowmap.shadowSampler);
+            Pass pass =
+                context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor, true,
+                                   false, m_ScreenViewport});
+            if (m_Environment.has_value() &&
+                m_Environment.value().irradianceMap.has_value()) {
+                pass.bindTexture(3, m_Environment.value().irradianceMap.value(),
+                                 m_CubemapSampler.value());
+            } else {
+                pass.bindTexture(3, m_DefaultIrradianceMap,
+                                 m_CubemapSampler.value());
             }
+
+            if (m_Environment.has_value() &&
+                m_Environment.value().prefilteredMap.has_value()) {
+                pass.bindTexture(4,
+                                 m_Environment.value().prefilteredMap.value(),
+                                 m_MipmapCubeSampler.value());
+            } else {
+                pass.bindTexture(4, m_DefaultPrefilterMap,
+                                 m_MipmapCubeSampler.value());
+            }
+
+            pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
+            pass.bindTexture(6, m_CascadedShadowmap.depthTexture,
+                             m_CascadedShadowmap.shadowSampler);
 
             uint32_t renderItemIdx = 0;
             PipelineState pipeline;
+            pipeline.depth.writeEnabled = true;
+            pipeline.color = {false, false, false, false};
+            pipeline.shader = m_ZPrepassShader.value();
+            pass.usePipeline(pipeline);
+
+            // Z Prepass
+            for (const std::vector<RenderItem> &renderItems : m_RenderBuckets) {
+                if (renderItems.empty()) {
+                    ++renderItemIdx;
+                    continue;
+                }
+
+                for (const RenderItem &renderItem : renderItems) {
+                    const Material &material = renderItem.material;
+                    Handle<Sampler> sampler = material.sampler.has_value()
+                                                  ? material.sampler.value()
+                                                  : m_DefaultSampler.value();
+
+                    if (material.albedo) {
+                        pass.bindTexture(0, material.albedo.value(), sampler);
+                    }
+
+                    pass.bindUniform("u_Model", renderItem.transform);
+                    pass.bindVertexArray(renderItem.vao);
+                    pass.drawIndexed(renderItem.indexCount);
+                }
+                ++renderItemIdx;
+            }
+
+            pipeline.depth.test = DepthFunc::Equal;
+            pipeline.depth.writeEnabled = false;
+            pipeline.color = {true, true, true, true};
+            renderItemIdx = 0;
+            // Actual forward + PBR
             for (const std::vector<RenderItem> &renderItems : m_RenderBuckets) {
                 if (renderItems.empty()) {
                     ++renderItemIdx;
@@ -2345,9 +2439,9 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             }
 
             if (m_Environment.has_value()) {
-                glDepthFunc(GL_LEQUAL);
                 Environment currentEnvironment = m_Environment.value();
                 pipeline.shader = m_SkyboxShader.value();
+                pipeline.depth.test = DepthFunc::LessEqual;
                 pass.usePipeline(pipeline);
 
                 pass.bindTexture(0, currentEnvironment.cubemap,
@@ -2358,7 +2452,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                 pass.bindVertexArray(m_SkyboxCube.value());
                 pass.draw(36);
             }
-            glDepthFunc(GL_LESS);
         }
 
         context.blitFramebuffer(m_MsaaFramebuffer.handle,
@@ -2669,7 +2762,6 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
                     mesh.material.albedo.value_or(m_DefaultWhite);
 
                 pass.bindTexture(0, albedo, sampler);
-                pass.bindUniform("u_albedoTexture", 0);
                 pass.bindUniform("u_modelMatrix",
                                  cmd.transform * mesh.localTransform);
                 pass.bindVertexArray(mesh.vao);

@@ -21,6 +21,8 @@ out vec2 fragTexCoords;
 out mat3 TBN;
 #endif
 
+invariant gl_Position;
+
 void main() {
   #ifdef FEATURE_NORMAL
   vec3 T = normalize(mat3(u_Model) * aTangent.xyz);

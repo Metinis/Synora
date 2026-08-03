@@ -27,7 +27,7 @@ layout(std140, binding = 0) uniform CameraConstants {
   vec3 u_cameraPos;
 };
 
-#define CASCADE_COUNT 1
+#define CASCADE_COUNT 4
 layout(std140, binding = 1) uniform ShadowConstants {
   mat4 u_lightSpaceMatrices[CASCADE_COUNT];
   vec4 u_cascadePlaneDistances;
@@ -231,36 +231,26 @@ float getShadow(vec3 lightDir) {
   float splitStart = (currentLayer == 0) ? 0.0 : u_cascadePlaneDistances[currentLayer - 1];
   float splitEnd = u_cascadePlaneDistances[currentLayer];
 
-  float band = (splitEnd - splitStart) * 0.5;
+  float band = (splitEnd - splitStart) * 0.15;
 
   float blend = smoothstep(splitEnd - band, splitEnd, depth);
 
-  float texelN = u_cascadeTexelWorldSize[currentLayer];
-  float texelN1 = u_cascadeTexelWorldSize[min(currentLayer + 1, CASCADE_COUNT - 1)];
-  float texelWorldSize = mix(texelN, texelN1, blend);
-
-  float shadow = sampleCascade(lightDir, currentLayer, texelWorldSize);
-
-  if (blend > 0.0f && currentLayer + 1 < CASCADE_COUNT) {
-    float nextShadow = sampleCascade(lightDir, currentLayer + 1, texelN1);
-    shadow = mix(shadow, nextShadow, blend);
-  }
+  float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  int nextLayer = min(currentLayer + 1, CASCADE_COUNT - 1);
+  int chosenLayer = (ign < blend) ? nextLayer : currentLayer;
+  float shadow = sampleCascade(lightDir, chosenLayer, u_cascadeTexelWorldSize[chosenLayer]);
 
   return shadow;
 }
 
-vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
+vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor, vec3 normal, vec2 metallicRoughness) {
   vec3 lightDir = -light.direction;
   vec3 viewDir = normalize(u_cameraPos - fragPos);
   vec3 halfwayDir = normalize(lightDir + viewDir);
   vec3 radiance = light.color * light.intensity;
-
-  vec3 normal = getNormal();
   float NdotL = max(dot(normal, lightDir), 0.0);
-
-  vec2 metallicRoughness = getMetallicRoughness();
   float metallic = metallicRoughness.x;
-  float roughness = roughnessAA(normal, metallicRoughness.y);
+  float roughness = metallicRoughness.y;
 
   vec3 F0 = vec3(0.04);
   F0 = mix(F0, objectColor, metallic);
@@ -277,16 +267,14 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor) {
   float denominator = 4.0 * max(dot(normal, viewDir), 0.0) * max(dot(normal, lightDir), 0.0) + 0.0001;
   vec3 specular = numerator / denominator;
 
-  return (kD * objectColor / PI + specular) * radiance * NdotL;
+  return (kD * objectColor / PI + specular) * radiance * NdotL * (1.0f - getShadow(lightDir));
 }
 
-vec3 getAmbientColor(vec3 objectColor) {
-  vec3 normal = getNormal();
+vec3 getAmbientColor(vec3 objectColor, vec3 normal, vec2 metallicRoughness) {
   vec3 viewDir = normalize(u_cameraPos - fragPos);
-  vec2 metallicRoughness = getMetallicRoughness();
 
   float metallic = metallicRoughness.x;
-  float roughness = roughnessAA(normal, metallicRoughness.y);
+  float roughness = metallicRoughness.y;
 
   vec3 F0 = vec3(0.04);
   F0 = mix(F0, objectColor, metallic);
@@ -310,10 +298,13 @@ vec3 getAmbientColor(vec3 objectColor) {
 
 void main() {
   vec4 albedoTexture = texture(u_albedoTexture, fragTexCoords);
-  if (albedoTexture.a < 0.1) discard;
   vec3 objectColor = vec3(vec4(u_tint, 1.0) * albedoTexture);
 
-  vec3 Lo = applyDirectionalLight(u_light, objectColor);
+  vec3 normal = getNormal();
+  vec2 metallicRoughness = getMetallicRoughness();
+  metallicRoughness.y = roughnessAA(normal, metallicRoughness.y);
+
+  vec3 Lo = applyDirectionalLight(u_light, objectColor, normal, metallicRoughness);
 
   vec3 cascadeColors[4] = {
       vec3(1.0, 0.0, 0.0) * 0.1f,
@@ -322,7 +313,7 @@ void main() {
       vec3(1.0, 1.0, 0.0) * 0.1f,
     };
 
-  vec3 finalColor = getAmbientColor(objectColor) + Lo;
+  vec3 finalColor = getAmbientColor(objectColor, normal, metallicRoughness) + Lo;
 
   fragColor = vec4(finalColor, 1.0);
 }
