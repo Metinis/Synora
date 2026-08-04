@@ -29,7 +29,8 @@ static bool hasGLExtension(std::string_view name) {
     for (GLint i = 0; i < count; ++i) {
         const char *ext =
             reinterpret_cast<const char *>(glGetStringi(GL_EXTENSIONS, i));
-        if (ext && name == ext) return true;
+        if (ext && name == ext)
+            return true;
     }
     return false;
 }
@@ -353,10 +354,7 @@ SYN::gfx::gl::Context &SYN::gfx::gl::Context::operator=(Context &&other) {
     return *this;
 }
 
-
-void SYN::gfx::gl::Context::enableVSync(bool vsync) {
-    glfwSwapInterval(vsync);
-}
+void SYN::gfx::gl::Context::enableVSync(bool vsync) { glfwSwapInterval(vsync); }
 
 void SYN::gfx::gl::Context::present() { glfwSwapBuffers(m_Window); }
 
@@ -1102,7 +1100,8 @@ void SYN::gfx::gl::Pass::drawIndexed(uint32_t indexCount) {
     glDrawElements(drawMode, indexCount, indexType, nullptr);
 }
 
-void SYN::gfx::gl::Pass::drawInstancedIndexed(uint32_t indexCount, uint32_t instanceCount) {
+void SYN::gfx::gl::Pass::drawInstancedIndexed(uint32_t indexCount,
+                                              uint32_t instanceCount) {
     GLenum drawMode;
     switch (m_CurrentDrawTopology) {
     case PrimitiveTopology::Triangles:
@@ -1126,7 +1125,8 @@ void SYN::gfx::gl::Pass::drawInstancedIndexed(uint32_t indexCount, uint32_t inst
         break;
     }
 
-    glDrawElementsInstanced(drawMode, indexCount, indexType, nullptr, instanceCount);
+    glDrawElementsInstanced(drawMode, indexCount, indexType, nullptr,
+                            instanceCount);
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
@@ -1212,7 +1212,8 @@ void SYN::gfx::gl::Context::deleteTexture(Handle<Texture> textureHandle) {
     m_TextureRegistry.releaseHandle(textureHandle);
 }
 
-void setSamplerParameters(uint32_t samplerId, const SYN::gfx::gl::SamplerDesc &desc) {
+void setSamplerParameters(uint32_t samplerId,
+                          const SYN::gfx::gl::SamplerDesc &desc) {
     using namespace SYN::gfx::gl;
 
     auto getFilterFormat = [](SampleFilter filter) {
@@ -1260,7 +1261,8 @@ void setSamplerParameters(uint32_t samplerId, const SYN::gfx::gl::SamplerDesc &d
         glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     }
 
-    float aniso = glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
+    float aniso =
+        glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
     glSamplerParameterf(samplerId, GL_TEXTURE_MAX_ANISOTROPY, aniso);
 }
 
@@ -1275,8 +1277,8 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
     return m_SamplerRegistry.createHandle(sampler);
 }
 
-
-void SYN::gfx::gl::Context::updateSampler(Handle<Sampler> samplerHandle, const SamplerDesc &desc) {
+void SYN::gfx::gl::Context::updateSampler(Handle<Sampler> samplerHandle,
+                                          const SamplerDesc &desc) {
     std::optional<Sampler> samplerOpt =
         m_SamplerRegistry.getResource(samplerHandle);
 
@@ -1284,7 +1286,7 @@ void SYN::gfx::gl::Context::updateSampler(Handle<Sampler> samplerHandle, const S
         return;
 
     Sampler sampler = samplerOpt.value();
-    
+
     setSamplerParameters(sampler.id, desc);
 }
 
@@ -1542,7 +1544,8 @@ std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Model>>
 SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
     Model model;
     for (const MeshData &meshData : data.meshes) {
-        Mesh mesh = createMesh(context, meshData, m_TextureCache, m_ShaderCache);
+        Mesh mesh =
+            createMesh(context, meshData, m_TextureCache, m_ShaderCache);
         if (!mesh.material.albedo) {
             mesh.material.albedo = m_DefaultWhite;
         }
@@ -1742,15 +1745,20 @@ void SYN::gfx::gl::Renderer::createDefaultPrefilterMap(Context &context) {
 }
 
 void SYN::gfx::gl::Renderer::createShadowmapShader(Context &context) {
-    m_CascadedShadowmap.isInstanced = hasGLExtension("GL_ARB_shader_viewport_layer_array");
-    std::fstream vertexFile(m_CascadedShadowmap.isInstanced ? "resources/shaders/gl_depth_map_instanced.vert" : "resources/shaders/gl_depth_map.vert");
+    m_CascadedShadowmap.isInstanced =
+        hasGLExtension("GL_ARB_shader_viewport_layer_array");
+    std::fstream vertexFile(
+        m_CascadedShadowmap.isInstanced
+            ? "resources/shaders/gl_depth_map_instanced.vert"
+            : "resources/shaders/gl_depth_map.vert");
     if (!vertexFile) {
         spdlog::error(
             "OpenGL renderer could not open vertex shader (Depth map).");
         return;
     }
-    std::string vertexSrc = std::string(std::istreambuf_iterator<char>(vertexFile),
-                            std::istreambuf_iterator<char>());
+    std::string vertexSrc =
+        std::string(std::istreambuf_iterator<char>(vertexFile),
+                    std::istreambuf_iterator<char>());
 
     std::fstream fragmentFile("resources/shaders/gl_depth_map.frag");
     if (!fragmentFile) {
@@ -1790,8 +1798,9 @@ void SYN::gfx::gl::Renderer::createZPrepassShader(Context &context) {
             "OpenGL renderer could not open vertex shader (Z Prepass).");
         return;
     }
-    std::string vertexSrc = std::string(std::istreambuf_iterator<char>(vertexFile),
-                            std::istreambuf_iterator<char>());
+    std::string vertexSrc =
+        std::string(std::istreambuf_iterator<char>(vertexFile),
+                    std::istreambuf_iterator<char>());
 
     std::fstream fragmentFile("resources/shaders/gl_depth_map.frag");
     if (!fragmentFile) {
@@ -1827,33 +1836,27 @@ void SYN::gfx::gl::Renderer::createZPrepassShader(Context &context) {
 void SYN::gfx::gl::Renderer::createCSM(Context &context) {
     createShadowmapShader(context);
 
-    m_CascadedShadowmap.depthTextureNear = context
-                                   .createTexture({
-                                        m_RenderConfig.shadowMapNearResolution,
-                                        m_RenderConfig.shadowMapNearResolution,
-                                       TextureFormat::Depth16,
-                                       1,
-                                       1,
-                                       TextureType::Tex2DArray,
-                                       2
-                                   })
-                                   .value();
-    m_CascadedShadowmap.depthTextureFar = context
-                                   .createTexture({
-                                        m_RenderConfig.shadowMapFarResolution,
-                                        m_RenderConfig.shadowMapFarResolution,
-                                       TextureFormat::Depth16,
-                                       1,
-                                       1,
-                                       TextureType::Tex2DArray,
-                                       2
-                                   })
-                                   .value();
+    m_CascadedShadowmap.depthTextureNear =
+        context
+            .createTexture({m_RenderConfig.shadowMapNearResolution,
+                            m_RenderConfig.shadowMapNearResolution,
+                            TextureFormat::Depth16, 1, 1,
+                            TextureType::Tex2DArray, 2})
+            .value();
+    m_CascadedShadowmap.depthTextureFar =
+        context
+            .createTexture({m_RenderConfig.shadowMapFarResolution,
+                            m_RenderConfig.shadowMapFarResolution,
+                            TextureFormat::Depth16, 1, 1,
+                            TextureType::Tex2DArray, 2})
+            .value();
 
     m_CascadedShadowmap.fboNear =
         context
             .createFramebuffer(
-                {{}, AttachmentDesc{m_CascadedShadowmap.depthTextureNear}, true})
+                {{},
+                 AttachmentDesc{m_CascadedShadowmap.depthTextureNear},
+                 true})
             .value();
 
     m_CascadedShadowmap.fboFar =
@@ -1861,7 +1864,6 @@ void SYN::gfx::gl::Renderer::createCSM(Context &context) {
             .createFramebuffer(
                 {{}, AttachmentDesc{m_CascadedShadowmap.depthTextureFar}, true})
             .value();
-
 
     m_CascadedShadowmap.shadowSampler =
         context
@@ -1916,11 +1918,12 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     }
 
     m_DefaultModelSamplerDesc = {SampleFilter::Linear_Mipmap_Linear,
-                                    SampleFilter::Linear,
-                                    WrapMode::Repeat, WrapMode::Repeat};
+                                 SampleFilter::Linear, WrapMode::Repeat,
+                                 WrapMode::Repeat};
     m_AnisotropicFilter = 8.0f;
     m_DefaultModelSamplerDesc.anisotropicLevel = m_AnisotropicFilter;
-    m_DefaultModelSampler = context.createSampler(m_DefaultModelSamplerDesc).value();
+    m_DefaultModelSampler =
+        context.createSampler(m_DefaultModelSamplerDesc).value();
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 }
@@ -2363,28 +2366,28 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     return brdfLUT;
 }
 
-void SYN::gfx::gl::Renderer::drawRenderItems(Pass &pass, const std::vector<RenderItem> &renderItems) {
+void SYN::gfx::gl::Renderer::drawRenderItems(
+    Pass &pass, const std::vector<RenderItem> &renderItems) {
     for (const RenderItem &renderItem : renderItems) {
         const Material &material = renderItem.material;
         pass.bindUniform("u_tint", material.tint.r, material.tint.g,
-                            material.tint.b);
+                         material.tint.b);
         pass.bindUniform("u_metallic", material.metallic);
         pass.bindUniform("u_roughness", material.roughness);
 
-        Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
+        Handle<Sampler> sampler =
+            material.sampler.value_or(m_DefaultModelSampler);
 
         if (material.albedo) {
             pass.bindTexture(0, material.albedo.value(), sampler);
         }
 
         if (material.normalMap) {
-            pass.bindTexture(1, material.normalMap.value(),
-                                sampler);
+            pass.bindTexture(1, material.normalMap.value(), sampler);
         }
 
         if (material.metallicRoughnessMap) {
-            pass.bindTexture(
-                2, material.metallicRoughnessMap.value(), sampler);
+            pass.bindTexture(2, material.metallicRoughnessMap.value(), sampler);
         }
 
         pass.bindUniform("u_Model", renderItem.transform);
@@ -2408,13 +2411,15 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     // Sort draw commands by shader
     {
         if (m_AnisotropicUpdate) {
-            context.updateSampler(m_DefaultModelSampler, m_DefaultModelSamplerDesc);
+            context.updateSampler(m_DefaultModelSampler,
+                                  m_DefaultModelSamplerDesc);
         }
         for (const DrawCommand &cmd : m_DrawCommandList) {
             Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
             for (const MaterialOverride &override : cmd.materialOverride) {
-                Mesh &mesh = override.material.alphaMasked ? model.meshesMasked.at(override.meshIndex) : 
-                                                             model.meshesOpaque.at(override.meshIndex);
+                Mesh &mesh = override.material.alphaMasked
+                                 ? model.meshesMasked.at(override.meshIndex)
+                                 : model.meshesOpaque.at(override.meshIndex);
 
                 mesh.material = override.material;
                 if (!mesh.material.albedo) {
@@ -2427,24 +2432,32 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                         mesh.material.metallicRoughnessMap.has_value(), false));
             }
             for (const Mesh &mesh : model.meshesOpaque) {
-                if (mesh.material.sampler.has_value() && mesh.material.samplerDesc.has_value() && m_AnisotropicUpdate) {
+                if (mesh.material.sampler.has_value() &&
+                    mesh.material.samplerDesc.has_value() &&
+                    m_AnisotropicUpdate) {
                     SamplerDesc samplerDesc = mesh.material.samplerDesc.value();
-                    samplerDesc.anisotropicLevel = glm::min(samplerDesc.anisotropicLevel, m_AnisotropicFilter);
-                    context.updateSampler(mesh.material.sampler.value(), samplerDesc);
+                    samplerDesc.anisotropicLevel = glm::min(
+                        samplerDesc.anisotropicLevel, m_AnisotropicFilter);
+                    context.updateSampler(mesh.material.sampler.value(),
+                                          samplerDesc);
                 }
                 m_RenderBucketsOpaque[mesh.shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform, mesh.material,
-                            mesh.vao, mesh.indexCount});
+                    RenderItem{cmd.transform * mesh.localTransform,
+                               mesh.material, mesh.vao, mesh.indexCount});
             }
             for (const Mesh &mesh : model.meshesMasked) {
-                if (mesh.material.sampler.has_value() && mesh.material.samplerDesc.has_value() && m_AnisotropicUpdate) {
+                if (mesh.material.sampler.has_value() &&
+                    mesh.material.samplerDesc.has_value() &&
+                    m_AnisotropicUpdate) {
                     SamplerDesc samplerDesc = mesh.material.samplerDesc.value();
-                    samplerDesc.anisotropicLevel = glm::min(samplerDesc.anisotropicLevel, m_AnisotropicFilter);
-                    context.updateSampler(mesh.material.sampler.value(), samplerDesc);
+                    samplerDesc.anisotropicLevel = glm::min(
+                        samplerDesc.anisotropicLevel, m_AnisotropicFilter);
+                    context.updateSampler(mesh.material.sampler.value(),
+                                          samplerDesc);
                 }
                 m_RenderBucketsMasked[mesh.shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform, mesh.material,
-                            mesh.vao, mesh.indexCount});
+                    RenderItem{cmd.transform * mesh.localTransform,
+                               mesh.material, mesh.vao, mesh.indexCount});
             }
         }
         m_AnisotropicUpdate = false;
@@ -2464,10 +2477,10 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
         lightConstants.castShadow = m_DirectionalLight.castsShadows;
 
         context.updateBuffer(m_CameraConstants, 0, sizeof(CameraConstants),
-                                &cameraConstants);
+                             &cameraConstants);
 
         context.updateBuffer(m_LightConstants, 0, sizeof(LightConstants),
-                                &lightConstants);
+                             &lightConstants);
     }
 
     drawDirectionalCSM(context, m_DirectionalLight);
@@ -2515,7 +2528,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pass.usePipeline(pipeline);
 
             // Z Prepass
-            for (const std::vector<RenderItem> &renderItems : m_RenderBucketsOpaque) {
+            for (const std::vector<RenderItem> &renderItems :
+                 m_RenderBucketsOpaque) {
                 if (renderItems.empty()) {
                     ++renderItemIdx;
                     continue;
@@ -2523,7 +2537,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
                 for (const RenderItem &renderItem : renderItems) {
                     const Material &material = renderItem.material;
-                    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
+                    Handle<Sampler> sampler =
+                        material.sampler.value_or(m_DefaultModelSampler);
 
                     if (material.albedo) {
                         pass.bindTexture(0, material.albedo.value(), sampler);
@@ -2540,7 +2555,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pipeline.cullMode = CullMode::None;
             pass.usePipeline(pipeline);
             renderItemIdx = 0;
-            for (const std::vector<RenderItem> &renderItems : m_RenderBucketsMasked) {
+            for (const std::vector<RenderItem> &renderItems :
+                 m_RenderBucketsMasked) {
                 if (renderItems.empty()) {
                     ++renderItemIdx;
                     continue;
@@ -2548,7 +2564,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
                 for (const RenderItem &renderItem : renderItems) {
                     const Material &material = renderItem.material;
-                    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
+                    Handle<Sampler> sampler =
+                        material.sampler.value_or(m_DefaultModelSampler);
 
                     if (material.albedo) {
                         pass.bindTexture(0, material.albedo.value(), sampler);
@@ -2567,20 +2584,22 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pipeline.cullMode = CullMode::Back;
             // Actual forward + PBR
             for (uint32_t i = 0; i < m_RenderBucketsOpaque.size(); ++i) {
-                const std::vector<RenderItem> &renderItems = m_RenderBucketsOpaque.at(i);
-                if (renderItems.empty()) continue;
-                pipeline.shader =
-                    m_ShaderCache.getShaderHandle(context, i);
+                const std::vector<RenderItem> &renderItems =
+                    m_RenderBucketsOpaque.at(i);
+                if (renderItems.empty())
+                    continue;
+                pipeline.shader = m_ShaderCache.getShaderHandle(context, i);
                 pass.usePipeline(pipeline);
                 drawRenderItems(pass, renderItems);
             }
 
             pipeline.cullMode = CullMode::None;
             for (uint32_t i = 0; i < m_RenderBucketsMasked.size(); ++i) {
-                const std::vector<RenderItem> &renderItems = m_RenderBucketsMasked.at(i);
-                if (renderItems.empty()) continue;
-                pipeline.shader =
-                    m_ShaderCache.getShaderHandle(context, i);
+                const std::vector<RenderItem> &renderItems =
+                    m_RenderBucketsMasked.at(i);
+                if (renderItems.empty())
+                    continue;
+                pipeline.shader = m_ShaderCache.getShaderHandle(context, i);
                 pass.usePipeline(pipeline);
                 drawRenderItems(pass, renderItems);
             }
@@ -2748,7 +2767,8 @@ SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
 }
 
 glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
-    const DirectionalLight &light, uint32_t resolution, const Camera &camera, float &texelWorld) {
+    const DirectionalLight &light, uint32_t resolution, const Camera &camera,
+    float &texelWorld) {
     ZoneScopedN("Calculate tight light frustum");
 
     std::vector<glm::vec4> corners = getFrustumCornersWorldSpace(camera);
@@ -2805,18 +2825,15 @@ void SYN::gfx::gl::Renderer::setCSMDistance(float distance) {
     m_RenderConfig.shadowDistance = glm::max(0.001f, distance);
 }
 
-void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(
-    Context &context, 
-    Handle<Framebuffer> fbo, 
-    Handle<Texture> depth,
-    bool isNear,
-    uint32_t resolution
-) {
+void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
+                                                   Handle<Framebuffer> fbo,
+                                                   Handle<Texture> depth,
+                                                   bool isNear,
+                                                   uint32_t resolution) {
     context.setDepthAttachment(fbo, depth);
 
-    Pass pass = context.beginPass(
-        {fbo, std::nullopt, true, false,
-        Viewport{0, 0, resolution, resolution}});
+    Pass pass = context.beginPass({fbo, std::nullopt, true, false,
+                                   Viewport{0, 0, resolution, resolution}});
 
     PipelineState pipeline;
 
@@ -2829,7 +2846,7 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(
         pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
         for (const Mesh &mesh : model.meshesOpaque) {
             pass.bindUniform("u_modelMatrix",
-                            cmd.transform * mesh.localTransform);
+                             cmd.transform * mesh.localTransform);
             pass.bindVertexArray(mesh.vao);
             pass.drawInstancedIndexed(mesh.indexCount, 2);
         }
@@ -2847,23 +2864,26 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(
 
             pass.bindTexture(0, albedo, sampler);
             pass.bindUniform("u_modelMatrix",
-                            cmd.transform * mesh.localTransform);
+                             cmd.transform * mesh.localTransform);
             pass.bindVertexArray(mesh.vao);
             pass.drawInstancedIndexed(mesh.indexCount, 2);
         }
     }
 }
 
-void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context, Handle<Framebuffer> fbo,
-                                          Handle<Texture> depth, bool isNear, uint32_t resolution) {
+void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
+                                          Handle<Framebuffer> fbo,
+                                          Handle<Texture> depth, bool isNear,
+                                          uint32_t resolution) {
     PipelineState pipeline;
     for (uint32_t i = 0; i < 2; ++i) {
         context.setDepthAttachment(fbo, depth, 0, i);
         Pass pass = context.beginPass({fbo, std::nullopt, true, false,
                                        Viewport{0, 0, resolution, resolution}});
 
-        pass.bindUniform("u_lightSpaceMatrix",
-                        m_CascadedShadowmap.lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
+        pass.bindUniform(
+            "u_lightSpaceMatrix",
+            m_CascadedShadowmap.lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
 
         for (const DrawCommand &cmd : m_DrawCommandList) {
             Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
@@ -2872,7 +2892,7 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context, Handle<Framebuffer> 
             pass.usePipeline(pipeline);
             for (const Mesh &mesh : model.meshesOpaque) {
                 pass.bindUniform("u_modelMatrix",
-                                cmd.transform * mesh.localTransform);
+                                 cmd.transform * mesh.localTransform);
                 pass.bindVertexArray(mesh.vao);
                 pass.drawIndexed(mesh.indexCount);
             }
@@ -2887,7 +2907,7 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context, Handle<Framebuffer> 
 
                 pass.bindTexture(0, albedo, sampler);
                 pass.bindUniform("u_modelMatrix",
-                                cmd.transform * mesh.localTransform);
+                                 cmd.transform * mesh.localTransform);
                 pass.bindVertexArray(mesh.vao);
                 pass.drawIndexed(mesh.indexCount);
             }
@@ -2918,40 +2938,46 @@ void SYN::gfx::gl::Renderer::drawDirectionalCSM(Context &context,
     for (uint32_t i = 0; i < numMaps; ++i) {
         camera.nearPlane = splits[i];
         camera.farPlane = splits[i + 1];
-        uint32_t resolution = i < 2 ? m_RenderConfig.shadowMapNearResolution : m_RenderConfig.shadowMapFarResolution;
+        uint32_t resolution = i < 2 ? m_RenderConfig.shadowMapNearResolution
+                                    : m_RenderConfig.shadowMapFarResolution;
         m_CascadedShadowmap.lightSpaceMatrices[i] = calculateTightLightFrustum(
-            light, 
-            resolution, 
-            camera, 
-            m_CascadedShadowmap.cascadeTexelWorldSize[i]
-        );
+            light, resolution, camera,
+            m_CascadedShadowmap.cascadeTexelWorldSize[i]);
         m_CascadedShadowmap.planeDistances[i] = splits[i + 1];
     }
 
     ShadowConstants shadowConstants{};
 
     std::copy(m_CascadedShadowmap.lightSpaceMatrices.cbegin(),
-                m_CascadedShadowmap.lightSpaceMatrices.cend(),
-                &shadowConstants.u_lightSpaceMatrices[0]);
+              m_CascadedShadowmap.lightSpaceMatrices.cend(),
+              &shadowConstants.u_lightSpaceMatrices[0]);
     std::copy(m_CascadedShadowmap.planeDistances.cbegin(),
-                m_CascadedShadowmap.planeDistances.cend(),
-                &shadowConstants.u_cascadePlaneDistances[0]);
+              m_CascadedShadowmap.planeDistances.cend(),
+              &shadowConstants.u_cascadePlaneDistances[0]);
     std::copy(m_CascadedShadowmap.cascadeTexelWorldSize.cbegin(),
-                m_CascadedShadowmap.cascadeTexelWorldSize.cend(),
-                &shadowConstants.u_cascadeTexelWorldSize[0]);
+              m_CascadedShadowmap.cascadeTexelWorldSize.cend(),
+              &shadowConstants.u_cascadeTexelWorldSize[0]);
     context.updateBuffer(m_ShadowConstants, 0, sizeof(ShadowConstants),
-                            &shadowConstants);
+                         &shadowConstants);
 
     glEnable(GL_POLYGON_OFFSET_FILL);
     glEnable(GL_DEPTH_CLAMP);
     glPolygonOffset(2.0f, 2.0f);
 
     if (m_CascadedShadowmap.isInstanced) {
-        drawInstancedCSMDepth(context, m_CascadedShadowmap.fboNear, m_CascadedShadowmap.depthTextureNear, true, m_RenderConfig.shadowMapNearResolution);
-        drawInstancedCSMDepth(context, m_CascadedShadowmap.fboFar, m_CascadedShadowmap.depthTextureFar, false, m_RenderConfig.shadowMapFarResolution);
+        drawInstancedCSMDepth(context, m_CascadedShadowmap.fboNear,
+                              m_CascadedShadowmap.depthTextureNear, true,
+                              m_RenderConfig.shadowMapNearResolution);
+        drawInstancedCSMDepth(context, m_CascadedShadowmap.fboFar,
+                              m_CascadedShadowmap.depthTextureFar, false,
+                              m_RenderConfig.shadowMapFarResolution);
     } else {
-        drawCSMDepth(context, m_CascadedShadowmap.fboNear, m_CascadedShadowmap.depthTextureNear, true, m_RenderConfig.shadowMapNearResolution);
-        drawCSMDepth(context, m_CascadedShadowmap.fboFar, m_CascadedShadowmap.depthTextureFar, false, m_RenderConfig.shadowMapFarResolution);
+        drawCSMDepth(context, m_CascadedShadowmap.fboNear,
+                     m_CascadedShadowmap.depthTextureNear, true,
+                     m_RenderConfig.shadowMapNearResolution);
+        drawCSMDepth(context, m_CascadedShadowmap.fboFar,
+                     m_CascadedShadowmap.depthTextureFar, false,
+                     m_RenderConfig.shadowMapFarResolution);
     }
 
     glDisable(GL_POLYGON_OFFSET_FILL);
@@ -2967,7 +2993,8 @@ std::vector<uint32_t> SYN::gfx::gl::Renderer::getCSMTextures(Context &context) {
     for (uint32_t i = 0; i < 2; ++i) {
         uint32_t newId = 0;
         glGenTextures(1, &newId);
-        glTextureView(newId, GL_TEXTURE_2D, id, GL_DEPTH_COMPONENT16, 0, 1, i, 1);
+        glTextureView(newId, GL_TEXTURE_2D, id, GL_DEPTH_COMPONENT16, 0, 1, i,
+                      1);
         glTextureParameteri(newId, GL_TEXTURE_COMPARE_MODE, GL_NONE);
         glTextureParameteri(newId, GL_TEXTURE_SWIZZLE_G, GL_RED);
         glTextureParameteri(newId, GL_TEXTURE_SWIZZLE_B, GL_RED);
@@ -2983,7 +3010,8 @@ std::vector<uint32_t> SYN::gfx::gl::Renderer::getCSMTextures(Context &context) {
     for (uint32_t i = 0; i < 2; ++i) {
         uint32_t newId = 0;
         glGenTextures(1, &newId);
-        glTextureView(newId, GL_TEXTURE_2D, id, GL_DEPTH_COMPONENT16, 0, 1, i, 1);
+        glTextureView(newId, GL_TEXTURE_2D, id, GL_DEPTH_COMPONENT16, 0, 1, i,
+                      1);
         glTextureParameteri(newId, GL_TEXTURE_COMPARE_MODE, GL_NONE);
         glTextureParameteri(newId, GL_TEXTURE_SWIZZLE_G, GL_RED);
         glTextureParameteri(newId, GL_TEXTURE_SWIZZLE_B, GL_RED);
