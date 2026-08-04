@@ -40,6 +40,7 @@ enum class TextureFormat : uint8_t {
     RGB8,
     RG8,
     R8,
+    Depth16,
     Depth24,
     Depth24Stencil8,
     SRGB,
@@ -365,6 +366,8 @@ struct MaterialData {
     float metallic = 1.0f;
     float roughness = 1.0f;
     glm::vec4 tint = glm::vec4(1.0f);
+
+    bool alphaMasked = false;
 };
 
 struct Material {
@@ -377,6 +380,7 @@ struct Material {
     float metallic = 0.0f;
     float roughness = 0.0f;
     glm::vec4 tint = glm::vec4(1.0f);
+    bool alphaMasked = false;
 };
 
 struct MaterialOverride {
@@ -403,7 +407,8 @@ struct DirectionalLight {
 
 struct RendererConfig {
     AntiAliasMode aaMode = AntiAliasMode::MSAA_4x;
-    int shadowMapResolution = 2048;
+    uint32_t shadowMapFarResolution = 1024;
+    uint32_t shadowMapNearResolution = 2048;
     float shadowDistance = 20.0f; // frustum-fit range from camera
     float exposure = 1.0f;
     bool bloomEnabled = true;
@@ -439,7 +444,8 @@ struct Mesh {
 };
 
 struct Model {
-    std::vector<Mesh> meshes;
+    std::vector<Mesh> meshesOpaque;
+    std::vector<Mesh> meshesMasked;
 };
 
 struct Environment {
@@ -488,6 +494,7 @@ class Pass {
 
     void draw(uint32_t vertexCount, uint32_t firstVertex = 0);
     void drawIndexed(uint32_t indexCount);
+    void drawInstancedIndexed(uint32_t indexCount, uint32_t instanceCount);
 
   private:
     int getShaderUniformLocation(std::string_view uniform);
@@ -717,6 +724,7 @@ class Renderer {
     void createBRDFLutShader(Context &context);
     void createDefaultPrefilterMap(Context &context);
     void createZPrepassShader(Context &context);
+    void createCSM(Context &context);
 
     std::optional<Handle<VertexArray>> m_ScreenQuad;
     std::optional<Handle<VertexArray>> m_SkyboxCube;
@@ -737,7 +745,8 @@ class Renderer {
     std::optional<Handle<Shader>> m_PrefilterShader;
     std::optional<Handle<Shader>> m_BRDFLutShader;
 
-    std::optional<Handle<Shader>> m_ZPrepassShader;
+    std::optional<Handle<Shader>> m_ZPrepassShaderOpaque;
+    std::optional<Handle<Shader>> m_ZPrepassShaderMasked;
 
     RendererConfig m_RenderConfig;
 
@@ -765,37 +774,35 @@ class Renderer {
     bool m_AnisotropicUpdate = false;
 
   private:
-    void drawDirectionalShadowMap(Context &context,
-                                  Handle<Framebuffer> shadowmap,
-                                  const DirectionalLight &light);
-    void drawDirectionalCSM(Context &context, Handle<Framebuffer> shadowmap,
-                            const DirectionalLight &light);
-    // Only for single directional light source.
-    // Will change when more lights are supported.
-    struct {
-        Handle<Framebuffer> handle;
-        Handle<Texture> depthTexture;
-        Handle<Sampler> shadowSampler;
-    } m_Shadowmap;
+    void drawDirectionalCSM(Context &context, const DirectionalLight &light);
 
     struct {
-        Handle<Framebuffer> handle;
-        Handle<Texture> depthTexture;
+        Handle<Framebuffer> fboNear;
+        Handle<Framebuffer> fboFar;
+        Handle<Texture> depthTextureNear;
+        Handle<Texture> depthTextureFar;
         Handle<Sampler> shadowSampler;
-        uint32_t count = 4;
         std::vector<float> planeDistances;
         std::vector<glm::mat4> lightSpaceMatrices;
         std::vector<float> cascadeTexelWorldSize;
+        bool isInstanced;
     } m_CascadedShadowmap;
 
-    std::optional<Handle<Shader>> m_ShadowMapShader;
+    std::optional<Handle<Shader>> m_ShadowMapShaderOpaque;
+    std::optional<Handle<Shader>> m_ShadowMapShaderMasked;
     void createShadowmapShader(Context &context);
+
+    void drawInstancedCSMDepth(Context &context, Handle<Framebuffer> fbo,
+                               Handle<Texture> depth, bool isNear,
+                               uint32_t resolution);
+    void drawCSMDepth(Context &context, Handle<Framebuffer> fbo,
+                      Handle<Texture> depth, bool isNear, uint32_t resolution);
 
     std::vector<glm::vec4> getFrustumCornersWorldSpace(const Camera &camera);
     glm::mat4 calculateTightLightFrustum(const DirectionalLight &light,
+                                         uint32_t resolution,
                                          const Camera &camera,
                                          float &texelWorld);
-    glm::mat4 calculateLightSpaceMatrix(const DirectionalLight &light);
 
   private:
     std::vector<DrawCommand> m_DrawCommandList;
@@ -808,9 +815,13 @@ class Renderer {
         uint32_t indexCount;
     };
 
+    void drawRenderItems(Pass &pass,
+                         const std::vector<RenderItem> &renderItems);
+
     // Possible permutations of shaders so far
     // Update as needed or turn into hashmap
-    std::array<std::vector<RenderItem>, 8> m_RenderBuckets;
+    std::array<std::vector<RenderItem>, 8> m_RenderBucketsOpaque;
+    std::array<std::vector<RenderItem>, 8> m_RenderBucketsMasked;
 
     struct alignas(16) CameraConstants {
         glm::mat4 u_viewProjection;

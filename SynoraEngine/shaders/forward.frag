@@ -28,6 +28,7 @@ layout(std140, binding = 0) uniform CameraConstants {
 };
 
 #define CASCADE_COUNT 4
+#define NEAR_CASCADE_COUNT 2
 layout(std140, binding = 1) uniform ShadowConstants {
   mat4 u_lightSpaceMatrices[CASCADE_COUNT];
   vec4 u_cascadePlaneDistances;
@@ -47,7 +48,8 @@ layout(std140, binding = 2) uniform LightConstants {
 layout(binding = 3) uniform samplerCube u_irradianceMap;
 layout(binding = 4) uniform samplerCube u_prefilterMap;
 layout(binding = 5) uniform sampler2D u_brdfLUT;
-layout(binding = 6) uniform sampler2DArrayShadow u_shadowMap;
+layout(binding = 6) uniform sampler2DArrayShadow u_csmNear;
+layout(binding = 7) uniform sampler2DArrayShadow u_csmFar;
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
   return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
@@ -201,7 +203,13 @@ float sampleCascade(vec3 lightDir, int layer, float texelWorldSize) {
   int maxSamples = 8;
   int nrSamples = 0;
   float shadow = 0.0f;
-  vec2 texelSize = 1.0 / vec2(textureSize(u_shadowMap, 0));
+
+  vec2 shadowmapSize = (layer < NEAR_CASCADE_COUNT) ?
+    vec2(textureSize(u_csmNear, 0)) :
+    vec2(textureSize(u_csmFar, 0));
+
+  vec2 texelSize = 1.0 / shadowmapSize;
+
   float spread = 0.005 / texelWorldSize;
   float angle = random(floor(fragPos.xyz * 1000.0), 0) * 2.0 * PI;
   float s = sin(angle), c = cos(angle);
@@ -213,7 +221,12 @@ float sampleCascade(vec3 lightDir, int layer, float texelWorldSize) {
         poissonDisk[i].x * s + poissonDisk[i].y * c
       );
     vec2 uv = p.xy + rotatedDisk * spread * texelSize;
-    float result = 1.0 - texture(u_shadowMap, vec4(uv, layer, currentDepth));
+
+    float depthSample = (layer < NEAR_CASCADE_COUNT) ?
+      texture(u_csmNear, vec4(uv, layer, currentDepth)) :
+      texture(u_csmFar, vec4(uv, layer - NEAR_CASCADE_COUNT, currentDepth));
+
+    float result = 1.0 - depthSample;
     shadow += result;
     if (i == 3 && (shadow == 0 || shadow == 4.0f)) break;
   }

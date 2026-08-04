@@ -316,16 +316,16 @@ uint8_t sampleChannelNearest(const SYN::gfx::gl::TextureData &tex, uint32_t tx,
     uint32_t sx = tw > 1 ? (tx * (tex.info.width - 1)) / (tw - 1) : 0;
     uint32_t sy = th > 1 ? (ty * (tex.info.height - 1)) / (th - 1) : 0;
     int ch = std::min(channel, channels - 1);
-    return tex.data[(static_cast<size_t>(sy) * tex.info.width + sx) * channels +
-                    ch];
+    return tex
+        .data[(static_cast<size_t>(sy) * tex.info.width + sx) * channels + ch];
 }
 
 // Combine separate (or single) metalness/roughness maps into one packed
 // texture in glTF layout (G = roughness, B = metallic). An absent channel is
 // left at 1.0 so the scalar metallic/roughness factor drives it in the shader.
-std::optional<SYN::gfx::gl::TextureData>
-packMetallicRoughness(const std::optional<SYN::gfx::gl::TextureData> &metalTex,
-                      const std::optional<SYN::gfx::gl::TextureData> &roughTex) {
+std::optional<SYN::gfx::gl::TextureData> packMetallicRoughness(
+    const std::optional<SYN::gfx::gl::TextureData> &metalTex,
+    const std::optional<SYN::gfx::gl::TextureData> &roughTex) {
     if (!metalTex && !roughTex) {
         return std::nullopt;
     }
@@ -354,11 +354,12 @@ packMetallicRoughness(const std::optional<SYN::gfx::gl::TextureData> &metalTex,
     for (uint32_t y = 0; y < height; ++y) {
         for (uint32_t x = 0; x < width; ++x) {
             uint8_t roughness =
-                roughTex ? sampleChannelNearest(*roughTex, x, y, width, height, 0)
-                         : 255;
-            uint8_t metallic =
-                metalTex ? sampleChannelNearest(*metalTex, x, y, width, height, 0)
-                         : 255;
+                roughTex
+                    ? sampleChannelNearest(*roughTex, x, y, width, height, 0)
+                    : 255;
+            uint8_t metallic = metalTex ? sampleChannelNearest(*metalTex, x, y,
+                                                               width, height, 0)
+                                        : 255;
             size_t dst = (static_cast<size_t>(y) * width + x) * 4;
             (*storage)[dst + 0] = 0;
             (*storage)[dst + 1] = roughness;
@@ -376,6 +377,34 @@ packMetallicRoughness(const std::optional<SYN::gfx::gl::TextureData> &metalTex,
                  .format = SYN::gfx::gl::TextureFormat::RGBA8},
         .data = std::span<uint8_t>(storage->data(), storage->size()),
         .sourcePath = cacheKey};
+}
+
+// Decide whether a material needs alpha-cutout treatment (foliage, fences,
+// grates) by inspecting its albedo and determining if the alpha channel meets
+// the required threshold for alpha-cutout.
+bool albedoNeedsAlphaMask(
+    const std::optional<SYN::gfx::gl::TextureData> &albedo) {
+    if (!albedo.has_value()) {
+        return false;
+    }
+
+    const int channels = channelCountForFormat(albedo->info.format);
+    // Only RGBA has an alpha channel
+    if (channels < 4) {
+        return false;
+    }
+
+    constexpr uint8_t kCutoffAlpha = 128;
+    const SYN::gfx::gl::TextureData &tex = *albedo;
+    const size_t pixelCount =
+        static_cast<size_t>(tex.info.width) * tex.info.height;
+
+    for (size_t i = 0; i < pixelCount; ++i) {
+        if (tex.data[i * channels + (channels - 1)] < kCutoffAlpha) {
+            return true;
+        }
+    }
+    return false;
 }
 
 SYN::gfx::gl::MaterialData
@@ -404,6 +433,8 @@ processMaterial(const aiMaterial *material, const aiScene *scene,
         result.albedoData = loadTextureForMaterial(material, scene, modelPath,
                                                    aiTextureType_DIFFUSE);
     }
+
+    result.alphaMasked = albedoNeedsAlphaMask(result.albedoData);
 
     result.normalData = loadTextureForMaterial(material, scene, modelPath,
                                                aiTextureType_NORMALS);

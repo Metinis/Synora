@@ -27,7 +27,7 @@ class GraphicsScene : public SYN::ILayer {
         m_Context = &engineContext->glContext.value();
         m_Window = engineContext->window.get();
 
-        m_Context->enableVSync(true);
+        m_Context->enableVSync(false);
 
         m_Renderer.init(*m_Context);
 
