@@ -147,6 +147,7 @@ void Scene::init(EngineContext *ctx) {
     m_Renderer = ctx->renderer.get();
     m_Window = ctx->window.get();
     m_AssetManager = ctx->projectConfig.assetManager.get();
+    m_RuntimeCompManager = ctx->compManager.get();
 
     // initialize callbacks
     m_SceneState.registry.on_destroy<UUIDComp>().connect<&Scene::onUUIDRemoved>(
@@ -176,8 +177,6 @@ void Scene::init(EngineContext *ctx) {
     c.nearPlane = 0.1;
     c.farPlane = 100.f;
     c.isPrimary = true;
-
-    cam.addComponent<Test>();
 
     auto e1 = createEntity("Parent Entity");
     auto e2 = createEntity("Parent Child Entity");
@@ -231,4 +230,25 @@ void Scene::removeEntity(Entity entity) {
             m_EntityCache.push_back(e);
         }
     }
+}
+std::vector<Entity> Scene::getEntitiesRuntime(const std::string& compName) {
+    std::vector<Entity> ret;
+    for (const auto& [e, comps] : m_RuntimeCompsMap) {
+        if (comps.contains(compName)) {
+            ret.push_back(e);
+        }
+    }
+    return ret;
+}
+static RuntimeComponent createRuntimeComponent(const CompDesc &compDesc) {
+    RuntimeComponent ret{};
+    ret.data.resize(compDesc.size);
+    ret.description = compDesc;
+    return ret;
+}
+void Scene::addRuntimeComponent(Entity entity, const std::string& compName) {
+    m_RuntimeCompsMap[entity][compName] = createRuntimeComponent(m_RuntimeCompManager->getComponentDesc(compName));
+}
+void Scene::removeRuntimeComponent(Entity entity, const std::string& compName) {
+    m_RuntimeCompsMap[entity].erase(compName);
 }

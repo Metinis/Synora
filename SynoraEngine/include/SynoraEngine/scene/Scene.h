@@ -1,18 +1,17 @@
 #pragma once
-#include "ISystem.h"
-
 #include <entt/entt.hpp>
-
-#include "../renderer/Renderer.h"
 #include "SceneState.h"
-#include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/core/Layer.h"
 #include "SynoraEngine/scene/Entity.h"
+#include "SynoraEngine/scene/RuntimeComp.h"
 
 namespace SYN {
 class Renderer;
 class AssetManager;
 class ScriptManager;
+class Window;
+class RuntimeCompManager;
+struct RuntimeComponent;
 
 // probably split scene into scene manager and scene contain like this
 class Scene : public ILayer {
@@ -47,11 +46,17 @@ class Scene : public ILayer {
         return ret;
     }
 
+    std::vector<Entity> getEntitiesRuntime(const std::string& compName);
+    void addRuntimeComponent(Entity entity, const std::string& compName);
+    void removeRuntimeComponent(Entity entity, const std::string& compName);
+
   private:
     Renderer *m_Renderer;
     Window *m_Window;
     AssetManager *m_AssetManager;
+    RuntimeCompManager *m_RuntimeCompManager;
     SceneState m_SceneState;
+    std::unordered_map<Entity, std::unordered_map<std::string, RuntimeComponent>> m_RuntimeCompsMap; //look up is by comp name
     std::vector<std::function<void()>> m_OnUpdate;
     std::unordered_map<UUID, Entity> m_EntityUUIDCache;
     std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update

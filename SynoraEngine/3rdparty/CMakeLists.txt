@@ -1,4 +1,5 @@
-
+set(CMAKE_POSITION_INDEPENDENT_CODE ON) #for scripts to work
+set(ZLIB_USE_STATIC_LIBS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -21,6 +22,11 @@ add_subdirectory(JoltPhysics/Build)
 
 add_subdirectory(glm)
 add_subdirectory(VulkanMemoryAllocator)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+
 add_subdirectory(assimp)
 add_subdirectory(efsw)
 
@@ -32,6 +38,9 @@ add_library(imgui STATIC
         imgui/imgui_demo.cpp
         imgui/backends/imgui_impl_glfw.cpp
         imgui/backends/imgui_impl_vulkan.cpp
+)
+set_target_properties(imgui PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
 )
 add_library(tinyfiledialogs STATIC
         tinyfiledialogs/tinyfiledialogs.c

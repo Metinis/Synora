@@ -31,9 +31,6 @@ if(NOT TARGET SynoraEngine)
 
 endif()
 
-
-set(SYSTEM_MANIFEST "")
-
 foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
 
     get_filename_component(SYSTEM_NAME ${SYSTEM_FILE} NAME_WE)
@@ -68,24 +65,4 @@ foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
             PRIVATE
             SynoraEngine
     )
-
-    string(APPEND SYSTEM_MANIFEST
-            "    {
-        \"name\": \"${SYSTEM_NAME}\",
-        \"source\": \"${SYSTEM_FILE}\",
-        \"library\": \"$<TARGET_FILE:${SYSTEM_NAME}>\"
-    },\n"
-    )
-
 endforeach()
-
-string(REGEX REPLACE ",\n$" "\n" SYSTEM_MANIFEST "${SYSTEM_MANIFEST}")
-
-file(GENERATE
-        OUTPUT "${CMAKE_BINARY_DIR}/systems.json"
-        CONTENT
-        "[
-${SYSTEM_MANIFEST}
-]
-"
-)

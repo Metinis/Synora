@@ -1,4 +1,4 @@
-#include "../../include/SynoraEngine/renderer/Renderer.h"
+#include "SynoraEngine/renderer/Renderer.h"
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/project/Project.h"
 #include "SynoraEngine/scene/Scene.h"
@@ -8,10 +8,11 @@
 #include "scene/CameraSystem.h"
 #include <GLFW/glfw3.h>
 #include <SynoraEngine/core/Application.h>
+#include <SynoraEngine/scene/RuntimeCompManager.h>
+#include "scene/ScriptManager.h"
 #include <SynoraEngine/core/Input.h>
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
-#include "scene/ScriptManager.h"
 
 using namespace SYN;
 
@@ -26,6 +27,7 @@ Application::Application() {
     m_EngineContext.cameraSystem = std::make_unique<CameraSystem>();
     m_EngineContext.scriptManager = std::make_unique<ScriptManager>();
     m_EngineContext.fileWatcher = std::make_unique<efsw::FileWatcher>();
+    m_EngineContext.compManager = std::make_unique<RuntimeCompManager>();
 
     ProjectConfig projectConfig{
         .resourceRoot = "", // todo add root

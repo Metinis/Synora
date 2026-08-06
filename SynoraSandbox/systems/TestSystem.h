@@ -1,6 +1,9 @@
 #pragma once
 #include <SynoraEngine/scene/ISystem.h>
 
+namespace SYN {
+class RuntimeCompManager;
+}
 class TestSystem : public SYN::ISystem {
 public:
     TestSystem() = default;
@@ -13,9 +16,11 @@ public:
 
 extern "C" {
     SYN::ISystem* createSystem();
-}
-
-extern "C" {
     void destroySystem(SYN::ISystem* system);
+    void registerComponents(SYN::RuntimeCompManager* manager);
 }
 
+//Components example
+struct Test {
+    float i;
+};

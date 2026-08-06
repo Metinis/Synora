@@ -36,10 +36,11 @@ void ScriptManager::init(EngineContext *ctx) {
     if (const char *folder = tinyfd_selectFolderDialog("Select Game Folder", currentDir.c_str())) {
         initAllSystems(folder);
         std::filesystem::remove_all(std::string(folder) + "/.hotreload");
+        loadAllSystems();
     }
 }
 void ScriptManager::onAttach() {
-    loadAllSystems();
+
 }
 static void dllUnloadSystem(System& system) {
     system.system.reset();
@@ -60,8 +61,13 @@ static System dllLoadSystem(const std::filesystem::path &path, EngineContext *ct
 
     auto create = (ISystem*(*)())dlsym(handle, "createSystem");
     auto destroy = (void(*)(ISystem*))dlsym(handle, "destroySystem");
+    auto registerComps = (void(*)(RuntimeCompManager*))dlsym(handle, "registerComponents");
 
     std::unique_ptr<ISystem, void(*)(ISystem*)> system(create(), destroy);
+    //todo optionally load a system, allow for just comps
+    if (registerComps) {
+        registerComps(ctx->compManager.get());
+    }
 
     system->init(ctx);
 

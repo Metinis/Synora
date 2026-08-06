@@ -22,6 +22,8 @@ namespace SYN {
         //ParentComp& addParent(UUID parentID);
 
         //void removeParent();
+        void addRuntimeComponent(const std::string& compName);
+        void removeRuntimeComponent(const std::string& compName);
 
         template<typename T>
         T &getComponent() {
@@ -70,10 +72,24 @@ namespace SYN {
             return m_Registry != nullptr && m_Handle != entt::null;
         }
         //I want to avoid operator magic where possible so I think we should just directly call get methods if we need to
-        entt::entity getHandle() const { return m_Handle; }
+        [[nodiscard]] entt::entity getHandle() const { return m_Handle; }
+        bool operator==(const Entity& other) const noexcept
+        {
+            return getHandle() == other.getHandle();
+        }
 
     private:
         entt::registry *m_Registry{};
         entt::entity m_Handle{};
     };
+}
+namespace std {
+template<>
+struct hash<SYN::Entity>
+{
+    size_t operator()(const SYN::Entity& e) const noexcept
+    {
+        return hash<uint32_t>()((uint32_t)e.getHandle());
+    }
+};
 }
