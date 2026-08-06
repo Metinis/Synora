@@ -47,14 +47,11 @@ class Scene : public ILayer {
     }
 
     std::vector<Entity> getEntitiesRuntime(const std::string& compName);
-    void addRuntimeComponent(Entity entity, const std::string& compName);
-    void removeRuntimeComponent(Entity entity, const std::string& compName);
 
   private:
     Renderer *m_Renderer;
     Window *m_Window;
     AssetManager *m_AssetManager;
-    RuntimeCompManager *m_RuntimeCompManager;
     SceneState m_SceneState;
     std::vector<std::function<void()>> m_OnUpdate;
     std::unordered_map<UUID, Entity> m_EntityUUIDCache;

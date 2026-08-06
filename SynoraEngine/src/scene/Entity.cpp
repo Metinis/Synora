@@ -10,9 +10,16 @@ Entity::Entity(SceneState *sceneState, entt::entity handle)
 void Entity::addParent(const ParentComp &pc) {
     addComponent<ParentComp>(pc);
 }
-void Entity::addRuntimeComponent(const std::string &compName) {
-    Application::get().getCtx()->scene->addRuntimeComponent(*this, compName);
+static RuntimeComponent createRuntimeComponent(const CompDesc &compDesc) {
+    RuntimeComponent ret{};
+    ret.data.resize(compDesc.size);
+    ret.description = compDesc;
+    return ret;
 }
-void Entity::removeRuntimeComponent(const std::string &compName) {
-    Application::get().getCtx()->scene->removeRuntimeComponent(*this, compName);
+void Entity::addRuntimeComponent(const std::string& compName) {
+    m_SceneState->m_RuntimeCompsMap[getHandle()][compName] = createRuntimeComponent(
+        m_SceneState->m_RuntimeCompManager->getComponentDesc(compName));
+}
+void Entity::removeRuntimeComponent(const std::string& compName) {
+    m_SceneState->m_RuntimeCompsMap[getHandle()].erase(compName);
 }
