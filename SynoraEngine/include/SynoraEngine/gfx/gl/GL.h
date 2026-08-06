@@ -167,7 +167,14 @@ template <typename ResourceType> class ResourceRegistry {
         m_FreeSlots.push_back(handle.index);
     }
 
-    std::optional<ResourceType> getResourceMutable(HandleType handle) {
+    std::optional<ResourceType *> getResourceMutable(HandleType handle) {
+        if (!isValidHandle(handle))
+            return std::nullopt;
+        return &m_Slots.at(handle.index).payload;
+    }
+
+    std::optional<const ResourceType *>
+    getResourceImmutableRef(HandleType handle) {
         if (!isValidHandle(handle))
             return std::nullopt;
         return &m_Slots.at(handle.index).payload;
@@ -415,6 +422,11 @@ struct RendererConfig {
     float bloomThreshold = 1.0f;
 };
 
+struct AABB {
+    glm::vec3 min;
+    glm::vec3 max;
+};
+
 struct MeshData {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
@@ -422,6 +434,8 @@ struct MeshData {
     glm::mat4 localTransform = glm::mat4(1.0);
 
     bool hasSkin;
+
+    AABB aabb;
 };
 
 struct ModelData {
@@ -433,14 +447,14 @@ struct Mesh {
     Handle<Buffer> vbo;
     Handle<Buffer> ebo;
 
-    Handle<Shader> shader;
-    uint32_t shaderFeatures;
-
     Material material;
 
     uint32_t indexCount;
 
     glm::mat4 localTransform;
+
+    AABB aabb;
+    uint32_t sourceIndex;
 };
 
 struct Model {
@@ -452,6 +466,13 @@ struct Environment {
     Handle<Texture> cubemap;
     std::optional<Handle<Texture>> irradianceMap = std::nullopt;
     std::optional<Handle<Texture>> prefilteredMap = std::nullopt;
+};
+
+struct Plane {
+    float a;
+    float b;
+    float c;
+    float d;
 };
 
 class Pass {
@@ -803,6 +824,15 @@ class Renderer {
                                          uint32_t resolution,
                                          const Camera &camera,
                                          float &texelWorld);
+
+    std::vector<Plane> planesFromCameraFrustum(const Camera &camera);
+
+    glm::vec3 getPVertex(AABB aabb, glm::vec3 normal);
+    glm::vec3 getNVertex(AABB aabb, glm::vec3 normal);
+
+    // True if aabb is inside or interesects frustum
+    bool aabbVsFrustum(AABB aabb, const std::vector<Plane> &frustum);
+    AABB aabbToWorld(AABB aabb, glm::mat4 worldMatrix);
 
   private:
     std::vector<DrawCommand> m_DrawCommandList;

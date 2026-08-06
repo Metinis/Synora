@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -487,10 +488,19 @@ processMesh(const aiMesh *mesh, const aiScene *scene,
     SYN::gfx::gl::MeshData result{};
     result.localTransform = localTransform;
 
+    // Local-space AABB accumulated over the raw vertex positions (before
+    // localTransform). aabbToWorld() later applies cmd.transform *
+    // mesh.localTransform, so the box must be in this pre-transform space.
+    glm::vec3 aabbMin(std::numeric_limits<float>::max());
+    glm::vec3 aabbMax(std::numeric_limits<float>::lowest());
+
     for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
         SYN::gfx::gl::Vertex vertex{};
         vertex.position = {mesh->mVertices[i].x, mesh->mVertices[i].y,
                            mesh->mVertices[i].z};
+
+        aabbMin = glm::min(aabbMin, vertex.position);
+        aabbMax = glm::max(aabbMax, vertex.position);
 
         if (mesh->HasNormals()) {
             vertex.normal = {mesh->mNormals[i].x, mesh->mNormals[i].y,
@@ -516,6 +526,8 @@ processMesh(const aiMesh *mesh, const aiScene *scene,
 
         result.vertices.emplace_back(vertex);
     }
+
+    result.aabb = {aabbMin, aabbMax};
 
     for (unsigned int i = 0; i < mesh->mNumFaces; ++i) {
         const aiFace &face = mesh->mFaces[i];

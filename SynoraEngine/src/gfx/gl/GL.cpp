@@ -1531,11 +1531,7 @@ SYN::gfx::gl::Mesh createMesh(
     mesh.localTransform = meshData.localTransform;
     mesh.material = loadMaterial(context, meshData.material, textureCache);
 
-    mesh.shaderFeatures = getShaderFeatures(
-        mesh.material.normalMap.has_value(),
-        mesh.material.metallicRoughnessMap.has_value(), meshData.hasSkin);
-
-    mesh.shader = shaderCache.getShaderHandle(context, mesh.shaderFeatures);
+    mesh.aabb = meshData.aabb;
 
     return mesh;
 }
@@ -1543,18 +1539,20 @@ SYN::gfx::gl::Mesh createMesh(
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Model>>
 SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
     Model model;
+    uint32_t sourceIndex = 0;
     for (const MeshData &meshData : data.meshes) {
         Mesh mesh =
             createMesh(context, meshData, m_TextureCache, m_ShaderCache);
         if (!mesh.material.albedo) {
             mesh.material.albedo = m_DefaultWhite;
         }
-
+        mesh.sourceIndex = sourceIndex;
         if (mesh.material.alphaMasked) {
             model.meshesMasked.push_back(mesh);
         } else {
             model.meshesOpaque.push_back(mesh);
         }
+        ++sourceIndex;
     }
     return m_ModelRegistry.createHandle(model);
 }
@@ -2414,24 +2412,27 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             context.updateSampler(m_DefaultModelSampler,
                                   m_DefaultModelSamplerDesc);
         }
-        for (const DrawCommand &cmd : m_DrawCommandList) {
-            Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
-            for (const MaterialOverride &override : cmd.materialOverride) {
-                Mesh &mesh = override.material.alphaMasked
-                                 ? model.meshesMasked.at(override.meshIndex)
-                                 : model.meshesOpaque.at(override.meshIndex);
 
-                mesh.material = override.material;
-                if (!mesh.material.albedo) {
-                    mesh.material.albedo = m_DefaultWhite;
+        std::vector<Plane> planes = planesFromCameraFrustum(m_MainCamera);
+
+        for (const DrawCommand &cmd : m_DrawCommandList) {
+            const Model *model =
+                m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle)
+                    .value();
+            auto getMaterialOverride =
+                [&](uint32_t sourceIndex) -> std::optional<Material> {
+                for (const MaterialOverride &override : cmd.materialOverride) {
+                    if (sourceIndex != override.meshIndex)
+                        continue;
+                    Material material = override.material;
+                    if (!material.albedo) {
+                        material.albedo = m_DefaultWhite;
+                    }
+                    return material;
                 }
-                mesh.shader = m_ShaderCache.getShaderHandle(
-                    context,
-                    getShaderFeatures(
-                        mesh.material.normalMap.has_value(),
-                        mesh.material.metallicRoughnessMap.has_value(), false));
-            }
-            for (const Mesh &mesh : model.meshesOpaque) {
+                return std::nullopt;
+            };
+            for (const Mesh &mesh : model->meshesOpaque) {
                 if (mesh.material.sampler.has_value() &&
                     mesh.material.samplerDesc.has_value() &&
                     m_AnisotropicUpdate) {
@@ -2441,11 +2442,24 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     context.updateSampler(mesh.material.sampler.value(),
                                           samplerDesc);
                 }
-                m_RenderBucketsOpaque[mesh.shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform,
-                               mesh.material, mesh.vao, mesh.indexCount});
+                if (!aabbVsFrustum(
+                        aabbToWorld(mesh.aabb,
+                                    cmd.transform * mesh.localTransform),
+                        planes))
+                    continue;
+
+                Material material = getMaterialOverride(mesh.sourceIndex)
+                                        .value_or(mesh.material);
+
+                uint32_t shaderFeatures = getShaderFeatures(
+                    material.normalMap.has_value(),
+                    material.metallicRoughnessMap.has_value(), false);
+
+                m_RenderBucketsOpaque[shaderFeatures].push_back(
+                    RenderItem{cmd.transform * mesh.localTransform, material,
+                               mesh.vao, mesh.indexCount});
             }
-            for (const Mesh &mesh : model.meshesMasked) {
+            for (const Mesh &mesh : model->meshesMasked) {
                 if (mesh.material.sampler.has_value() &&
                     mesh.material.samplerDesc.has_value() &&
                     m_AnisotropicUpdate) {
@@ -2455,9 +2469,22 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     context.updateSampler(mesh.material.sampler.value(),
                                           samplerDesc);
                 }
-                m_RenderBucketsMasked[mesh.shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform,
-                               mesh.material, mesh.vao, mesh.indexCount});
+                if (!aabbVsFrustum(
+                        aabbToWorld(mesh.aabb,
+                                    cmd.transform * mesh.localTransform),
+                        planes))
+                    continue;
+
+                Material material = getMaterialOverride(mesh.sourceIndex)
+                                        .value_or(mesh.material);
+
+                uint32_t shaderFeatures = getShaderFeatures(
+                    material.normalMap.has_value(),
+                    material.metallicRoughnessMap.has_value(), false);
+
+                m_RenderBucketsMasked[shaderFeatures].push_back(
+                    RenderItem{cmd.transform * mesh.localTransform, material,
+                               mesh.vao, mesh.indexCount});
             }
         }
         m_AnisotropicUpdate = false;
@@ -2519,7 +2546,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
                              m_CascadedShadowmap.shadowSampler);
 
-            uint32_t renderItemIdx = 0;
             PipelineState pipeline;
             pipeline.depth.writeEnabled = true;
             pipeline.color = {false, false, false, false};
@@ -2531,7 +2557,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             for (const std::vector<RenderItem> &renderItems :
                  m_RenderBucketsOpaque) {
                 if (renderItems.empty()) {
-                    ++renderItemIdx;
                     continue;
                 }
 
@@ -2548,17 +2573,14 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     pass.bindVertexArray(renderItem.vao);
                     pass.drawIndexed(renderItem.indexCount);
                 }
-                ++renderItemIdx;
             }
 
             pipeline.shader = m_ZPrepassShaderMasked.value();
             pipeline.cullMode = CullMode::None;
             pass.usePipeline(pipeline);
-            renderItemIdx = 0;
             for (const std::vector<RenderItem> &renderItems :
                  m_RenderBucketsMasked) {
                 if (renderItems.empty()) {
-                    ++renderItemIdx;
                     continue;
                 }
 
@@ -2575,7 +2597,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     pass.bindVertexArray(renderItem.vao);
                     pass.drawIndexed(renderItem.indexCount);
                 }
-                ++renderItemIdx;
             }
 
             pipeline.depth.test = DepthFunc::Equal;
@@ -2740,6 +2761,115 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
     return m_ShaderCache.at(featureFlags);
 }
 
+std::vector<SYN::gfx::gl::Plane>
+SYN::gfx::gl::Renderer::planesFromCameraFrustum(const Camera &camera) {
+    glm::mat4 viewMatrix =
+        glm::lookAtRH(camera.position, camera.target, camera.up);
+
+    glm::mat4 projMatrix = glm::perspectiveRH_NO(
+        glm::radians(camera.fovYDegrees),
+        (float)m_ScreenViewport.width / m_ScreenViewport.height,
+        camera.nearPlane, camera.farPlane);
+
+    // Transpose because math below assumes row major
+    glm::mat4 vp = glm::transpose(projMatrix * viewMatrix);
+
+    // Normals of planes aren't normalized. Doesn't matter
+    // because only the sign is needed for frustum culling case
+    std::vector<Plane> planes{
+        // Left Plane
+        Plane{vp[3][0] + vp[0][0], vp[3][1] + vp[0][1], vp[3][2] + vp[0][2],
+              vp[3][3] + vp[0][3]},
+        // Right Plane
+        Plane{vp[3][0] - vp[0][0], vp[3][1] - vp[0][1], vp[3][2] - vp[0][2],
+              vp[3][3] - vp[0][3]},
+        // Bottom Plane
+        Plane{vp[3][0] + vp[1][0], vp[3][1] + vp[1][1], vp[3][2] + vp[1][2],
+              vp[3][3] + vp[1][3]},
+        // Top Plane
+        Plane{vp[3][0] - vp[1][0], vp[3][1] - vp[1][1], vp[3][2] - vp[1][2],
+              vp[3][3] - vp[1][3]},
+        // Near Plane
+        Plane{vp[3][0] + vp[2][0], vp[3][1] + vp[2][1], vp[3][2] + vp[2][2],
+              vp[3][3] + vp[2][3]},
+        // Far Plane
+        Plane{vp[3][0] - vp[2][0], vp[3][1] - vp[2][1], vp[3][2] - vp[2][2],
+              vp[3][3] - vp[2][3]},
+    };
+
+    return planes;
+}
+
+glm::vec3 SYN::gfx::gl::Renderer::getPVertex(AABB aabb, glm::vec3 normal) {
+    float x = normal.x >= 0 ? aabb.max.x : aabb.min.x;
+    float y = normal.y >= 0 ? aabb.max.y : aabb.min.y;
+    float z = normal.z >= 0 ? aabb.max.z : aabb.min.z;
+
+    return glm::vec3(x, y, z);
+}
+
+glm::vec3 SYN::gfx::gl::Renderer::getNVertex(AABB aabb, glm::vec3 normal) {
+    float x = normal.x >= 0 ? aabb.min.x : aabb.max.x;
+    float y = normal.y >= 0 ? aabb.min.y : aabb.max.y;
+    float z = normal.z >= 0 ? aabb.min.z : aabb.max.z;
+
+    return glm::vec3(x, y, z);
+}
+
+bool SYN::gfx::gl::Renderer::aabbVsFrustum(AABB aabb,
+                                           const std::vector<Plane> &frustum) {
+    for (Plane plane : frustum) {
+        glm::vec3 planeNormal = glm::vec3(plane.a, plane.b, plane.c);
+        glm::vec3 pVertex = getPVertex(aabb, planeNormal);
+
+        if (glm::dot(planeNormal, pVertex) < -plane.d)
+            return false;
+    }
+    return true;
+}
+
+SYN::gfx::gl::AABB SYN::gfx::gl::Renderer::aabbToWorld(AABB aabb,
+                                                       glm::mat4 worldMatrix) {
+    glm::vec3 min = aabb.min;
+    glm::vec3 max = aabb.max;
+
+    float lengthX = max.x - min.x;
+    float lengthY = max.y - min.y;
+    float lengthZ = max.z - min.z;
+
+    std::array<glm::vec3, 8> worldPoints = {
+        min,
+        min + glm::vec3(lengthX, 0, 0),
+        min + glm::vec3(lengthX, 0, lengthZ),
+        min + glm::vec3(0, 0, lengthZ),
+        min + glm::vec3(0, lengthY, 0),
+        min + glm::vec3(lengthX, lengthY, 0),
+        min + glm::vec3(0, lengthY, lengthZ),
+        max};
+
+    for (glm::vec3 &worldPoint : worldPoints) {
+        worldPoint = worldMatrix * glm::vec4(worldPoint, 1.0f);
+    }
+
+    float minFloat = std::numeric_limits<float>().lowest();
+    float maxFloat = std::numeric_limits<float>().max();
+
+    glm::vec3 newMin(maxFloat, maxFloat, maxFloat);
+    glm::vec3 newMax(minFloat, minFloat, minFloat);
+
+    for (glm::vec3 worldPoint : worldPoints) {
+        newMin.x = glm::min(newMin.x, worldPoint.x);
+        newMin.y = glm::min(newMin.y, worldPoint.y);
+        newMin.z = glm::min(newMin.z, worldPoint.z);
+
+        newMax.x = glm::max(newMax.x, worldPoint.x);
+        newMax.y = glm::max(newMax.y, worldPoint.y);
+        newMax.z = glm::max(newMax.z, worldPoint.z);
+    }
+
+    return {newMin, newMax};
+}
+
 std::vector<glm::vec4>
 SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
     glm::mat4 viewMatrix =
@@ -2838,13 +2968,14 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
     PipelineState pipeline;
 
     for (const DrawCommand &cmd : m_DrawCommandList) {
-        Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
+        const Model *model =
+            m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle).value();
 
         pipeline.shader = m_ShadowMapShaderOpaque.value();
         pipeline.cullMode = CullMode::Back;
         pass.usePipeline(pipeline);
         pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
-        for (const Mesh &mesh : model.meshesOpaque) {
+        for (const Mesh &mesh : model->meshesOpaque) {
             pass.bindUniform("u_modelMatrix",
                              cmd.transform * mesh.localTransform);
             pass.bindVertexArray(mesh.vao);
@@ -2855,7 +2986,7 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
         pipeline.cullMode = CullMode::None;
         pass.usePipeline(pipeline);
         pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
-        for (const Mesh &mesh : model.meshesMasked) {
+        for (const Mesh &mesh : model->meshesMasked) {
             Handle<Sampler> sampler =
                 mesh.material.sampler.value_or(m_DefaultModelSampler);
 
@@ -2886,11 +3017,13 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
             m_CascadedShadowmap.lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
 
         for (const DrawCommand &cmd : m_DrawCommandList) {
-            Model model = m_ModelRegistry.getResource(cmd.modelHandle).value();
+            const Model *model =
+                m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle)
+                    .value();
             pipeline.shader = m_ShadowMapShaderOpaque.value();
             pipeline.cullMode = CullMode::Back;
             pass.usePipeline(pipeline);
-            for (const Mesh &mesh : model.meshesOpaque) {
+            for (const Mesh &mesh : model->meshesOpaque) {
                 pass.bindUniform("u_modelMatrix",
                                  cmd.transform * mesh.localTransform);
                 pass.bindVertexArray(mesh.vao);
@@ -2899,7 +3032,7 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
             pipeline.shader = m_ShadowMapShaderMasked.value();
             pipeline.cullMode = CullMode::None;
             pass.usePipeline(pipeline);
-            for (const Mesh &mesh : model.meshesMasked) {
+            for (const Mesh &mesh : model->meshesMasked) {
                 Handle<Sampler> sampler =
                     mesh.material.sampler.value_or(m_DefaultModelSampler);
                 Handle<Texture> albedo =
