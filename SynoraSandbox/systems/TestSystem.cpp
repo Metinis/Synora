@@ -7,6 +7,9 @@ void TestSystem::init(SYN::EngineContext *ctx) {
 }
 void TestSystem::onLoad() {
     std::cout << "Test System Loaded" << std::endl;
+    for (auto& e : m_Ctx->scene->getEntities<TransformComp>()) {
+        m_Ctx->scene->addRuntimeComponent(e, "Test");
+    }
 
 }
 void TestSystem::onUpdate(float dt) {

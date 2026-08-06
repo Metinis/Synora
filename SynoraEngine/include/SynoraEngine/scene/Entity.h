@@ -1,13 +1,11 @@
 #pragma once
 #include <entt/entity/entity.hpp>
-
 #include "Components.h"
-#include "SynoraEngine/scene/SceneState.h"
+#include "SceneState.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/project/UUID.h"
 
 namespace SYN {
-    class Scene;
 
     //entity is just a convenient wrapper around entt stuff, makes the api more accessible
     class Entity {
@@ -15,8 +13,6 @@ namespace SYN {
         explicit Entity() = default;
 
         explicit Entity(SceneState *sceneState, entt::entity handle);
-
-        explicit Entity(entt::registry *registry, entt::entity handle);
 
         void addParent(const ParentComp &pc); //TODO when adding parent, preserve transforms
         //ParentComp& addParent(UUID parentID);
@@ -27,49 +23,49 @@ namespace SYN {
 
         template<typename T>
         T &getComponent() {
-            return m_Registry->get<T>(m_Handle);
+            return m_SceneState->registry.get<T>(m_Handle);
         }
 
 
         template<typename T, typename... Args>
         T &addComponent(Args... args) {
-            return m_Registry->emplace<T>(m_Handle,
+            return m_SceneState->registry.emplace<T>(m_Handle,
                                           std::forward<Args>(args)...);
         }
 
         template<typename T, typename... Args>
         T &replaceComponent(Args... args) {
-            return m_Registry->replace<T>(m_Handle,
+            return m_SceneState->registry.replace<T>(m_Handle,
                                           std::forward<Args>(args)...);
         }
 
         template<typename T>
         T *tryGetComponent() {
-            return m_Registry->try_get<T>(m_Handle);
+            return m_SceneState->registry.try_get<T>(m_Handle);
         }
 
         template<typename T>
         void removeComponent() const {
-            m_Registry->remove<T>(m_Handle);
+            m_SceneState->registry.remove<T>(m_Handle);
         }
 
         template<typename T>
         bool hasComponent() {
-            return m_Registry->any_of<T>(m_Handle);
+            return m_SceneState->registry.any_of<T>(m_Handle);
         }
 
         template<typename T>
         bool hasComponent() const {
-            return m_Registry->any_of<T>(m_Handle);
+            return m_SceneState->registry.any_of<T>(m_Handle);
         }
 
         UUID getUUID() const {
             assert(hasComponent<UUIDComp>());
-            return m_Registry->get<UUIDComp>(m_Handle).id;
+            return m_SceneState->registry.get<UUIDComp>(m_Handle).id;
         }
 
         bool isValid() const {
-            return m_Registry != nullptr && m_Handle != entt::null;
+            return m_SceneState != nullptr && m_Handle != entt::null;
         }
         //I want to avoid operator magic where possible so I think we should just directly call get methods if we need to
         [[nodiscard]] entt::entity getHandle() const { return m_Handle; }
@@ -79,7 +75,7 @@ namespace SYN {
         }
 
     private:
-        entt::registry *m_Registry{};
+        SceneState* m_SceneState{};
         entt::entity m_Handle{};
     };
 }

@@ -36,7 +36,7 @@ void ScriptManager::init(EngineContext *ctx) {
     if (const char *folder = tinyfd_selectFolderDialog("Select Game Folder", currentDir.c_str())) {
         initAllSystems(folder);
         std::filesystem::remove_all(std::string(folder) + "/.hotreload");
-        loadAllSystems();
+
     }
 }
 void ScriptManager::onAttach() {

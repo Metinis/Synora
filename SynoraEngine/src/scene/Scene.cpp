@@ -123,7 +123,7 @@ void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
 }
 
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
-    Entity ent(&m_SceneState.registry, e);
+    Entity ent(&m_SceneState, e);
     if (ent.hasComponent<TransformComp>()) {
         auto& tc = m_SceneState.registry.get<TransformComp>(e);
         tc.depth = 0;
@@ -233,9 +233,9 @@ void Scene::removeEntity(Entity entity) {
 }
 std::vector<Entity> Scene::getEntitiesRuntime(const std::string& compName) {
     std::vector<Entity> ret;
-    for (const auto& [e, comps] : m_RuntimeCompsMap) {
+    for (const auto& [e, comps] : m_SceneState.m_RuntimeCompsMap) {
         if (comps.contains(compName)) {
-            ret.push_back(e);
+            ret.push_back(Entity(&m_SceneState, e));
         }
     }
     return ret;
@@ -247,8 +247,8 @@ static RuntimeComponent createRuntimeComponent(const CompDesc &compDesc) {
     return ret;
 }
 void Scene::addRuntimeComponent(Entity entity, const std::string& compName) {
-    m_RuntimeCompsMap[entity][compName] = createRuntimeComponent(m_RuntimeCompManager->getComponentDesc(compName));
+    m_SceneState.m_RuntimeCompsMap[entity.getHandle()][compName] = createRuntimeComponent(m_RuntimeCompManager->getComponentDesc(compName));
 }
 void Scene::removeRuntimeComponent(Entity entity, const std::string& compName) {
-    m_RuntimeCompsMap[entity].erase(compName);
+    m_SceneState.m_RuntimeCompsMap[entity.getHandle()].erase(compName);
 }

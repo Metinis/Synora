@@ -56,7 +56,6 @@ class Scene : public ILayer {
     AssetManager *m_AssetManager;
     RuntimeCompManager *m_RuntimeCompManager;
     SceneState m_SceneState;
-    std::unordered_map<Entity, std::unordered_map<std::string, RuntimeComponent>> m_RuntimeCompsMap; //look up is by comp name
     std::vector<std::function<void()>> m_OnUpdate;
     std::unordered_map<UUID, Entity> m_EntityUUIDCache;
     std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update

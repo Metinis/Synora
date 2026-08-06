@@ -24,9 +24,9 @@ public:
     void onRender() override {};
     void onUIRender() override {};
     void onDetach() override;
+    void loadAllSystems();
 private:
     bool initAllSystems(const std::filesystem::path& path);
-    void loadAllSystems();
     void loadSystem(ISystem* system);
     void reloadSystem(const std::string& path);
     void unloadSystem(ISystem* system);

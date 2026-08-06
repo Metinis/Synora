@@ -54,6 +54,8 @@ void Application::init() {
     m_Layers.push_back(m_EngineContext.scene.get());
     m_Layers.push_back(m_EngineContext.cameraSystem.get());
     m_Layers.push_back(m_EngineContext.scriptManager.get());
+
+    m_EngineContext.scriptManager->loadAllSystems();
 }
 
 void Application::run() {
