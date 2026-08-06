@@ -31,6 +31,8 @@ class GraphicsScene : public SYN::ILayer {
 
         m_Renderer.init(*m_Context);
 
+        m_Renderer.setRenderScale(0.7f);
+
         m_CSMLayers = m_Renderer.getCSMTextures(*m_Context);
 
         gl::ModelData waltuhModelData =
@@ -266,6 +268,10 @@ class GraphicsScene : public SYN::ILayer {
             if (ImGui::SliderFloat("Exposure", &m_Exposure, 0.0f, 10.0f)) {
                 m_Renderer.setExposure(m_Exposure);
             }
+            if (ImGui::SliderFloat("Render Scale", &m_RenderScale, 0.01f,
+                                   2.0f)) {
+                m_Renderer.setRenderScale(m_RenderScale);
+            }
 
             const char *environments[] = {"Ghibli (no irradiance)",
                                           "Cowboy Saloon", "Suburbs", "Lobby"};
@@ -374,6 +380,7 @@ class GraphicsScene : public SYN::ILayer {
     float m_Gamma = 2.2f;
     float m_Exposure = 1.0f;
     float m_Yaw = 0.0f, m_Pitch = 0.0f;
+    float m_RenderScale = 0.7f;
 
     float m_Roughness;
     glm::vec3 m_Color;

@@ -420,6 +420,7 @@ struct RendererConfig {
     float exposure = 1.0f;
     bool bloomEnabled = true;
     float bloomThreshold = 1.0f;
+    float renderScale = 1.0f;
 };
 
 struct AABB {
@@ -708,6 +709,9 @@ class Renderer {
     void setGamma(float gamma);
 
     void setCSMDistance(float distance);
+    void setRenderScale(float renderScale);
+
+    std::tuple<uint32_t, uint32_t> getRenderResolution();
 
     void setExposure(float exposure);
     void setBloomEnabled(bool enabled);

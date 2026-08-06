@@ -1954,6 +1954,14 @@ void SYN::gfx::gl::Renderer::submit(
                                       materialOverride.end()));
 }
 
+std::tuple<uint32_t, uint32_t> SYN::gfx::gl::Renderer::getRenderResolution() {
+    uint32_t w =
+        glm::round((float)m_ScreenViewport.width * m_RenderConfig.renderScale);
+    uint32_t h =
+        glm::round((float)m_ScreenViewport.height * m_RenderConfig.renderScale);
+    return std::make_tuple(w, h);
+}
+
 void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
     if (!m_MsaaFramebuffer.update)
         return;
@@ -1987,17 +1995,17 @@ void SYN::gfx::gl::Renderer::updateMsaaFramebuffer(Context &context) {
         break;
     }
 
+    auto [width, height] = getRenderResolution();
+
     m_MsaaFramebuffer.rbAttachment =
         context
-            .createRenderbuffer({TextureFormat::Depth24Stencil8,
-                                 m_ScreenViewport.width,
-                                 m_ScreenViewport.height, samples})
+            .createRenderbuffer(
+                {TextureFormat::Depth24Stencil8, width, height, samples})
             .value();
 
     m_MsaaFramebuffer.colorAttachment =
         context
-            .createTexture({m_ScreenViewport.width, m_ScreenViewport.height,
-                            TextureFormat::RGBA16F, 1, samples})
+            .createTexture({width, height, TextureFormat::RGBA16F, 1, samples})
             .value();
 
     m_MsaaFramebuffer.handle =
@@ -2022,11 +2030,10 @@ void SYN::gfx::gl::Renderer::updateHdrFramebuffer(Context &context) {
         context.deleteFramebuffer(m_HdrFramebuffer.handle.value());
     }
 
+    auto [width, height] = getRenderResolution();
+
     m_HdrFramebuffer.colorAttachment =
-        context
-            .createTexture({m_ScreenViewport.width, m_ScreenViewport.height,
-                            TextureFormat::RGBA16F})
-            .value();
+        context.createTexture({width, height, TextureFormat::RGBA16F}).value();
 
     m_HdrFramebuffer.handle =
         context
@@ -2394,13 +2401,24 @@ void SYN::gfx::gl::Renderer::drawRenderItems(
     }
 }
 
+void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
+    m_RenderConfig.renderScale = glm::max(0.01f, renderScale);
+    m_MsaaFramebuffer.update = true;
+    m_HdrFramebuffer.update = true;
+}
+
 void SYN::gfx::gl::Renderer::endFrame(Context &context) {
+    Viewport renderViewport = m_ScreenViewport;
+    auto [renderWidth, renderHeight] = getRenderResolution();
+    renderViewport.width = renderWidth;
+    renderViewport.height = renderHeight;
+
     glm::mat4 viewMatrix = glm::lookAtRH(m_MainCamera.position,
                                          m_MainCamera.target, m_MainCamera.up);
 
     glm::mat4 projMatrix = glm::perspectiveRH_NO(
         glm::radians(m_MainCamera.fovYDegrees),
-        (float)m_ScreenViewport.width / m_ScreenViewport.height,
+        (float)renderViewport.width / renderViewport.height,
         m_MainCamera.nearPlane, m_MainCamera.farPlane);
 
     updateMsaaFramebuffer(context);
@@ -2520,7 +2538,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
         {
             Pass pass =
                 context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor, true,
-                                   false, m_ScreenViewport});
+                                   false, renderViewport});
             if (m_Environment.has_value() &&
                 m_Environment.value().irradianceMap.has_value()) {
                 pass.bindTexture(3, m_Environment.value().irradianceMap.value(),
@@ -2642,8 +2660,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
         }
 
         context.blitFramebuffer(m_MsaaFramebuffer.handle,
-                                m_HdrFramebuffer.handle, m_ScreenViewport,
-                                m_ScreenViewport);
+                                m_HdrFramebuffer.handle, renderViewport,
+                                renderViewport);
 
         {
             Pass hdrPass = context.beginPass(
@@ -2706,6 +2724,10 @@ void SYN::gfx::gl::Renderer::setAntiAliasMode(AntiAliasMode mode) {
 }
 
 void SYN::gfx::gl::Renderer::resize(int width, int height) {
+    // An AND is probably safe but there could be a case
+    // where one is 0 while the other is not?
+    if (width == 0 || height == 0)
+        return;
     if (width == m_ScreenViewport.width && height == m_ScreenViewport.height)
         return;
     m_ScreenViewport.width = width;
@@ -2766,9 +2788,9 @@ SYN::gfx::gl::Renderer::planesFromCameraFrustum(const Camera &camera) {
     glm::mat4 viewMatrix =
         glm::lookAtRH(camera.position, camera.target, camera.up);
 
+    auto [width, height] = getRenderResolution();
     glm::mat4 projMatrix = glm::perspectiveRH_NO(
-        glm::radians(camera.fovYDegrees),
-        (float)m_ScreenViewport.width / m_ScreenViewport.height,
+        glm::radians(camera.fovYDegrees), (float)width / height,
         camera.nearPlane, camera.farPlane);
 
     // Transpose because math below assumes row major
@@ -2875,9 +2897,9 @@ SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
     glm::mat4 viewMatrix =
         glm::lookAtRH(camera.position, camera.target, camera.up);
 
+    auto [width, height] = getRenderResolution();
     glm::mat4 projMatrix = glm::perspectiveRH_NO(
-        glm::radians(camera.fovYDegrees),
-        (float)m_ScreenViewport.width / m_ScreenViewport.height,
+        glm::radians(camera.fovYDegrees), (float)width / height,
         camera.nearPlane, camera.farPlane);
 
     glm::mat4 viewProjectionInverse = glm::inverse(projMatrix * viewMatrix);
