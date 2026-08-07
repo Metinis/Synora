@@ -120,6 +120,10 @@ class AssetManager {
     Material processMaterials(const aiMesh *mesh, const aiScene *scene,
                               const std::string &path);
 
+    MaterialData getProcessedMaterialData(const aiMesh *mesh,
+                                    const aiScene *scene,
+                                    const std::string &modelPath);
+
     std::unordered_map<UUID, AssetCounted> m_AssetMap{};
     std::unordered_map<std::string, UUID> m_LoadedUUIDMap{};
     Renderer *m_Renderer{};

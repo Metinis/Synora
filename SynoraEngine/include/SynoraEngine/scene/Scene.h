@@ -31,6 +31,8 @@ class Scene : public ILayer {
     void onUUIDRemoved(entt::registry& reg, entt::entity e); //same as removing entity
     void onMeshAdded(entt::registry& reg, entt::entity e);
     void onMeshRemoved(entt::registry& reg, entt::entity e);
+    void onMaterialAdded(entt::registry& reg, entt::entity e);
+    void onMaterialRemoved(entt::registry& reg, entt::entity e);
     void onParentAdded(entt::registry& reg, entt::entity e);
     void onParentRemoved(entt::registry& reg, entt::entity e);
 

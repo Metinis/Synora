@@ -63,10 +63,13 @@ void Scene::onDetach() { spdlog::debug("Scene: Detached"); }
 
 void Scene::onRender() {
     for (auto &e : getEntities<MeshComp>()) {
-        auto &meshComp = e.getComponent<MeshComp>();
-        auto &tc = e.getComponent<TransformComp>();
+        if (auto* mat = e.tryGetComponent<MaterialComp>()) {
+            auto &meshComp = e.getComponent<MeshComp>();
+            auto &tc = e.getComponent<TransformComp>();
 
-        m_Renderer->drawMesh(meshComp.id, tc.worldMatrix);
+            m_Renderer->drawMesh(meshComp.id, mat->id, tc.worldMatrix);
+        }
+
     }
 }
 
@@ -81,6 +84,22 @@ void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
 
 void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
+    UUID id = comp.id;
+
+    m_OnUpdate.emplace_back([this, id]() {
+        m_AssetManager->removeRef(id);
+    });
+}
+void Scene::onMaterialAdded(entt::registry &reg, entt::entity e) {
+    auto &comp = reg.get<MaterialComp>(e);
+    UUID id = comp.id;
+
+    m_OnUpdate.emplace_back([this, id]() {
+        m_AssetManager->addRef(id);
+    });
+}
+void Scene::onMaterialRemoved(entt::registry &reg, entt::entity e) {
+    auto &comp = reg.get<MaterialComp>(e);
     UUID id = comp.id;
 
     m_OnUpdate.emplace_back([this, id]() {
@@ -158,12 +177,17 @@ void Scene::init(EngineContext *ctx) {
     m_SceneState.registry.on_destroy<MeshComp>().connect<&Scene::onMeshRemoved>(
         this);
 
+    m_SceneState.registry.on_construct<MaterialComp>().connect<&Scene::onMaterialAdded>(
+        this);
+    m_SceneState.registry.on_destroy<MaterialComp>().connect<&Scene::onMaterialRemoved>(
+        this);
+
     m_SceneState.registry.on_construct<ParentComp>()
         .connect<&Scene::onParentAdded>(this);
     m_SceneState.registry.on_destroy<ParentComp>()
         .connect<&Scene::onParentRemoved>(this);
 
-    //m_AssetManager->loadModel(this, "resources/assets/Cabin/scene.gltf");
+    m_AssetManager->loadModel(this, "resources/assets/Cabin/scene.gltf");
 
     auto cam = createEntity("Primary Camera");
     auto &tc = cam.getComponent<TransformComp>();

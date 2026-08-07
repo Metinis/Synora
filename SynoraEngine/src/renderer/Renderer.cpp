@@ -101,40 +101,63 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
                              .indexBuffer = indexBuffer,
                              .numIndices = meshData.indices.size()};
 
-    if (meshData.albedo) {
-        TextureHandle albedo{
-            m_Backend->uploadTexture({.width = meshData.albedo->width,
-                                      .height = meshData.albedo->height,
-                                      .type = TextureType::srgb},
-                                     meshData.albedo->data)};
-        mesh.albedo = albedo;
-    }
-    if (meshData.metallicRoughness) {
-        TextureHandle metallicRoughness{
-            m_Backend->uploadTexture({.width = meshData.metallicRoughness->width,
-                                      .height = meshData.metallicRoughness->height,
-                                      .type = TextureType::rgba},
-                                     meshData.metallicRoughness->data)};
-        mesh.metallicRoughness = metallicRoughness;
-    }
-    if (meshData.normalMap) {
-        TextureHandle normalMap{
-            m_Backend->uploadTexture({.width = meshData.normalMap->width,
-                                      .height = meshData.normalMap->height,
-                                      .type = TextureType::rgba},
-                                     meshData.normalMap->data)};
-        mesh.normalMap = normalMap;
-    }
+
 
     m_UploadedMeshes[modelID] = std::move(mesh);
+}
+void Renderer::addMaterial(UUID materialID, const MaterialData &materialData) {
+    if (m_UploadedMeshes.contains(materialID)) {
+        spdlog::warn("Trying to add model (uuid = {}) that was already added",
+                     materialID);
+        return;
+    }
+
+    UploadedMaterial mat{};
+
+    if (materialData.albedo) {
+        TextureHandle albedo{
+            m_Backend->uploadTexture({.width = materialData.albedo->width,
+                                      .height = materialData.albedo->height,
+                                      .type = TextureType::srgb},
+                                     materialData.albedo->data)};
+        mat.albedo = albedo;
+    }
+    if (materialData.metallicRoughness) {
+        TextureHandle metallicRoughness{
+            m_Backend->uploadTexture({.width = materialData.metallicRoughness->width,
+                                      .height = materialData.metallicRoughness->height,
+                                      .type = TextureType::rgba},
+                                     materialData.metallicRoughness->data)};
+        mat.metallicRoughness = metallicRoughness;
+    }
+    if (materialData.normalMap) {
+        TextureHandle normalMap{
+            m_Backend->uploadTexture({.width = materialData.normalMap->width,
+                                      .height = materialData.normalMap->height,
+                                      .type = TextureType::rgba},
+                                     materialData.normalMap->data)};
+        mat.normalMap = normalMap;
+    }
+    m_UploadedMaterials[materialID] = std::move(mat);
+}
+void Renderer::removeMaterial(UUID materialID) {
+    if (m_UploadedMaterials.contains(materialID)) {
+        auto &mat = m_UploadedMaterials[materialID];
+        m_Backend->destroyTexture(mat.albedo);
+        m_Backend->destroyTexture(mat.metallicRoughness);
+        m_Backend->destroyTexture(mat.normalMap);
+        m_UploadedMeshes.erase(materialID);
+        spdlog::debug("Removed model from renderer {}", materialID);
+    } else {
+        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models",
+                     materialID);
+    }
 }
 
 void Renderer::removeMesh(UUID meshID) {
     if (m_UploadedMeshes.contains(meshID)) {
         auto &mesh = m_UploadedMeshes[meshID];
-        m_Backend->destroyTexture(mesh.albedo);
-        m_Backend->destroyTexture(mesh.metallicRoughness);
-        m_Backend->destroyTexture(mesh.normalMap);
+
         m_Backend->destroyBuffer(mesh.vertexBuffer);
         m_Backend->destroyBuffer(mesh.indexBuffer);
         m_UploadedMeshes.erase(meshID);
@@ -157,22 +180,36 @@ void Renderer::setCamera(const Camera &camera) {
     m_CurrentCameraView = rotation * translation;
 }
 
-void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
-    auto it{m_UploadedMeshes.find(modelID)};
-    if (modelID == 0) {
+void Renderer::drawMesh(UUID meshID, UUID materialID, const glm::mat4 &worldMatrix) {
+    auto itMesh{m_UploadedMeshes.find(meshID)};
+    if (meshID == 0) {
         //empty mesh comp
         return;
     }
-    if (it == m_UploadedMeshes.end()) {
+    if (itMesh == m_UploadedMeshes.end()) {
         spdlog::warn(
             "Trying to draw model (uuid = {}) that was not added to renderer",
-            modelID);
+            meshID);
         return;
     }
 
-    UploadedMesh &mesh{it->second};
-    m_DrawCalls.emplace_back(MeshDrawCall{
+    auto itMat{m_UploadedMaterials.find(materialID)};
+    if (materialID == 0) {
+        //empty mesh comp
+        return;
+    }
+    if (itMat == m_UploadedMaterials.end()) {
+        spdlog::warn(
+            "Trying to draw with material (uuid = {}) that was not added to renderer",
+            materialID);
+        return;
+    }
+
+    UploadedMesh &mesh{itMesh->second};
+    UploadedMaterial &material{itMat->second};
+    m_DrawCalls.emplace_back(DrawCall{
         .mesh = mesh,
+        .material = material,
         .modelMatrix = worldMatrix,
     });
 }
@@ -180,11 +217,13 @@ void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
 void SYN::Renderer::shutdown() {
     m_RenderGraph.shutdown(*m_Backend);
     for (auto &[uuid, mesh] : m_UploadedMeshes) {
-        m_Backend->destroyTexture(mesh.albedo);
-        m_Backend->destroyTexture(mesh.metallicRoughness);
-        m_Backend->destroyTexture(mesh.normalMap);
         m_Backend->destroyBuffer(mesh.vertexBuffer);
         m_Backend->destroyBuffer(mesh.indexBuffer);
+    }
+    for (auto &[uuid, mat] : m_UploadedMaterials) {
+        m_Backend->destroyTexture(mat.albedo);
+        m_Backend->destroyTexture(mat.metallicRoughness);
+        m_Backend->destroyTexture(mat.normalMap);
     }
     m_Backend->destroyAttachment(m_MSAAScreenColorAttachment);
     m_Backend->destroyAttachment(m_MSAADepthAttachment);

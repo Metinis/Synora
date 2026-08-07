@@ -7,7 +7,7 @@ namespace SYN {
 class LightingPass : public IRenderPass {
   public:
     LightingPass(uint32_t msaaSampleCount,
-                 std::span<Renderer::MeshDrawCall> drawCalls,
+                 std::span<Renderer::DrawCall> drawCalls,
                  const glm::mat4 &cameraProjection, const glm::mat4 &cameraView,
                  AttachmentHandle msaaColorAttachment,
                  AttachmentHandle msaaDepthAttachment,
@@ -19,7 +19,7 @@ class LightingPass : public IRenderPass {
 
   private:
     uint32_t m_MSAASampleCount;
-    std::span<Renderer::MeshDrawCall> m_DrawCalls;
+    std::span<Renderer::DrawCall> m_DrawCalls;
     glm::mat4 m_CameraProjection;
     glm::mat4 m_CameraView;
 

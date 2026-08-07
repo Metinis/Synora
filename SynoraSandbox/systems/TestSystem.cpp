@@ -71,21 +71,22 @@ void TestSystem::onLoad() {
         // Bottom
         20,21,22, 22,23,20
     };
-
-    mesh.albedo = nullptr;
-    mesh.metallicRoughness = nullptr;
-    mesh.normalMap = nullptr;
     auto meshHandle =
         m_Ctx->projectConfig.assetManager->addAsset<SYN::MeshData>(mesh);
 
+    SYN::MaterialData material{};
+    auto materialHandle =
+        m_Ctx->projectConfig.assetManager->addAsset<SYN::MaterialData>(material);
+
     en.addComponent<MeshComp>(meshHandle);
+    en.addComponent<MaterialComp>(materialHandle);
     en.addRuntimeComponent("Test");
 
 }
 void TestSystem::onUpdate(float dt) {
     for (auto &e : m_Ctx->scene->getEntitiesRuntime("Test")) {
         auto& tc = e.getComponent<TransformComp>();
-        tc.rotation = glm::rotate(tc.rotation, -glm::radians(dt * 50), glm::vec3(0.0f, 1.0f, 0.0f));
+        tc.rotation = glm::rotate(tc.rotation, -glm::radians(dt * 900), glm::vec3(0.0f, 1.0f, 0.0f));
     }
 }
 void TestSystem::onUnload() {

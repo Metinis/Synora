@@ -63,6 +63,9 @@ void SYN::AssetManager::addRef(UUID id) {
             if (std::holds_alternative<MeshData>(asset)) {
                 m_Renderer->addMesh(id, std::get<MeshData>(asset));
             }
+            if (std::holds_alternative<MaterialData>(asset)) {
+                m_Renderer->addMaterial(id, std::get<MaterialData>(asset));
+            }
         }
         m_AssetMap[id].ref++;
     } else if (id != 0){
@@ -79,6 +82,9 @@ void SYN::AssetManager::removeRef(UUID id) {
             auto asset = m_AssetMap[id].data;
             if (std::holds_alternative<MeshData>(asset)) {
                 m_Renderer->removeMesh(id);
+            }
+            if (std::holds_alternative<MaterialData>(asset)) {
+                m_Renderer->removeMaterial(id);
             }
         }
     } else if (id != 0){
@@ -210,12 +216,6 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
                                              const std::string &modelPath) {
     SYN::MeshData processedMesh{};
 
-    Material material{processMaterials(mesh, scene, modelPath)};
-
-    processedMesh.albedo = get<TextureData>(material.albedo);
-    processedMesh.metallicRoughness =
-        get<TextureData>(material.metallicRoughness);
-    processedMesh.normalMap = get<TextureData>(material.normalMap);
 
     for (size_t i{}; i < mesh->mNumVertices; i++) {
         SYN::Vertex relativeVertex{
@@ -261,6 +261,17 @@ SYN::MeshData SYN::AssetManager::processMesh(const aiMesh *mesh,
 
     return processedMesh;
 }
+SYN::MaterialData SYN::AssetManager::getProcessedMaterialData(const aiMesh *mesh,
+                                    const aiScene *scene,
+                                    const std::string &modelPath) {
+    MaterialData processedMaterial{};
+    Material material{processMaterials(mesh, scene, modelPath)};
+    processedMaterial.albedo = get<TextureData>(material.albedo);
+    processedMaterial.metallicRoughness =
+        get<TextureData>(material.metallicRoughness);
+    processedMaterial.normalMap = get<TextureData>(material.normalMap);
+    return processedMaterial;
+}
 void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
                                     const aiScene *aiScene,
                                     const std::string &modelPath) {
@@ -288,12 +299,17 @@ void SYN::AssetManager::processNode(Scene *scene, Entity parent, aiNode *node,
 
     for (size_t i{}; i < node->mNumMeshes; i++) {
         aiMesh *mesh = aiScene->mMeshes[node->mMeshes[i]];
-        UUID uuid{generateUUID()};
-        m_AssetMap[uuid].data =
-            processMesh(mesh, aiScene, modelPath);
-        m_LoadedUUIDMap[modelPath] = uuid;
+
+        UUID meshID{generateUUID()};
+        m_AssetMap[meshID].data = processMesh(mesh, aiScene, modelPath);
+
+        UUID matID{generateUUID()};
+        m_AssetMap[matID].data = getProcessedMaterialData(mesh, aiScene, modelPath);
+
+        m_LoadedUUIDMap[modelPath] = meshID;
         Entity meshEnt = scene->createEntity(mesh->mName.C_Str());
-        meshEnt.addComponent<MeshComp>(MeshComp{.id = uuid});
+        meshEnt.addComponent<MeshComp>(MeshComp{.id = meshID});
+        meshEnt.addComponent<MaterialComp>(MaterialComp{.id = matID});
         meshEnt.addComponent<ParentComp>(
             ParentComp{.id = childEntity.getComponent<UUIDComp>().id});
     }

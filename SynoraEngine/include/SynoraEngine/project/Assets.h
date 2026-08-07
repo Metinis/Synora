@@ -23,10 +23,6 @@ struct TextureData {
 struct MeshData {
     std::vector<Vertex> vertices; // these are relative to some parent
     std::vector<uint32_t> indices;
-
-    TextureData *albedo{};
-    TextureData *metallicRoughness{};
-    TextureData *normalMap{};
 };
 
 /*struct ModelData {
@@ -34,7 +30,9 @@ struct MeshData {
 };*/
 
 struct MaterialData {
-    int temp;
+    TextureData *albedo{};
+    TextureData *metallicRoughness{};
+    TextureData *normalMap{};
 };
 
 using AssetType = std::variant<MeshData, MaterialData, TextureData>;

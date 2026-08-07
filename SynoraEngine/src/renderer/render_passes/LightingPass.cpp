@@ -40,7 +40,7 @@ struct Uniforms {
 } // namespace
 
 SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
-                                std::span<Renderer::MeshDrawCall> drawCalls,
+                                std::span<Renderer::DrawCall> drawCalls,
                                 const glm::mat4 &cameraProjection,
                                 const glm::mat4 &cameraView,
                                 AttachmentHandle msaaColorAttachment,
@@ -94,11 +94,11 @@ void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
             .indexBuffer =
                 backend.getBufferAddressCmd(drawCall.mesh.indexBuffer),
             .albedoIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.mesh.albedo),
+                backend.getShaderSamplerIndexCmd(drawCall.material.albedo),
             .metallicRoughnessIndex = backend.getShaderSamplerIndexCmd(
-                drawCall.mesh.metallicRoughness),
+                drawCall.material.metallicRoughness),
             .normalMapIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.mesh.normalMap),
+                backend.getShaderSamplerIndexCmd(drawCall.material.normalMap),
         };
 
         backend.setPushConstantsCmd(pushConstants);

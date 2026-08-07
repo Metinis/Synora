@@ -27,27 +27,31 @@ class Renderer {
     void init(EngineContext *ctx);
     void render(Window &window);
     void addMesh(UUID modelID, const MeshData &meshData);
+    void addMaterial(UUID materialID, const MaterialData &materialData);
     void removeMesh(UUID meshID);
+    void removeMaterial(UUID materialID);
 
     void setCamera(const Camera &camera);
 
     // could make a renderable object struct with modelID, materialID etc, all
     // that are needed for drawing
-    void drawMesh(UUID modelID, const glm::mat4 &worldMatrix);
+    void drawMesh(UUID meshID, UUID materialID, const glm::mat4 &worldMatrix);
     void shutdown();
 
     struct UploadedMesh {
         BufferHandle vertexBuffer{};
         BufferHandle indexBuffer{};
         size_t numIndices{};
-
+    };
+    struct UploadedMaterial {
         TextureHandle albedo{};
         TextureHandle metallicRoughness{};
         TextureHandle normalMap{};
     };
 
-    struct MeshDrawCall {
+    struct DrawCall {
         UploadedMesh mesh;
+        UploadedMaterial material;
         glm::mat4 modelMatrix;
     };
 
@@ -66,7 +70,8 @@ class Renderer {
     TextureHandle m_SkyBox;
 
     std::unordered_map<UUID, UploadedMesh> m_UploadedMeshes;
-    std::vector<MeshDrawCall> m_DrawCalls;
+    std::unordered_map<UUID, UploadedMaterial> m_UploadedMaterials;
+    std::vector<DrawCall> m_DrawCalls;
 };
 
 } // namespace SYN
