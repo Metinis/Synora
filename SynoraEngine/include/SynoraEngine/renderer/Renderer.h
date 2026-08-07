@@ -37,13 +37,13 @@ class Renderer {
     void shutdown();
 
     struct UploadedMesh {
-        BufferHandle vertexBuffer;
-        BufferHandle indexBuffer;
-        size_t numIndices;
+        BufferHandle vertexBuffer{};
+        BufferHandle indexBuffer{};
+        size_t numIndices{};
 
-        TextureHandle albedo;
-        TextureHandle metallicRoughness;
-        TextureHandle normalMap;
+        TextureHandle albedo{};
+        TextureHandle metallicRoughness{};
+        TextureHandle normalMap{};
     };
 
     struct MeshDrawCall {

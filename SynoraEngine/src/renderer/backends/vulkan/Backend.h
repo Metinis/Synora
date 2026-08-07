@@ -55,7 +55,7 @@ class VulkanBackend : public IBackend {
     void setPushConstantsCmd(const void *data, size_t size) override;
 
     void drawCmd(size_t nVertices) override;
-    void drawIndexedCmd(size_t nIndices) override;
+    void drawIndexedCmd(size_t nIndices, const BufferHandle& indexBuffer) override;
     void drawImGUI() override;
 
     AttachmentHandle getSwapchainAttachmentCmd() override;

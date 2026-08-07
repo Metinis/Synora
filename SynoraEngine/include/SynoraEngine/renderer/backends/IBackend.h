@@ -82,7 +82,7 @@ class IBackend {
     }
 
     virtual void drawCmd(size_t nVertices) = 0;
-    virtual void drawIndexedCmd(size_t nIndices) = 0;
+    virtual void drawIndexedCmd(size_t nIndices, const BufferHandle& indexBuffer) = 0;
     virtual void drawImGUI() = 0;
 
     virtual AttachmentHandle getSwapchainAttachmentCmd() = 0;

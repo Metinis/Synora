@@ -17,11 +17,11 @@ struct TagComp {
     std::string tag{"Unnamed Entity"};
 };
 struct TransformComp {
-    glm::mat4 worldMatrix;
+    glm::mat4 worldMatrix{};
     glm::mat4 getLocalMatrix();
     void setLocalMatrix(glm::mat4 m);
     glm::vec3 position{0.f, 0.f, 0.f};
-    glm::quat rotation{0.f, 0.f, 0.f, 0.f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
     glm::vec3 scale{1.f, 1.f, 1.f};
     glm::vec3 eulerAngles =
         glm::degrees(glm::eulerAngles(rotation)); // cache for inspector

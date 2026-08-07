@@ -40,7 +40,7 @@ void Scene::onUpdate(float dt) {
         m_OnUpdate.clear();
     }
 
-    for (auto e : m_EntityCache) {
+    for (auto &e : m_EntityCache) {
         auto &tc = e.getComponent<TransformComp>();
         glm::mat4 local = tc.getLocalMatrix();
 
@@ -163,7 +163,7 @@ void Scene::init(EngineContext *ctx) {
     m_SceneState.registry.on_destroy<ParentComp>()
         .connect<&Scene::onParentRemoved>(this);
 
-    m_AssetManager->loadModel(this, "resources/assets/Cabin/scene.gltf");
+    //m_AssetManager->loadModel(this, "resources/assets/Cabin/scene.gltf");
 
     auto cam = createEntity("Primary Camera");
     auto &tc = cam.getComponent<TransformComp>();

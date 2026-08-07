@@ -157,6 +157,9 @@ void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
 }
 
 void SYN::VK::VulkanBackend::destroyTexture(TextureHandle handle) {
+    if (!m_Textures.contains(handle)) {
+        return;
+    }
     Texture texture{m_Textures[handle]};
 
     // the frame where all references to this texture will have completed

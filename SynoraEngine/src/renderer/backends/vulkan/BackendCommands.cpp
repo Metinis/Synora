@@ -354,9 +354,15 @@ void SYN::VK::VulkanBackend::drawCmd(size_t nVertices) {
     vkCmdDraw(frame.graphicsCmdBuffer, nVertices, 1, 0, 0);
 }
 
-void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices) {
+void SYN::VK::VulkanBackend::drawIndexedCmd(size_t nIndices, const BufferHandle& indexBuffer) {
+    if (!m_Buffers.contains(indexBuffer) || nIndices == 0) {
+        spdlog::error("Invalid index data!");
+        return;
+    }
+
     const FrameData &frame{m_FrameData[m_CurrentFrameIndex]};
 
+    vkCmdBindIndexBuffer(frame.graphicsCmdBuffer, m_Buffers[indexBuffer].handle, 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(frame.graphicsCmdBuffer, nIndices, 1, 0, 0, 0);
 }
 
@@ -373,7 +379,10 @@ AttachmentHandle SYN::VK::VulkanBackend::getSwapchainAttachmentCmd() {
 
 uint32_t
 SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(TextureHandle handle) {
-    return m_Textures[handle].bindlessSamplerIndex;
+    if (m_Textures.contains(handle)) {
+        return m_Textures[handle].bindlessSamplerIndex;
+    }
+    return 0xffffffffu;
 }
 uint32_t
 SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(AttachmentHandle handle) {
@@ -381,7 +390,7 @@ SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(AttachmentHandle handle) {
     if (!attachment.isSampleable) {
         spdlog::warn("Trying to get the sampler index for non-sampled "
                      "attachment, returning a default instead");
-        return 0; // TODO: make this a default texture
+        return 0xffffffffu; // TODO: make this a default texture
     }
     return attachment.bindlessSamplerIndices[m_CurrentFrameIndex];
 }

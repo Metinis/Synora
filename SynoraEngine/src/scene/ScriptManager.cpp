@@ -102,7 +102,8 @@ void ScriptManager::reloadSystem(const std::string& path) {
         std::filesystem::copy_options::overwrite_existing);
 
     auto sys = dllLoadSystem(loaded.c_str(), m_Ctx);
-    loadSystem(sys.system.get());
+    //should reload?
+    //loadSystem(sys.system.get());
     //use the original path
     m_Systems.insert_or_assign(path, std::move(sys));
 }

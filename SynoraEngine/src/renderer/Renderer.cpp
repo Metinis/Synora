@@ -89,22 +89,6 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
         return;
     }
 
-    TextureHandle albedo{
-        m_Backend->uploadTexture({.width = meshData.albedo->width,
-                                  .height = meshData.albedo->height,
-                                  .type = TextureType::srgb},
-                                 meshData.albedo->data)};
-    TextureHandle metallicRoughness{
-        m_Backend->uploadTexture({.width = meshData.metallicRoughness->width,
-                                  .height = meshData.metallicRoughness->height,
-                                  .type = TextureType::rgba},
-                                 meshData.metallicRoughness->data)};
-    TextureHandle normalMap{
-        m_Backend->uploadTexture({.width = meshData.normalMap->width,
-                                  .height = meshData.normalMap->height,
-                                  .type = TextureType::rgba},
-                                 meshData.normalMap->data)};
-
     BufferHandle vertexBuffer{m_Backend->uploadBuffer(
         {.size = meshData.vertices.size() * sizeof(Vertex)},
         meshData.vertices.data())};
@@ -115,10 +99,33 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
 
     auto mesh = UploadedMesh{.vertexBuffer = vertexBuffer,
                              .indexBuffer = indexBuffer,
-                             .numIndices = meshData.indices.size(),
-                             .albedo = albedo,
-                             .metallicRoughness = metallicRoughness,
-                             .normalMap = normalMap};
+                             .numIndices = meshData.indices.size()};
+
+    if (meshData.albedo) {
+        TextureHandle albedo{
+            m_Backend->uploadTexture({.width = meshData.albedo->width,
+                                      .height = meshData.albedo->height,
+                                      .type = TextureType::srgb},
+                                     meshData.albedo->data)};
+        mesh.albedo = albedo;
+    }
+    if (meshData.metallicRoughness) {
+        TextureHandle metallicRoughness{
+            m_Backend->uploadTexture({.width = meshData.metallicRoughness->width,
+                                      .height = meshData.metallicRoughness->height,
+                                      .type = TextureType::rgba},
+                                     meshData.metallicRoughness->data)};
+        mesh.metallicRoughness = metallicRoughness;
+    }
+    if (meshData.normalMap) {
+        TextureHandle normalMap{
+            m_Backend->uploadTexture({.width = meshData.normalMap->width,
+                                      .height = meshData.normalMap->height,
+                                      .type = TextureType::rgba},
+                                     meshData.normalMap->data)};
+        mesh.normalMap = normalMap;
+    }
+
     m_UploadedMeshes[modelID] = std::move(mesh);
 }
 

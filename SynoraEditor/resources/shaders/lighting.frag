@@ -56,6 +56,7 @@ layout(set = 1, binding = 0) uniform Uniform {
 };
 
 const float PI = 3.141592653589793;
+const uint NO_TEXTURE = 0xffffffffu;
 
 float ggxNDF(float roughness, float nDotH) {
     float a2 = roughness * roughness;
@@ -89,61 +90,71 @@ void main() {
 
     mat3 tbn = mat3(tangent, bitangent, faceNormal);
 
-    vec3 mapNormal = texture(textures[normalMap], uv).xyz;
-    mapNormal = (mapNormal * 2.f) - 1.f;
+    // Default values when no textures are present.
+    vec4 fragAlbedo = vec4(1.0);
+    vec4 fragMetallicRoughness = vec4(1.0, 1.0, 0.0, 1.0);
+    vec3 mapNormal = vec3(0.5, 0.5, 1.0);
 
+    if (albedoIndex != NO_TEXTURE) {
+        fragAlbedo = texture(textures[nonuniformEXT(albedoIndex)], uv);
+    }
+
+    if (metallicRoughnessIndex != NO_TEXTURE) {
+        fragMetallicRoughness =
+        texture(textures[nonuniformEXT(metallicRoughnessIndex)], uv);
+    }
+
+    if (normalMap != NO_TEXTURE) {
+        mapNormal = texture(textures[nonuniformEXT(normalMap)], uv).xyz;
+    }
+
+    mapNormal = mapNormal * 2.0 - 1.0;
     vec3 norm = normalize(tbn * mapNormal);
 
-    vec4 fragAlbedo = vec4(texture(textures[albedoIndex], uv));
-    vec4 fragMetallicRoughness = vec4(texture(textures[metallicRoughnessIndex], uv));
-
-    vec3 albedo = fragAlbedo.xyz;
+    vec3 albedo = fragAlbedo.rgb;
     float roughness = fragMetallicRoughness.g;
     float metallic = fragMetallicRoughness.b;
 
-    if (fragAlbedo.a == 0.f) {
+    if (fragAlbedo.a == 0.0) {
         discard;
     }
 
-    vec3 lo = vec3(0.f, 0.f, 0.f);
+    vec3 lo = vec3(0.0);
+
     for (int i = 0; i < nLights; i++) {
         LightCaster light = lights[i];
-        float lightDistance = distance(light.pos, fragPos);
 
         vec3 lightDir = normalize(light.pos - fragPos);
         vec3 viewDir = normalize(cameraPos - fragPos);
-
         vec3 halfway = normalize(lightDir + viewDir);
 
-        float nDotL = abs(dot(norm, lightDir)) + 0.00001f;
-        float vDotH = max(dot(viewDir, halfway), 0.f);
-        float nDotH = abs(dot(norm, halfway));
-        float nDotV = abs(dot(norm, viewDir));
+        float nDotL = max(dot(norm, lightDir), 0.0) + 0.00001;
+        float vDotH = max(dot(viewDir, halfway), 0.0);
+        float nDotH = max(dot(norm, halfway), 0.0);
+        float nDotV = max(dot(norm, viewDir), 0.0);
 
-        vec3 f0 = mix(vec3(0.04f), albedo, metallic);
+        vec3 f0 = mix(vec3(0.04), albedo, metallic);
 
         float r = roughness * roughness;
 
         float D = ggxNDF(r, nDotH);
         float G = ggxVisibility(r, nDotL, nDotV);
-        vec3 F = f0 + (1.f - f0) * pow(1.f - vDotH, 5.f);
+        vec3 F = f0 + (1.0 - f0) * pow(1.0 - vDotH, 5.0);
 
-        vec3 specular = D * G * F; // normalization is in G
-        vec3 diffuse = ((1.f - metallic) * (1.f - F) * albedo) / PI;
+        vec3 specular = D * G * F;
+        vec3 diffuse = ((1.0 - metallic) * (1.0 - F) * albedo) / PI;
 
-        vec3 brdf = specular + diffuse;
-
-        lo += brdf * light.color * nDotL;
+        lo += (specular + diffuse) * light.color * nDotL;
     }
 
-    vec3 skyColor = vec3(0.2f, 0.2f, 0.3f);
-    vec3 groundColor = vec3(0.1f, 0.07f, 0.05f);
+    vec3 skyColor = vec3(0.2, 0.2, 0.3);
+    vec3 groundColor = vec3(0.1, 0.07, 0.05);
 
-    float hemisphere = dot(norm, vec3(0.f, 1.f, 0.f)) * 0.5f + 0.5f;
-    vec3 ambient = fragAlbedo.xyz * mix(groundColor, skyColor, hemisphere);
+    float hemisphere = dot(norm, vec3(0.0, 1.0, 0.0)) * 0.5 + 0.5;
+    vec3 ambient = albedo * mix(groundColor, skyColor, hemisphere);
 
     vec3 color = ambient + lo;
-    color = color / (color + vec3(1.f));
+    color = color / (color + vec3(1.0));
 
-    outColor = vec4(color, 1.f);
+    outColor = vec4(color, fragAlbedo.a);
 }
