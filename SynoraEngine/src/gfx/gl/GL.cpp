@@ -1454,7 +1454,7 @@ SYN::gfx::gl::Material loadMaterial(
     material.metallic = materialData.metallic;
     material.roughness = materialData.roughness;
     material.tint = materialData.tint;
-    material.alphaMasked = materialData.alphaMasked;
+    material.alphaCutoff = materialData.alphaCutoff;
 
     return material;
 }
@@ -1547,7 +1547,7 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
             mesh.material.albedo = m_DefaultWhite;
         }
         mesh.sourceIndex = sourceIndex;
-        if (mesh.material.alphaMasked) {
+        if (mesh.material.alphaCutoff < 1.0f) {
             model.meshesMasked.push_back(mesh);
         } else {
             model.meshesOpaque.push_back(mesh);
@@ -2612,6 +2612,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     }
 
                     pass.bindUniform("u_Model", renderItem.transform);
+                    pass.bindUniform("u_alphaCutoff",
+                                     renderItem.material.alphaCutoff);
                     pass.bindVertexArray(renderItem.vao);
                     pass.drawIndexed(renderItem.indexCount);
                 }
@@ -3018,6 +3020,7 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
             pass.bindTexture(0, albedo, sampler);
             pass.bindUniform("u_modelMatrix",
                              cmd.transform * mesh.localTransform);
+            pass.bindUniform("u_alphaCutoff", mesh.material.alphaCutoff);
             pass.bindVertexArray(mesh.vao);
             pass.drawInstancedIndexed(mesh.indexCount, 2);
         }
@@ -3063,6 +3066,7 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
                 pass.bindTexture(0, albedo, sampler);
                 pass.bindUniform("u_modelMatrix",
                                  cmd.transform * mesh.localTransform);
+                pass.bindUniform("u_alphaCutoff", mesh.material.alphaCutoff);
                 pass.bindVertexArray(mesh.vao);
                 pass.drawIndexed(mesh.indexCount);
             }

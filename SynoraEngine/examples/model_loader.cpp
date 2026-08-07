@@ -63,6 +63,15 @@ SYN::gfx::gl::TextureFormat textureFormatFromChannelCount(int channels,
     }
 }
 
+void premultiplyAlpha(uint8_t *data, uint32_t size) {
+    for (uint32_t i = 0; i < size; ++i) {
+        float alpha = data[i * 4 + 3] / 255.0f;
+        data[i * 4] = (uint8_t)(alpha * data[i * 4]);
+        data[i * 4 + 1] = (uint8_t)(alpha * data[i * 4 + 1]);
+        data[i * 4 + 2] = (uint8_t)(alpha * data[i * 4 + 2]);
+    }
+}
+
 std::optional<SYN::gfx::gl::TextureData>
 loadExternalTexture(const std::filesystem::path &texturePath,
                     const std::string &cacheKey, bool srgb = false) {
@@ -86,6 +95,10 @@ loadExternalTexture(const std::filesystem::path &texturePath,
     if (pixels == nullptr) {
         spdlog::warn("Could not load texture {}", texturePath.string());
         return std::nullopt;
+    }
+
+    if (srgb && channels == 4) {
+        premultiplyAlpha(pixels, width * height);
     }
 
     auto storage = std::make_shared<std::vector<uint8_t>>();
@@ -128,6 +141,10 @@ loadEmbeddedCompressedTexture(const aiTexture *texture,
     if (pixels == nullptr) {
         spdlog::warn("Could not decode embedded texture {}", cacheKey);
         return std::nullopt;
+    }
+
+    if (srgb && channels == 4) {
+        premultiplyAlpha(pixels, width * height);
     }
 
     auto storage = std::make_shared<std::vector<uint8_t>>();
@@ -178,6 +195,10 @@ loadEmbeddedTexture(const aiTexture *texture, const std::string &cacheKey,
         (*storage)[i * 4 + 1] = pixels[i].g;
         (*storage)[i * 4 + 2] = pixels[i].b;
         (*storage)[i * 4 + 3] = pixels[i].a;
+    }
+
+    if (srgb) {
+        premultiplyAlpha(&(*storage)[0], texture->mWidth * texture->mHeight);
     }
 
     g_TextureCache[cacheKey] =
@@ -414,17 +435,17 @@ processMaterial(const aiMaterial *material, const aiScene *scene,
     SYN::gfx::gl::MaterialData result{};
 
     aiColor4D color{};
-    if (AI_SUCCESS == material->Get(AI_MATKEY_COLOR_DIFFUSE, color)) {
+    if (material->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
         result.tint = {color.r, color.g, color.b, color.a};
     }
 
     float metallic{};
-    if (AI_SUCCESS == material->Get(AI_MATKEY_METALLIC_FACTOR, metallic)) {
+    if (material->Get(AI_MATKEY_METALLIC_FACTOR, metallic) == AI_SUCCESS) {
         result.metallic = metallic;
     }
 
     float roughness{};
-    if (AI_SUCCESS == material->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness)) {
+    if (material->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == AI_SUCCESS) {
         result.roughness = roughness;
     }
 
@@ -435,7 +456,12 @@ processMaterial(const aiMaterial *material, const aiScene *scene,
                                                    aiTextureType_DIFFUSE);
     }
 
-    result.alphaMasked = albedoNeedsAlphaMask(result.albedoData);
+    float alphaCutoff{};
+    result.alphaCutoff = albedoNeedsAlphaMask(result.albedoData) ? 0.5f : 1.0f;
+    if (material->Get("$mat.gltf.alphaCutoff", 0, 0, alphaCutoff) ==
+        AI_SUCCESS) {
+        result.alphaCutoff = alphaCutoff;
+    }
 
     result.normalData = loadTextureForMaterial(material, scene, modelPath,
                                                aiTextureType_NORMALS);
@@ -461,17 +487,12 @@ processMaterial(const aiMaterial *material, const aiScene *scene,
         roughData && channelCountForFormat(roughData->info.format) >= 3;
 
     if (sameImage) {
-        // Both slots point at one image: already packed (glTF).
         result.metallicRoughnessData = metalData;
     } else if (metalData && !roughData && metalLooksPacked) {
-        // Only the metalness slot is set, but it's a multi-channel image — a
-        // packed MR texture that some assimp versions expose only as METALNESS.
         result.metallicRoughnessData = metalData;
     } else if (roughData && !metalData && roughLooksPacked) {
         result.metallicRoughnessData = roughData;
     } else {
-        // Separate grayscale maps (or just one present): combine into a packed
-        // image. A missing channel stays 1.0 so its scalar factor drives it.
         result.metallicRoughnessData =
             packMetallicRoughness(metalData, roughData);
     }

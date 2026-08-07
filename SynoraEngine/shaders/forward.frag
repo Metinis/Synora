@@ -311,6 +311,11 @@ vec3 getAmbientColor(vec3 objectColor, vec3 normal, vec2 metallicRoughness) {
 
 void main() {
   vec4 albedoTexture = texture(u_albedoTexture, fragTexCoords);
+
+  albedoTexture.r /= albedoTexture.a;
+  albedoTexture.g /= albedoTexture.a;
+  albedoTexture.b /= albedoTexture.a;
+
   vec3 objectColor = vec3(vec4(u_tint, 1.0) * albedoTexture);
 
   vec3 normal = getNormal();

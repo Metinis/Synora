@@ -374,7 +374,7 @@ struct MaterialData {
     float roughness = 1.0f;
     glm::vec4 tint = glm::vec4(1.0f);
 
-    bool alphaMasked = false;
+    float alphaCutoff = 1.0f;
 };
 
 struct Material {
@@ -387,7 +387,7 @@ struct Material {
     float metallic = 0.0f;
     float roughness = 0.0f;
     glm::vec4 tint = glm::vec4(1.0f);
-    bool alphaMasked = false;
+    float alphaCutoff = 1.0f;
 };
 
 struct MaterialOverride {
