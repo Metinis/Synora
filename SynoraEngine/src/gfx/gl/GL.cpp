@@ -35,6 +35,254 @@ static bool hasGLExtension(std::string_view name) {
     return false;
 }
 
+SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
+createDefaultColoredTexture(SYN::gfx::gl::Context &context,
+                            std::array<uint8_t, 4> color) {
+    SYN::gfx::gl::TextureDesc desc{
+        .width = 1,
+        .height = 1,
+        .format = SYN::gfx::gl::TextureFormat::SRGBA,
+    };
+    return context.createTexture(desc, &color[0]).value();
+}
+
+SYN::gfx::gl::Material loadMaterial(
+    SYN::gfx::gl::Context &context,
+    const SYN::gfx::gl::MaterialData &materialData,
+    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+        &textureCache) {
+
+    auto getMipLevel = [](int width, int height) {
+        return 1 +
+               static_cast<int>(std::floor(std::log2(std::max(width, height))));
+    };
+
+    SYN::gfx::gl::Material material;
+    if (materialData.albedoData) {
+        SYN::gfx::gl::TextureData albedoTexture =
+            materialData.albedoData.value();
+        if (textureCache.find(albedoTexture.sourcePath) !=
+            textureCache.cend()) {
+            material.albedo = textureCache.at(albedoTexture.sourcePath);
+        } else {
+            albedoTexture.info.mipLevel = getMipLevel(
+                albedoTexture.info.width, albedoTexture.info.height);
+            material.albedo =
+                context
+                    .createTexture(albedoTexture.info, &albedoTexture.data[0])
+                    .value();
+            textureCache[albedoTexture.sourcePath] = material.albedo.value();
+        }
+    }
+    if (materialData.normalData) {
+        SYN::gfx::gl::TextureData normalTexture =
+            materialData.normalData.value();
+        if (textureCache.find(normalTexture.sourcePath) !=
+            textureCache.cend()) {
+            material.normalMap = textureCache.at(normalTexture.sourcePath);
+        } else {
+            normalTexture.info.mipLevel = getMipLevel(
+                normalTexture.info.width, normalTexture.info.height);
+            material.normalMap =
+                context
+                    .createTexture(normalTexture.info, &normalTexture.data[0])
+                    .value();
+            textureCache[normalTexture.sourcePath] = material.normalMap.value();
+        }
+    }
+    if (materialData.metallicRoughnessData) {
+        SYN::gfx::gl::TextureData metallicRoughnessTexture =
+            materialData.metallicRoughnessData.value();
+        if (textureCache.find(metallicRoughnessTexture.sourcePath) !=
+            textureCache.cend()) {
+            material.metallicRoughnessMap =
+                textureCache.at(metallicRoughnessTexture.sourcePath);
+        } else {
+            metallicRoughnessTexture.info.mipLevel =
+                getMipLevel(metallicRoughnessTexture.info.width,
+                            metallicRoughnessTexture.info.height);
+            material.metallicRoughnessMap =
+                context
+                    .createTexture(metallicRoughnessTexture.info,
+                                   &metallicRoughnessTexture.data[0])
+                    .value();
+            textureCache[metallicRoughnessTexture.sourcePath] =
+                material.metallicRoughnessMap.value();
+        }
+    }
+    material.metallic = materialData.metallic;
+    material.roughness = materialData.roughness;
+    material.tint = materialData.tint;
+    material.alphaCutoff = materialData.alphaCutoff;
+
+    return material;
+}
+
+SYN::gfx::gl::Mesh createMesh(
+    SYN::gfx::gl::Context &context, const SYN::gfx::gl::MeshData &meshData,
+    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+        &textureCache,
+    SYN::gfx::gl::ShaderCache &shaderCache) {
+    SYN::gfx::gl::Mesh mesh;
+
+    mesh.vbo = context
+                   .createBuffer({SYN::gfx::gl::BufferType::Vertex,
+                                  SYN::gfx::gl::MemoryUsage::CpuToGPU,
+                                  uint32_t(sizeof(SYN::gfx::gl::Vertex) *
+                                           meshData.vertices.size())},
+                                 &meshData.vertices[0])
+                   .value();
+
+    mesh.ebo = context
+                   .createBuffer(
+                       {SYN::gfx::gl::BufferType::Index,
+                        SYN::gfx::gl::MemoryUsage::CpuToGPU,
+                        uint32_t(sizeof(uint32_t) * meshData.indices.size())},
+                       &meshData.indices[0])
+                   .value();
+
+    mesh.vao = context
+                   .createVertexArray(
+                       {mesh.vbo,
+                        sizeof(SYN::gfx::gl::Vertex),
+                        mesh.ebo,
+                        {{
+                            {0, SYN::gfx::gl::VertexFormat::Float3,
+                             offsetof(SYN::gfx::gl::Vertex, position)},
+
+                            {1, SYN::gfx::gl::VertexFormat::Float3,
+                             offsetof(SYN::gfx::gl::Vertex, normal)},
+
+                            {2, SYN::gfx::gl::VertexFormat::Float2,
+                             offsetof(SYN::gfx::gl::Vertex, uv)},
+
+                            {3, SYN::gfx::gl::VertexFormat::Float4,
+                             offsetof(SYN::gfx::gl::Vertex, tangent)},
+
+                            {4, SYN::gfx::gl::VertexFormat::Int4,
+                             offsetof(SYN::gfx::gl::Vertex, boneIndices)},
+
+                            {5, SYN::gfx::gl::VertexFormat::Float4,
+                             offsetof(SYN::gfx::gl::Vertex, boneWeights)},
+                        }},
+                        6})
+                   .value();
+
+    mesh.indexCount = meshData.indices.size();
+    mesh.localTransform = meshData.localTransform;
+    mesh.material = loadMaterial(context, meshData.material, textureCache);
+
+    mesh.aabb = meshData.aabb;
+
+    return mesh;
+}
+
+uint32_t getShaderFeatures(bool hasNormal, bool hasMetallicRoughness,
+                           bool hasSkin) {
+    uint32_t featureFlag = 0;
+
+    featureFlag |=
+        hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Skinned : 0;
+
+    featureFlag |=
+        hasMetallicRoughness
+            ? (uint32_t)SYN::gfx::gl::ShaderFeatures::MetallicRoughness
+            : 0;
+
+    featureFlag |=
+        hasNormal ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Normal : 0;
+
+    return featureFlag;
+}
+
+void setSamplerParameters(uint32_t samplerId,
+                          const SYN::gfx::gl::SamplerDesc &desc) {
+    using namespace SYN::gfx::gl;
+
+    auto getFilterFormat = [](SampleFilter filter) {
+        switch (filter) {
+        case SampleFilter::Nearest:
+            return GL_NEAREST;
+        case SampleFilter::Linear:
+            return GL_LINEAR;
+        case SampleFilter::Nearest_Mipmap_Nearest:
+            return GL_NEAREST_MIPMAP_NEAREST;
+        default:
+            return GL_LINEAR_MIPMAP_LINEAR;
+        }
+    };
+
+    auto getWrapFormat = [](WrapMode wrap) {
+        switch (wrap) {
+        case WrapMode::ClampToEdge:
+            return GL_CLAMP_TO_EDGE;
+        case WrapMode::Repeat:
+            return GL_REPEAT;
+        case WrapMode::ClampToBorder:
+            return GL_CLAMP_TO_BORDER;
+        default:
+            return GL_MIRRORED_REPEAT;
+        }
+    };
+
+    glSamplerParameteri(samplerId, GL_TEXTURE_MIN_FILTER,
+                        getFilterFormat(desc.minFilter));
+    glSamplerParameteri(samplerId, GL_TEXTURE_MAG_FILTER,
+                        getFilterFormat(desc.magFilter));
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_S,
+                        getWrapFormat(desc.wrapU));
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_T,
+                        getWrapFormat(desc.wrapV));
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_R,
+                        getWrapFormat(desc.wrapW));
+    glSamplerParameterfv(samplerId, GL_TEXTURE_BORDER_COLOR,
+                         &desc.borderColor[0]);
+
+    if (desc.compareMode) {
+        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_MODE,
+                            GL_COMPARE_REF_TO_TEXTURE);
+        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    }
+
+    float aniso =
+        glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
+    glSamplerParameterf(samplerId, GL_TEXTURE_MAX_ANISOTROPY, aniso);
+}
+
+bool validateShaderCompileStatus(uint32_t shader, bool isVertex) {
+    int success = 0;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        constexpr size_t LOG_BUFFER_SIZE = 512;
+        char buf[LOG_BUFFER_SIZE];
+        glGetShaderInfoLog(shader, LOG_BUFFER_SIZE, nullptr, buf);
+        std::string_view shaderType = isVertex ? "VERTEX" : "FRAGMENT";
+        spdlog::error("{} SHADER ERROR:\n{}\n", shaderType, buf);
+        return false;
+    }
+    return true;
+}
+
+bool validateProgramLinkStatus(uint32_t program) {
+    int success = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        constexpr size_t LOG_BUFFER_SIZE = 512;
+        char buf[LOG_BUFFER_SIZE];
+        glGetProgramInfoLog(program, LOG_BUFFER_SIZE, nullptr, buf);
+        spdlog::error("PROGRAM LINK ERROR:\n{}\n", buf);
+        return false;
+    }
+    return true;
+}
+
+// Pass
+// Use to define render passes per frame by setting OpenGL state with
+// PipelineState and issuing draw commands/binding resources. If creating
+// multiple passes within the same function, separate passes with scopes because
+// destructor resets prior OpenGL state. Create a pass with
+// Context::beginPass(PassDesc{}).
+
 // Adds shader uniform to cache if it doesn't exist. Retrieves uniform
 // location which may be -1 if it doesn't exist in the shader.
 int SYN::gfx::gl::Pass::getShaderUniformLocation(std::string_view uniform) {
@@ -158,6 +406,70 @@ GLenum getTextureDataTypeFromFormat(SYN::gfx::gl::TextureFormat format) {
     }
 
     return dataType;
+}
+
+SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
+    assert(context != nullptr && "OpenGL pass context cannot be NULL!");
+
+    m_ContextPtr = context;
+
+    if (desc.framebufferHandle.has_value()) {
+        std::optional<Framebuffer> framebuffer =
+            context->getFramebuffer(desc.framebufferHandle.value());
+
+        assert(framebuffer.has_value() &&
+               "Framebuffer in render pass doesn't exist!");
+
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.value().id);
+    } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    GLbitfield clearMask = 0;
+
+    if (desc.clearColor.has_value()) {
+        clearMask |= GL_COLOR_BUFFER_BIT;
+    }
+
+    if (desc.enableDepthTest) {
+        glEnable(GL_DEPTH_TEST);
+        clearMask |= GL_DEPTH_BUFFER_BIT;
+    } else
+        glDisable(GL_DEPTH_TEST);
+
+    if (desc.enableStencilTest) {
+        glEnable(GL_STENCIL_TEST);
+        clearMask |= GL_STENCIL_BUFFER_BIT;
+    } else
+        glDisable(GL_STENCIL_TEST);
+
+    if (desc.viewportOverride.has_value()) {
+        Viewport viewport = desc.viewportOverride.value();
+        glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+    }
+    if (desc.scissorOverride.has_value()) {
+        ScissorRect scissor = desc.scissorOverride.value();
+        glScissor(scissor.x, scissor.y, scissor.width, scissor.height);
+    }
+
+    if (clearMask != 0) {
+        if (desc.clearColor.has_value()) {
+            glm::vec4 clearColor = desc.clearColor.value();
+            glClearColor(clearColor.r, clearColor.g, clearColor.b,
+                         clearColor.a);
+        }
+        glClear(clearMask);
+    }
+}
+
+SYN::gfx::gl::Pass::~Pass() {
+    glUseProgram(0);
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    for (uint32_t slot : m_TextureSlotsBound) {
+        glBindTextureUnit(slot, 0);
+        glBindSampler(slot, 0);
+    }
 }
 
 void SYN::gfx::gl::Pass::bindUniform(std::string_view name, float v0) {
@@ -287,6 +599,237 @@ void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
     glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(v));
 }
 
+void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
+                                     Handle<Texture> textureHandle,
+                                     Handle<Sampler> samplerHandle) {
+    std::optional<Texture> textureOpt = m_ContextPtr->getTexture(textureHandle);
+    std::optional<Sampler> samplerOpt = m_ContextPtr->getSampler(samplerHandle);
+
+    assert(textureOpt.has_value() && "Texture handle is invalid");
+    assert(samplerOpt.has_value() && "Sampler handle is invalid");
+
+    Texture texture = textureOpt.value();
+    Sampler sampler = samplerOpt.value();
+
+    glBindTextureUnit(binding, texture.id);
+    glBindSampler(binding, sampler.id);
+
+    m_TextureSlotsBound.insert(binding);
+}
+
+void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
+                                           Handle<Buffer> bufferHandle) {
+    std::optional<Buffer> buffer = m_ContextPtr->getBuffer(bufferHandle);
+    if (!buffer.has_value())
+        return;
+    if (buffer.value().type != BufferType::Uniform)
+        return;
+    glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer.value().id);
+}
+
+void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
+    std::optional<Shader> currentShaderOpt =
+        m_ContextPtr->getShader(pipelineState.shader);
+    assert(currentShaderOpt.has_value() &&
+           "Shader handle is invalid. Cannot set pipeline.");
+    Shader shader = currentShaderOpt.value();
+
+    m_CurrentShader = shader;
+
+    switch (pipelineState.cullMode) {
+    case CullMode::None:
+        glDisable(GL_CULL_FACE);
+        break;
+    case CullMode::Front:
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);
+        break;
+    case CullMode::Back:
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        break;
+    }
+
+    if (pipelineState.frontFaceCcw)
+        glFrontFace(GL_CCW);
+    else
+        glFrontFace(GL_CW);
+
+    switch (pipelineState.polygonMode) {
+    case PolygonMode::Fill:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        break;
+    case PolygonMode::Line:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        break;
+    case PolygonMode::Point:
+        glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
+        break;
+    }
+
+    glDepthMask(pipelineState.depth.writeEnabled);
+    switch (pipelineState.depth.test) {
+    case DepthFunc::Less:
+        glDepthFunc(GL_LESS);
+        break;
+    case DepthFunc::LessEqual:
+        glDepthFunc(GL_LEQUAL);
+        break;
+    case DepthFunc::Greater:
+        glDepthFunc(GL_GREATER);
+        break;
+    case DepthFunc::GreaterEqual:
+        glDepthFunc(GL_GEQUAL);
+        break;
+    case DepthFunc::NotEqual:
+        glDepthFunc(GL_NOTEQUAL);
+        break;
+    case DepthFunc::Equal:
+        glDepthFunc(GL_EQUAL);
+        break;
+    case DepthFunc::Always:
+        glDepthFunc(GL_ALWAYS);
+        break;
+    case DepthFunc::Never:
+        glDepthFunc(GL_NEVER);
+        break;
+    }
+
+    glColorMask(pipelineState.color.r, pipelineState.color.g,
+                pipelineState.color.b, pipelineState.color.a);
+
+    m_CurrentDrawTopology = pipelineState.topology;
+
+    glUseProgram(shader.program);
+}
+
+void SYN::gfx::gl::Pass::bindVertexArray(
+    Handle<VertexArray> vertexArrayHandle) {
+    std::optional<VertexArray> currentVaoOpt =
+        m_ContextPtr->getVertexArray(vertexArrayHandle);
+    assert(currentVaoOpt.has_value() && "Vertex Array handle is invalid.");
+    VertexArray vertexArray = currentVaoOpt.value();
+    glBindVertexArray(vertexArray.id);
+    if (vertexArray.indexType.has_value()) {
+        m_CurrentIndexType = vertexArray.indexType.value();
+    } else {
+        m_CurrentIndexType = IndexType::Unsigned32;
+    }
+}
+
+void SYN::gfx::gl::Pass::draw(uint32_t vertexCount, uint32_t firstVertex) {
+    GLenum drawMode;
+    switch (m_CurrentDrawTopology) {
+    case PrimitiveTopology::Triangles:
+        drawMode = GL_TRIANGLES;
+        break;
+    case PrimitiveTopology::Lines:
+        drawMode = GL_LINES;
+        break;
+    case PrimitiveTopology::Points:
+        drawMode = GL_POINTS;
+        break;
+    }
+    glDrawArrays(drawMode, firstVertex, vertexCount);
+}
+
+void SYN::gfx::gl::Pass::drawIndexed(uint32_t indexCount) {
+    GLenum drawMode;
+    switch (m_CurrentDrawTopology) {
+    case PrimitiveTopology::Triangles:
+        drawMode = GL_TRIANGLES;
+        break;
+    case PrimitiveTopology::Lines:
+        drawMode = GL_LINES;
+        break;
+    case PrimitiveTopology::Points:
+        drawMode = GL_POINTS;
+        break;
+    }
+
+    GLenum indexType;
+    switch (m_CurrentIndexType) {
+    case IndexType::Unsigned16:
+        indexType = GL_UNSIGNED_SHORT;
+        break;
+    case IndexType::Unsigned32:
+        indexType = GL_UNSIGNED_INT;
+        break;
+    }
+
+    glDrawElements(drawMode, indexCount, indexType, nullptr);
+}
+
+void SYN::gfx::gl::Pass::drawInstancedIndexed(uint32_t indexCount,
+                                              uint32_t instanceCount) {
+    GLenum drawMode;
+    switch (m_CurrentDrawTopology) {
+    case PrimitiveTopology::Triangles:
+        drawMode = GL_TRIANGLES;
+        break;
+    case PrimitiveTopology::Lines:
+        drawMode = GL_LINES;
+        break;
+    case PrimitiveTopology::Points:
+        drawMode = GL_POINTS;
+        break;
+    }
+
+    GLenum indexType;
+    switch (m_CurrentIndexType) {
+    case IndexType::Unsigned16:
+        indexType = GL_UNSIGNED_SHORT;
+        break;
+    case IndexType::Unsigned32:
+        indexType = GL_UNSIGNED_INT;
+        break;
+    }
+
+    glDrawElementsInstanced(drawMode, indexCount, indexType, nullptr,
+                            instanceCount);
+}
+
+// Context
+// Owns OpenGL resources internally. Use to create resource handles
+// (vertex arrays, shaders, framebuffers, textures, etc.)
+//
+// Also for creating render passes with Context::beginPass(PassDesc{}).
+//
+// Create one Context per project using
+// Context::createContext(ContextInitDesc{}).
+
+SYN::gfx::gl::Pass SYN::gfx::gl::Context::beginPass(const PassDesc &desc) {
+    return Pass(this, desc);
+}
+
+void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
+                                          uint32_t mipLevel, uint32_t x,
+                                          uint32_t y, uint32_t width,
+                                          uint32_t height, uint32_t face,
+                                          TextureFormat format,
+                                          const void *data) {
+    std::optional<Texture> textureOpt =
+        m_TextureRegistry.getResource(textureHandle);
+
+    if (!textureOpt.has_value())
+        return;
+
+    Texture texture = textureOpt.value();
+
+    GLenum glFormat = getTextureFormat(format);
+    GLenum dataType = getTextureDataTypeFromFormat(format);
+
+    if (texture.type == TextureType::Tex2D) {
+        glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
+                            dataType, data);
+    }
+    if (texture.type == TextureType::Cubemap ||
+        texture.type == TextureType::Tex2DArray) {
+        glTextureSubImage3D(texture.id, mipLevel, x, y, face, width, height, 1,
+                            glFormat, dataType, data);
+    }
+}
+
 SYN::gfx::gl::Context::Context(const ContextInitDesc &desc) {
     m_Window = desc.windowHandle;
 }
@@ -391,64 +934,6 @@ SYN::gfx::gl::Context::createContext(const ContextInitDesc &desc) {
     glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &Globals.maxAnisotropy);
 
     return Context(desc);
-}
-
-SYN::gfx::gl::Pass SYN::gfx::gl::Context::beginPass(const PassDesc &desc) {
-    return Pass(this, desc);
-}
-
-SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
-    assert(context != nullptr && "OpenGL pass context cannot be NULL!");
-
-    m_ContextPtr = context;
-
-    if (desc.framebufferHandle.has_value()) {
-        std::optional<Framebuffer> framebuffer =
-            context->getFramebuffer(desc.framebufferHandle.value());
-
-        assert(framebuffer.has_value() &&
-               "Framebuffer in render pass doesn't exist!");
-
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.value().id);
-    } else {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
-
-    GLbitfield clearMask = 0;
-
-    if (desc.clearColor.has_value()) {
-        clearMask |= GL_COLOR_BUFFER_BIT;
-    }
-
-    if (desc.enableDepthTest) {
-        glEnable(GL_DEPTH_TEST);
-        clearMask |= GL_DEPTH_BUFFER_BIT;
-    } else
-        glDisable(GL_DEPTH_TEST);
-
-    if (desc.enableStencilTest) {
-        glEnable(GL_STENCIL_TEST);
-        clearMask |= GL_STENCIL_BUFFER_BIT;
-    } else
-        glDisable(GL_STENCIL_TEST);
-
-    if (desc.viewportOverride.has_value()) {
-        Viewport viewport = desc.viewportOverride.value();
-        glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
-    }
-    if (desc.scissorOverride.has_value()) {
-        ScissorRect scissor = desc.scissorOverride.value();
-        glScissor(scissor.x, scissor.y, scissor.width, scissor.height);
-    }
-
-    if (clearMask != 0) {
-        if (desc.clearColor.has_value()) {
-            glm::vec4 clearColor = desc.clearColor.value();
-            glClearColor(clearColor.r, clearColor.g, clearColor.b,
-                         clearColor.a);
-        }
-        glClear(clearMask);
-    }
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Buffer>>
@@ -687,33 +1172,6 @@ void SYN::gfx::gl::Context::deleteRenderbuffer(
 
     m_PendingDeleteRenderbuffers.push_back(renderbuffer.id);
     m_RenderbufferRegistry.releaseHandle(renderbufferHandle);
-}
-
-bool validateShaderCompileStatus(uint32_t shader, bool isVertex) {
-    int success = 0;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        constexpr size_t LOG_BUFFER_SIZE = 512;
-        char buf[LOG_BUFFER_SIZE];
-        glGetShaderInfoLog(shader, LOG_BUFFER_SIZE, nullptr, buf);
-        std::string_view shaderType = isVertex ? "VERTEX" : "FRAGMENT";
-        spdlog::error("{} SHADER ERROR:\n{}\n", shaderType, buf);
-        return false;
-    }
-    return true;
-}
-
-bool validateProgramLinkStatus(uint32_t program) {
-    int success = 0;
-    glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (!success) {
-        constexpr size_t LOG_BUFFER_SIZE = 512;
-        char buf[LOG_BUFFER_SIZE];
-        glGetProgramInfoLog(program, LOG_BUFFER_SIZE, nullptr, buf);
-        spdlog::error("PROGRAM LINK ERROR:\n{}\n", buf);
-        return false;
-    }
-    return true;
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>>
@@ -957,178 +1415,6 @@ SYN::gfx::gl::Context::getRenderbuffer(
     return m_RenderbufferRegistry.getResource(renderbufferHandle);
 }
 
-SYN::gfx::gl::Pass::~Pass() {
-    glUseProgram(0);
-    glBindVertexArray(0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    for (uint32_t slot : m_TextureSlotsBound) {
-        glBindTextureUnit(slot, 0);
-        glBindSampler(slot, 0);
-    }
-}
-
-void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
-    std::optional<Shader> currentShaderOpt =
-        m_ContextPtr->getShader(pipelineState.shader);
-    assert(currentShaderOpt.has_value() &&
-           "Shader handle is invalid. Cannot set pipeline.");
-    Shader shader = currentShaderOpt.value();
-
-    m_CurrentShader = shader;
-
-    switch (pipelineState.cullMode) {
-    case CullMode::None:
-        glDisable(GL_CULL_FACE);
-        break;
-    case CullMode::Front:
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        break;
-    case CullMode::Back:
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
-        break;
-    }
-
-    if (pipelineState.frontFaceCcw)
-        glFrontFace(GL_CCW);
-    else
-        glFrontFace(GL_CW);
-
-    switch (pipelineState.polygonMode) {
-    case PolygonMode::Fill:
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        break;
-    case PolygonMode::Line:
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        break;
-    case PolygonMode::Point:
-        glPolygonMode(GL_FRONT_AND_BACK, GL_POINT);
-        break;
-    }
-
-    glDepthMask(pipelineState.depth.writeEnabled);
-    switch (pipelineState.depth.test) {
-    case DepthFunc::Less:
-        glDepthFunc(GL_LESS);
-        break;
-    case DepthFunc::LessEqual:
-        glDepthFunc(GL_LEQUAL);
-        break;
-    case DepthFunc::Greater:
-        glDepthFunc(GL_GREATER);
-        break;
-    case DepthFunc::GreaterEqual:
-        glDepthFunc(GL_GEQUAL);
-        break;
-    case DepthFunc::NotEqual:
-        glDepthFunc(GL_NOTEQUAL);
-        break;
-    case DepthFunc::Equal:
-        glDepthFunc(GL_EQUAL);
-        break;
-    case DepthFunc::Always:
-        glDepthFunc(GL_ALWAYS);
-        break;
-    case DepthFunc::Never:
-        glDepthFunc(GL_NEVER);
-        break;
-    }
-
-    glColorMask(pipelineState.color.r, pipelineState.color.g,
-                pipelineState.color.b, pipelineState.color.a);
-
-    m_CurrentDrawTopology = pipelineState.topology;
-
-    glUseProgram(shader.program);
-}
-
-void SYN::gfx::gl::Pass::bindVertexArray(
-    Handle<VertexArray> vertexArrayHandle) {
-    std::optional<VertexArray> currentVaoOpt =
-        m_ContextPtr->getVertexArray(vertexArrayHandle);
-    assert(currentVaoOpt.has_value() && "Vertex Array handle is invalid.");
-    VertexArray vertexArray = currentVaoOpt.value();
-    glBindVertexArray(vertexArray.id);
-    if (vertexArray.indexType.has_value()) {
-        m_CurrentIndexType = vertexArray.indexType.value();
-    } else {
-        m_CurrentIndexType = IndexType::Unsigned32;
-    }
-}
-
-void SYN::gfx::gl::Pass::draw(uint32_t vertexCount, uint32_t firstVertex) {
-    GLenum drawMode;
-    switch (m_CurrentDrawTopology) {
-    case PrimitiveTopology::Triangles:
-        drawMode = GL_TRIANGLES;
-        break;
-    case PrimitiveTopology::Lines:
-        drawMode = GL_LINES;
-        break;
-    case PrimitiveTopology::Points:
-        drawMode = GL_POINTS;
-        break;
-    }
-    glDrawArrays(drawMode, firstVertex, vertexCount);
-}
-
-void SYN::gfx::gl::Pass::drawIndexed(uint32_t indexCount) {
-    GLenum drawMode;
-    switch (m_CurrentDrawTopology) {
-    case PrimitiveTopology::Triangles:
-        drawMode = GL_TRIANGLES;
-        break;
-    case PrimitiveTopology::Lines:
-        drawMode = GL_LINES;
-        break;
-    case PrimitiveTopology::Points:
-        drawMode = GL_POINTS;
-        break;
-    }
-
-    GLenum indexType;
-    switch (m_CurrentIndexType) {
-    case IndexType::Unsigned16:
-        indexType = GL_UNSIGNED_SHORT;
-        break;
-    case IndexType::Unsigned32:
-        indexType = GL_UNSIGNED_INT;
-        break;
-    }
-
-    glDrawElements(drawMode, indexCount, indexType, nullptr);
-}
-
-void SYN::gfx::gl::Pass::drawInstancedIndexed(uint32_t indexCount,
-                                              uint32_t instanceCount) {
-    GLenum drawMode;
-    switch (m_CurrentDrawTopology) {
-    case PrimitiveTopology::Triangles:
-        drawMode = GL_TRIANGLES;
-        break;
-    case PrimitiveTopology::Lines:
-        drawMode = GL_LINES;
-        break;
-    case PrimitiveTopology::Points:
-        drawMode = GL_POINTS;
-        break;
-    }
-
-    GLenum indexType;
-    switch (m_CurrentIndexType) {
-    case IndexType::Unsigned16:
-        indexType = GL_UNSIGNED_SHORT;
-        break;
-    case IndexType::Unsigned32:
-        indexType = GL_UNSIGNED_INT;
-        break;
-    }
-
-    glDrawElementsInstanced(drawMode, indexCount, indexType, nullptr,
-                            instanceCount);
-}
-
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
 SYN::gfx::gl::Context::createTexture(const TextureDesc &desc,
                                      const void *initialData) {
@@ -1212,60 +1498,6 @@ void SYN::gfx::gl::Context::deleteTexture(Handle<Texture> textureHandle) {
     m_TextureRegistry.releaseHandle(textureHandle);
 }
 
-void setSamplerParameters(uint32_t samplerId,
-                          const SYN::gfx::gl::SamplerDesc &desc) {
-    using namespace SYN::gfx::gl;
-
-    auto getFilterFormat = [](SampleFilter filter) {
-        switch (filter) {
-        case SampleFilter::Nearest:
-            return GL_NEAREST;
-        case SampleFilter::Linear:
-            return GL_LINEAR;
-        case SampleFilter::Nearest_Mipmap_Nearest:
-            return GL_NEAREST_MIPMAP_NEAREST;
-        default:
-            return GL_LINEAR_MIPMAP_LINEAR;
-        }
-    };
-
-    auto getWrapFormat = [](WrapMode wrap) {
-        switch (wrap) {
-        case WrapMode::ClampToEdge:
-            return GL_CLAMP_TO_EDGE;
-        case WrapMode::Repeat:
-            return GL_REPEAT;
-        case WrapMode::ClampToBorder:
-            return GL_CLAMP_TO_BORDER;
-        default:
-            return GL_MIRRORED_REPEAT;
-        }
-    };
-
-    glSamplerParameteri(samplerId, GL_TEXTURE_MIN_FILTER,
-                        getFilterFormat(desc.minFilter));
-    glSamplerParameteri(samplerId, GL_TEXTURE_MAG_FILTER,
-                        getFilterFormat(desc.magFilter));
-    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_S,
-                        getWrapFormat(desc.wrapU));
-    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_T,
-                        getWrapFormat(desc.wrapV));
-    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_R,
-                        getWrapFormat(desc.wrapW));
-    glSamplerParameterfv(samplerId, GL_TEXTURE_BORDER_COLOR,
-                         &desc.borderColor[0]);
-
-    if (desc.compareMode) {
-        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_MODE,
-                            GL_COMPARE_REF_TO_TEXTURE);
-        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-    }
-
-    float aniso =
-        glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
-    glSamplerParameterf(samplerId, GL_TEXTURE_MAX_ANISOTROPY, aniso);
-}
-
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Sampler>>
 SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
     Sampler sampler;
@@ -1303,52 +1535,6 @@ void SYN::gfx::gl::Context::deleteSampler(Handle<Sampler> samplerHandle) {
     m_SamplerRegistry.releaseHandle(samplerHandle);
 }
 
-void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
-                                     Handle<Texture> textureHandle,
-                                     Handle<Sampler> samplerHandle) {
-    std::optional<Texture> textureOpt = m_ContextPtr->getTexture(textureHandle);
-    std::optional<Sampler> samplerOpt = m_ContextPtr->getSampler(samplerHandle);
-
-    assert(textureOpt.has_value() && "Texture handle is invalid");
-    assert(samplerOpt.has_value() && "Sampler handle is invalid");
-
-    Texture texture = textureOpt.value();
-    Sampler sampler = samplerOpt.value();
-
-    glBindTextureUnit(binding, texture.id);
-    glBindSampler(binding, sampler.id);
-
-    m_TextureSlotsBound.insert(binding);
-}
-
-void SYN::gfx::gl::Context::updateTexture(Handle<Texture> textureHandle,
-                                          uint32_t mipLevel, uint32_t x,
-                                          uint32_t y, uint32_t width,
-                                          uint32_t height, uint32_t face,
-                                          TextureFormat format,
-                                          const void *data) {
-    std::optional<Texture> textureOpt =
-        m_TextureRegistry.getResource(textureHandle);
-
-    if (!textureOpt.has_value())
-        return;
-
-    Texture texture = textureOpt.value();
-
-    GLenum glFormat = getTextureFormat(format);
-    GLenum dataType = getTextureDataTypeFromFormat(format);
-
-    if (texture.type == TextureType::Tex2D) {
-        glTextureSubImage2D(texture.id, mipLevel, x, y, width, height, glFormat,
-                            dataType, data);
-    }
-    if (texture.type == TextureType::Cubemap ||
-        texture.type == TextureType::Tex2DArray) {
-        glTextureSubImage3D(texture.id, mipLevel, x, y, face, width, height, 1,
-                            glFormat, dataType, data);
-    }
-}
-
 void SYN::gfx::gl::Context::generateMipmap(Handle<Texture> textureHandle) {
     std::optional<Texture> textureOpt =
         m_TextureRegistry.getResource(textureHandle);
@@ -1361,15 +1547,82 @@ void SYN::gfx::gl::Context::generateMipmap(Handle<Texture> textureHandle) {
     glGenerateTextureMipmap(texture.id);
 }
 
-void SYN::gfx::gl::Pass::bindUniformBuffer(uint32_t binding,
-                                           Handle<Buffer> bufferHandle) {
-    std::optional<Buffer> buffer = m_ContextPtr->getBuffer(bufferHandle);
-    if (!buffer.has_value())
+// Shader Cache
+
+SYN::gfx::gl::ShaderCache::ShaderCache() {
+    std::fstream vertexFile("resources/shaders/forward.vert");
+    if (!vertexFile) {
+        spdlog::error(
+            "OpenGL renderer could not open vertex shader. (FORWARD)");
         return;
-    if (buffer.value().type != BufferType::Uniform)
+    }
+    std::fstream fragmentFile("resources/shaders/forward.frag");
+    if (!fragmentFile) {
+        spdlog::error(
+            "OpenGL renderer could not open fragment shader. (FORWARD)");
         return;
-    glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer.value().id);
+    }
+    m_VertexSource = std::string(std::istreambuf_iterator<char>(vertexFile),
+                                 std::istreambuf_iterator<char>());
+    m_FragmentSource = std::string(std::istreambuf_iterator<char>(fragmentFile),
+                                   std::istreambuf_iterator<char>());
 }
+
+SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
+SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
+                                           uint32_t featureFlags) {
+    std::string versionString = "#version 450 core\n";
+    if (m_ShaderCache.find(featureFlags) != m_ShaderCache.cend()) {
+        return m_ShaderCache.at(featureFlags);
+    }
+    if (featureFlags & (uint32_t)ShaderFeatures::Normal) {
+        versionString += "#define FEATURE_NORMAL\n";
+    }
+    if (featureFlags & (uint32_t)ShaderFeatures::MetallicRoughness) {
+        versionString += "#define FEATURE_METALLIC_ROUGHNESS\n";
+    }
+    if (featureFlags & (uint32_t)ShaderFeatures::Skinned) {
+        versionString += "#define FEATURE_SKINNED\n";
+    }
+
+    std::string fullVertexSrc = versionString + m_VertexSource;
+    std::string fullFragmentSrc = versionString + m_FragmentSource;
+    m_ShaderCache[featureFlags] =
+        context.createShader(fullVertexSrc, fullFragmentSrc).value();
+    return m_ShaderCache.at(featureFlags);
+}
+
+// Renderer
+// High level rendering API for users who want more out of the box with a simple
+// interface.
+//
+// Goals:
+//
+// Provide an opinionated renderer that provides physically based shading,
+// shadows, animations, post processing, and more high level features.
+//
+// Code first approach to defining game visuals.
+//
+// Basics:
+//
+// Create model handles using createModel(Context&, const ModelData&)
+//
+// At the start of each frame:
+// beginFrame(const Camera&) -> Just sets main camera. Important to update
+//                              every frame if camera moves/changes settings.
+//
+// At the end of each frame:
+// endFrame() -> Processes all draw commands, and runs it through multiple
+// passes to present final render.
+//
+// Call resize whenever main window is resized.
+//
+// In between beginFrame and endFrame:
+// Submit draw commands per frame with submit(Handle<Model>, const glm::mat4&,
+// std::span<const MaterialOverride>)
+//
+// More functions to tweak render settings, create environment maps for IBL,
+// etc.
 
 SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
     m_RenderConfig = config;
@@ -1377,164 +1630,6 @@ SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
 }
 
 SYN::gfx::gl::Renderer::~Renderer() {}
-
-SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
-createDefaultColoredTexture(SYN::gfx::gl::Context &context,
-                            std::array<uint8_t, 4> color) {
-    SYN::gfx::gl::TextureDesc desc{
-        .width = 1,
-        .height = 1,
-        .format = SYN::gfx::gl::TextureFormat::SRGBA,
-    };
-    return context.createTexture(desc, &color[0]).value();
-}
-
-int getMipLevel(int width, int height) {
-    return 1 + static_cast<int>(std::floor(std::log2(std::max(width, height))));
-}
-
-SYN::gfx::gl::Material loadMaterial(
-    SYN::gfx::gl::Context &context,
-    const SYN::gfx::gl::MaterialData &materialData,
-    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
-        &textureCache) {
-    SYN::gfx::gl::Material material;
-    if (materialData.albedoData) {
-        SYN::gfx::gl::TextureData albedoTexture =
-            materialData.albedoData.value();
-        if (textureCache.find(albedoTexture.sourcePath) !=
-            textureCache.cend()) {
-            material.albedo = textureCache.at(albedoTexture.sourcePath);
-        } else {
-            albedoTexture.info.mipLevel = getMipLevel(
-                albedoTexture.info.width, albedoTexture.info.height);
-            material.albedo =
-                context
-                    .createTexture(albedoTexture.info, &albedoTexture.data[0])
-                    .value();
-            textureCache[albedoTexture.sourcePath] = material.albedo.value();
-        }
-    }
-    if (materialData.normalData) {
-        SYN::gfx::gl::TextureData normalTexture =
-            materialData.normalData.value();
-        if (textureCache.find(normalTexture.sourcePath) !=
-            textureCache.cend()) {
-            material.normalMap = textureCache.at(normalTexture.sourcePath);
-        } else {
-            normalTexture.info.mipLevel = getMipLevel(
-                normalTexture.info.width, normalTexture.info.height);
-            material.normalMap =
-                context
-                    .createTexture(normalTexture.info, &normalTexture.data[0])
-                    .value();
-            textureCache[normalTexture.sourcePath] = material.normalMap.value();
-        }
-    }
-    if (materialData.metallicRoughnessData) {
-        SYN::gfx::gl::TextureData metallicRoughnessTexture =
-            materialData.metallicRoughnessData.value();
-        if (textureCache.find(metallicRoughnessTexture.sourcePath) !=
-            textureCache.cend()) {
-            material.metallicRoughnessMap =
-                textureCache.at(metallicRoughnessTexture.sourcePath);
-        } else {
-            metallicRoughnessTexture.info.mipLevel =
-                getMipLevel(metallicRoughnessTexture.info.width,
-                            metallicRoughnessTexture.info.height);
-            material.metallicRoughnessMap =
-                context
-                    .createTexture(metallicRoughnessTexture.info,
-                                   &metallicRoughnessTexture.data[0])
-                    .value();
-            textureCache[metallicRoughnessTexture.sourcePath] =
-                material.metallicRoughnessMap.value();
-        }
-    }
-    material.metallic = materialData.metallic;
-    material.roughness = materialData.roughness;
-    material.tint = materialData.tint;
-    material.alphaCutoff = materialData.alphaCutoff;
-
-    return material;
-}
-
-uint32_t getShaderFeatures(bool hasNormal, bool hasMetallicRoughness,
-                           bool hasSkin) {
-    uint32_t featureFlag = 0;
-
-    featureFlag |=
-        hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Skinned : 0;
-
-    featureFlag |=
-        hasMetallicRoughness
-            ? (uint32_t)SYN::gfx::gl::ShaderFeatures::MetallicRoughness
-            : 0;
-
-    featureFlag |=
-        hasNormal ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Normal : 0;
-
-    return featureFlag;
-}
-
-SYN::gfx::gl::Mesh createMesh(
-    SYN::gfx::gl::Context &context, const SYN::gfx::gl::MeshData &meshData,
-    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
-        &textureCache,
-    SYN::gfx::gl::ShaderCache &shaderCache) {
-    SYN::gfx::gl::Mesh mesh;
-
-    mesh.vbo = context
-                   .createBuffer({SYN::gfx::gl::BufferType::Vertex,
-                                  SYN::gfx::gl::MemoryUsage::CpuToGPU,
-                                  uint32_t(sizeof(SYN::gfx::gl::Vertex) *
-                                           meshData.vertices.size())},
-                                 &meshData.vertices[0])
-                   .value();
-
-    mesh.ebo = context
-                   .createBuffer(
-                       {SYN::gfx::gl::BufferType::Index,
-                        SYN::gfx::gl::MemoryUsage::CpuToGPU,
-                        uint32_t(sizeof(uint32_t) * meshData.indices.size())},
-                       &meshData.indices[0])
-                   .value();
-
-    mesh.vao = context
-                   .createVertexArray(
-                       {mesh.vbo,
-                        sizeof(SYN::gfx::gl::Vertex),
-                        mesh.ebo,
-                        {{
-                            {0, SYN::gfx::gl::VertexFormat::Float3,
-                             offsetof(SYN::gfx::gl::Vertex, position)},
-
-                            {1, SYN::gfx::gl::VertexFormat::Float3,
-                             offsetof(SYN::gfx::gl::Vertex, normal)},
-
-                            {2, SYN::gfx::gl::VertexFormat::Float2,
-                             offsetof(SYN::gfx::gl::Vertex, uv)},
-
-                            {3, SYN::gfx::gl::VertexFormat::Float4,
-                             offsetof(SYN::gfx::gl::Vertex, tangent)},
-
-                            {4, SYN::gfx::gl::VertexFormat::Int4,
-                             offsetof(SYN::gfx::gl::Vertex, boneIndices)},
-
-                            {5, SYN::gfx::gl::VertexFormat::Float4,
-                             offsetof(SYN::gfx::gl::Vertex, boneWeights)},
-                        }},
-                        6})
-                   .value();
-
-    mesh.indexCount = meshData.indices.size();
-    mesh.localTransform = meshData.localTransform;
-    mesh.material = loadMaterial(context, meshData.material, textureCache);
-
-    mesh.aabb = meshData.aabb;
-
-    return mesh;
-}
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Model>>
 SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
@@ -2740,49 +2835,6 @@ void SYN::gfx::gl::Renderer::resize(int width, int height) {
 
 void SYN::gfx::gl::Renderer::setClearColor(const glm::vec4 &clearColor) {
     m_ClearColor = clearColor;
-}
-
-SYN::gfx::gl::ShaderCache::ShaderCache() {
-    std::fstream vertexFile("resources/shaders/forward.vert");
-    if (!vertexFile) {
-        spdlog::error(
-            "OpenGL renderer could not open vertex shader. (FORWARD)");
-        return;
-    }
-    std::fstream fragmentFile("resources/shaders/forward.frag");
-    if (!fragmentFile) {
-        spdlog::error(
-            "OpenGL renderer could not open fragment shader. (FORWARD)");
-        return;
-    }
-    m_VertexSource = std::string(std::istreambuf_iterator<char>(vertexFile),
-                                 std::istreambuf_iterator<char>());
-    m_FragmentSource = std::string(std::istreambuf_iterator<char>(fragmentFile),
-                                   std::istreambuf_iterator<char>());
-}
-
-SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
-SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
-                                           uint32_t featureFlags) {
-    std::string versionString = "#version 450 core\n";
-    if (m_ShaderCache.find(featureFlags) != m_ShaderCache.cend()) {
-        return m_ShaderCache.at(featureFlags);
-    }
-    if (featureFlags & (uint32_t)ShaderFeatures::Normal) {
-        versionString += "#define FEATURE_NORMAL\n";
-    }
-    if (featureFlags & (uint32_t)ShaderFeatures::MetallicRoughness) {
-        versionString += "#define FEATURE_METALLIC_ROUGHNESS\n";
-    }
-    if (featureFlags & (uint32_t)ShaderFeatures::Skinned) {
-        versionString += "#define FEATURE_SKINNED\n";
-    }
-
-    std::string fullVertexSrc = versionString + m_VertexSource;
-    std::string fullFragmentSrc = versionString + m_FragmentSource;
-    m_ShaderCache[featureFlags] =
-        context.createShader(fullVertexSrc, fullFragmentSrc).value();
-    return m_ShaderCache.at(featureFlags);
 }
 
 std::vector<SYN::gfx::gl::Plane>

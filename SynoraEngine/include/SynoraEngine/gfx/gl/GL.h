@@ -667,8 +667,6 @@ class Renderer {
 
     void init(Context &context);
 
-    std::vector<uint32_t> getCSMTextures(Context &context);
-
     std::optional<Handle<Model>> createModel(Context &context,
                                              const ModelData &data);
     // Cubemap faces must be RGBA8!
@@ -702,8 +700,7 @@ class Renderer {
     void setDirectionalLight(const DirectionalLight &light);
     void submit(Handle<Model> modelHandle, const glm::mat4 &transform,
                 std::span<const MaterialOverride> materialOverride = {});
-    void endFrame(Context &context); // runs shadow pass -> opaque pass -> post
-                                     // -> writes to default FBO
+    void endFrame(Context &context);
 
     // Clamped between MIN_GAMMA and MAX_GAMMA
     void setGamma(float gamma);
@@ -719,6 +716,9 @@ class Renderer {
     void setAnisotropicFiltering(float filter);
 
     void resize(int width, int height);
+
+    // For debugging shadow maps. Render with ImGui
+    std::vector<uint32_t> getCSMTextures(Context &context);
 
   private:
     struct {
@@ -751,9 +751,6 @@ class Renderer {
     void createZPrepassShader(Context &context);
     void createCSM(Context &context);
 
-    std::optional<Handle<VertexArray>> m_ScreenQuad;
-    std::optional<Handle<VertexArray>> m_SkyboxCube;
-
     float m_Exposure = 1.0f;
     float m_Gamma = 2.2f;
 
@@ -763,6 +760,9 @@ class Renderer {
     Viewport m_ScreenViewport;
     DirectionalLight m_DirectionalLight;
 
+    RendererConfig m_RenderConfig;
+
+  private:
     std::optional<Environment> m_Environment;
     std::optional<Handle<Shader>> m_SkyboxShader;
     std::optional<Handle<Shader>> m_EquirectangularToCubemapShader;
@@ -773,18 +773,9 @@ class Renderer {
     std::optional<Handle<Shader>> m_ZPrepassShaderOpaque;
     std::optional<Handle<Shader>> m_ZPrepassShaderMasked;
 
-    RendererConfig m_RenderConfig;
+    std::optional<Handle<VertexArray>> m_ScreenQuad;
+    std::optional<Handle<VertexArray>> m_SkyboxCube;
 
-  private:
-    struct DrawCommand {
-        Handle<Model> modelHandle;
-        glm::mat4 transform;
-        std::vector<MaterialOverride> materialOverride;
-    };
-
-    ShaderCache m_ShaderCache;
-
-    std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
     Handle<Texture> m_DefaultWhite;
     Handle<Texture> m_DefaultPrefilterMap;
     Handle<Texture> m_DefaultIrradianceMap;
@@ -795,12 +786,16 @@ class Renderer {
     std::optional<Handle<Sampler>> m_CubemapSampler;
     std::optional<Handle<Sampler>> m_MipmapCubeSampler;
     SamplerDesc m_DefaultModelSamplerDesc;
+
+  private:
+    ResourceRegistry<Model> m_ModelRegistry;
+    ShaderCache m_ShaderCache;
+    std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
+
     float m_AnisotropicFilter;
     bool m_AnisotropicUpdate = false;
 
   private:
-    void drawDirectionalCSM(Context &context, const DirectionalLight &light);
-
     struct {
         Handle<Framebuffer> fboNear;
         Handle<Framebuffer> fboFar;
@@ -822,7 +817,9 @@ class Renderer {
                                uint32_t resolution);
     void drawCSMDepth(Context &context, Handle<Framebuffer> fbo,
                       Handle<Texture> depth, bool isNear, uint32_t resolution);
+    void drawDirectionalCSM(Context &context, const DirectionalLight &light);
 
+  private:
     std::vector<glm::vec4> getFrustumCornersWorldSpace(const Camera &camera);
     glm::mat4 calculateTightLightFrustum(const DirectionalLight &light,
                                          uint32_t resolution,
@@ -839,8 +836,12 @@ class Renderer {
     AABB aabbToWorld(AABB aabb, glm::mat4 worldMatrix);
 
   private:
+    struct DrawCommand {
+        Handle<Model> modelHandle;
+        glm::mat4 transform;
+        std::vector<MaterialOverride> materialOverride;
+    };
     std::vector<DrawCommand> m_DrawCommandList;
-    ResourceRegistry<Model> m_ModelRegistry;
 
     struct RenderItem {
         glm::mat4 transform;
