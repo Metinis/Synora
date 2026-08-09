@@ -10,6 +10,12 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
+#ifdef SHADER_DEBUG_PATH
+#define SHADER_PATH SHADER_DEBUG_PATH
+#else
+#define SHADER_PATH "resources/shaders/OpenGL/"
+#endif
+
 struct GLFWwindow;
 
 namespace SYN::gfx::gl {
@@ -17,6 +23,7 @@ namespace SYN::gfx::gl {
 constexpr uint32_t MAX_VERTEX_ATTRIBUTES = 16;
 constexpr float MIN_GAMMA = 1.8f;
 constexpr float MAX_GAMMA = 2.6f;
+constexpr uint32_t MAX_SHADER_FEATURES = 32;
 
 enum class BufferType : uint8_t { Vertex, Index, Uniform };
 enum class MemoryUsage : uint8_t { GpuOnly, CpuToGPU };
@@ -84,10 +91,12 @@ enum class UniformType : uint8_t {
 };
 
 // Used by renderer's uber shader
-enum class ShaderFeatures : uint32_t {
+enum class ShaderFeature : uint32_t {
     Normal = 1,
     MetallicRoughness = 1 << 1,
-    Skinned = 1 << 2
+    Skinned = 1 << 2,
+    DepthMapInstanced = 1 << 3,
+    AlphaTest = 1 << 4
 };
 
 enum class AntiAliasMode { None, FXAA, MSAA_2x, MSAA_4x, MSAA_8x };
@@ -454,6 +463,8 @@ struct Mesh {
 
     glm::mat4 localTransform;
 
+    bool hasSkin;
+
     AABB aabb;
     uint32_t sourceIndex;
 };
@@ -651,13 +662,49 @@ class Context {
 
 class ShaderCache {
   public:
-    ShaderCache();
-    Handle<Shader> getShaderHandle(Context &context, uint32_t featureFlags);
+    ShaderCache() = default;
+
+    void registerIncludes(std::string_view includePath);
+    void registerFeature(std::string_view featureMacro, ShaderFeature feature);
+    void registerShader(std::string_view name, std::string_view filePath);
+
+    Handle<Shader> getShaderHandle(Context &context, std::string_view name,
+                                   uint32_t featureFlags);
+
+    // Use if registered shaders change source
+    // and you want to rebuild during runtime (hot reload).
+    void reset();
 
   private:
-    std::unordered_map<uint32_t, Handle<Shader>> m_ShaderCache;
-    std::string m_VertexSource;
-    std::string m_FragmentSource;
+    struct ShaderKey {
+        std::string name;
+        uint32_t featureFlags;
+
+        bool operator==(const ShaderKey &b) const {
+            return name == b.name && featureFlags == b.featureFlags;
+        }
+    };
+
+    struct ShaderHash {
+        size_t operator()(const ShaderKey &key) const {
+            size_t nameHash = std::hash<std::string>{}(key.name);
+            size_t featureFlagHash = std::hash<uint32_t>{}(key.featureFlags);
+            return nameHash ^ featureFlagHash + 0x9e3779b9 + (nameHash << 6) +
+                                  (nameHash >> 2);
+        }
+    };
+
+  private:
+    std::optional<Handle<Shader>> m_DefaultShader;
+
+  private:
+    std::unordered_map<ShaderKey, Handle<Shader>, ShaderHash> m_ShaderCache;
+    std::array<std::string, MAX_SHADER_FEATURES> m_Features;
+
+    // Include path -> Source string
+    std::unordered_map<std::string, std::string> m_ShaderIncludes;
+    // Shader name -> Source string
+    std::unordered_map<std::string, std::string> m_ShaderSources;
 };
 
 class Renderer {
@@ -720,6 +767,9 @@ class Renderer {
     // For debugging shadow maps. Render with ImGui
     std::vector<uint32_t> getCSMTextures(Context &context);
 
+    // Resets the shader cache. Use for hot reloading.
+    void reloadInternalShaders();
+
   private:
     struct {
         std::optional<Handle<Framebuffer>> handle;
@@ -738,18 +788,18 @@ class Renderer {
     } m_HdrFramebuffer;
 
     void createHdrShader(Context &context);
-    std::optional<Handle<Shader>> m_HdrShader;
 
     void updateHdrFramebuffer(Context &context);
 
     void createScreenQuad(Context &context);
     void createSkybox(Context &context);
-    void createIrradianceShader(Context &context);
-    void createPrefilterShader(Context &context);
-    void createBRDFLutShader(Context &context);
+    void createDefaultIrradianceMap(Context &context);
     void createDefaultPrefilterMap(Context &context);
-    void createZPrepassShader(Context &context);
     void createCSM(Context &context);
+    void createTextureDefaults(Context &context);
+
+    void initShaderCache();
+    void initDefaultUBOs(Context &context);
 
     float m_Exposure = 1.0f;
     float m_Gamma = 2.2f;
@@ -764,14 +814,6 @@ class Renderer {
 
   private:
     std::optional<Environment> m_Environment;
-    std::optional<Handle<Shader>> m_SkyboxShader;
-    std::optional<Handle<Shader>> m_EquirectangularToCubemapShader;
-    std::optional<Handle<Shader>> m_IrradianceShader;
-    std::optional<Handle<Shader>> m_PrefilterShader;
-    std::optional<Handle<Shader>> m_BRDFLutShader;
-
-    std::optional<Handle<Shader>> m_ZPrepassShaderOpaque;
-    std::optional<Handle<Shader>> m_ZPrepassShaderMasked;
 
     std::optional<Handle<VertexArray>> m_ScreenQuad;
     std::optional<Handle<VertexArray>> m_SkyboxCube;
@@ -807,10 +849,6 @@ class Renderer {
         std::vector<float> cascadeTexelWorldSize;
         bool isInstanced;
     } m_CascadedShadowmap;
-
-    std::optional<Handle<Shader>> m_ShadowMapShaderOpaque;
-    std::optional<Handle<Shader>> m_ShadowMapShaderMasked;
-    void createShadowmapShader(Context &context);
 
     void drawInstancedCSMDepth(Context &context, Handle<Framebuffer> fbo,
                                Handle<Texture> depth, bool isNear,
@@ -848,15 +886,19 @@ class Renderer {
         Material material;
         Handle<VertexArray> vao;
         uint32_t indexCount;
+
+        // Bitmask of shader features.
+        // Sorted in render bucket
+        uint32_t shaderIndex;
     };
 
-    void drawRenderItems(Pass &pass,
-                         const std::vector<RenderItem> &renderItems);
+    void drawRenderItem(Pass &pass, const RenderItem &renderItems);
 
-    // Possible permutations of shaders so far
-    // Update as needed or turn into hashmap
-    std::array<std::vector<RenderItem>, 8> m_RenderBucketsOpaque;
-    std::array<std::vector<RenderItem>, 8> m_RenderBucketsMasked;
+    // Set frustum plane if you want frustum culling
+    std::vector<RenderItem>
+    getRenderItemsByShader(uint32_t shaderIndex,
+                           const std::vector<Plane> *frustumPlanes = nullptr,
+                           bool sort = false);
 
     struct alignas(16) CameraConstants {
         glm::mat4 u_viewProjection;

@@ -118,6 +118,27 @@ SYN::gfx::gl::Material loadMaterial(
     return material;
 }
 
+SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
+createDefaultShader(SYN::gfx::gl::Context &context) {
+    std::string defaultVertexSource = R"(
+        #version 450 core
+        void main() {
+            gl_Position = vec4(vec3(0.0f), 1.0f);
+        }
+    )";
+
+    std::string defaultFragmentSource = R"(
+        #version 450 core
+        out vec4 fragColor;
+        void main() {
+            fragColor = vec4(1.0f);    
+        }
+    )";
+
+    return context.createShader(defaultVertexSource, defaultFragmentSource)
+        .value();
+}
+
 SYN::gfx::gl::Mesh createMesh(
     SYN::gfx::gl::Context &context, const SYN::gfx::gl::MeshData &meshData,
     std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
@@ -170,6 +191,8 @@ SYN::gfx::gl::Mesh createMesh(
 
     mesh.indexCount = meshData.indices.size();
     mesh.localTransform = meshData.localTransform;
+    mesh.hasSkin = meshData.hasSkin;
+
     mesh.material = loadMaterial(context, meshData.material, textureCache);
 
     mesh.aabb = meshData.aabb;
@@ -177,20 +200,25 @@ SYN::gfx::gl::Mesh createMesh(
     return mesh;
 }
 
-uint32_t getShaderFeatures(bool hasNormal, bool hasMetallicRoughness,
-                           bool hasSkin) {
+uint32_t getShaderFeatures(const SYN::gfx::gl::Mesh &mesh,
+                           const SYN::gfx::gl::Material &material) {
     uint32_t featureFlag = 0;
 
     featureFlag |=
-        hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Skinned : 0;
+        mesh.hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeature::Skinned : 0;
 
     featureFlag |=
-        hasMetallicRoughness
-            ? (uint32_t)SYN::gfx::gl::ShaderFeatures::MetallicRoughness
+        material.metallicRoughnessMap.has_value()
+            ? (uint32_t)SYN::gfx::gl::ShaderFeature::MetallicRoughness
             : 0;
 
-    featureFlag |=
-        hasNormal ? (uint32_t)SYN::gfx::gl::ShaderFeatures::Normal : 0;
+    featureFlag |= material.normalMap.has_value()
+                       ? (uint32_t)SYN::gfx::gl::ShaderFeature::Normal
+                       : 0;
+
+    featureFlag |= material.alphaCutoff < 1.0f
+                       ? (uint32_t)SYN::gfx::gl::ShaderFeature::AlphaTest
+                       : 0;
 
     return featureFlag;
 }
@@ -1548,48 +1576,194 @@ void SYN::gfx::gl::Context::generateMipmap(Handle<Texture> textureHandle) {
 }
 
 // Shader Cache
+// Organizes shaders and allows for addition of features
+// based on macros. Also serves as a preprocessor replacing
+// #include with the proper code.
 
-SYN::gfx::gl::ShaderCache::ShaderCache() {
-    std::fstream vertexFile("resources/shaders/forward.vert");
-    if (!vertexFile) {
-        spdlog::error(
-            "OpenGL renderer could not open vertex shader. (FORWARD)");
+void SYN::gfx::gl::ShaderCache::registerIncludes(std::string_view includePath) {
+    std::string includePathStr(includePath.data());
+    std::fstream file(SHADER_PATH + includePathStr);
+    if (!file.is_open()) {
+        spdlog::error("Could not open file [{}]", includePath);
         return;
     }
-    std::fstream fragmentFile("resources/shaders/forward.frag");
-    if (!fragmentFile) {
-        spdlog::error(
-            "OpenGL renderer could not open fragment shader. (FORWARD)");
+
+    std::string includeContents =
+        "\n" +
+        std::string(std::istreambuf_iterator<char>(file),
+                    std::istreambuf_iterator<char>()) +
+        "\n";
+
+    m_ShaderIncludes[includePathStr] = includeContents;
+}
+
+void SYN::gfx::gl::ShaderCache::registerFeature(std::string_view featureMacro,
+                                                ShaderFeature feature) {
+    double index = std::log2((uint32_t)feature);
+    if (glm::fract(index) != 0.0) {
+        spdlog::error("Feature integer for [{}] should be a power of 2",
+                      featureMacro);
         return;
     }
-    m_VertexSource = std::string(std::istreambuf_iterator<char>(vertexFile),
-                                 std::istreambuf_iterator<char>());
-    m_FragmentSource = std::string(std::istreambuf_iterator<char>(fragmentFile),
-                                   std::istreambuf_iterator<char>());
+
+    if ((uint32_t)index >= MAX_SHADER_FEATURES) {
+        spdlog::error("Too many features. Max limit of {}",
+                      MAX_SHADER_FEATURES);
+        return;
+    }
+
+    if (!m_Features.at((uint32_t)index).empty()) {
+        spdlog::error(
+            "[{}] cannot replace an existing macro. Use another index.",
+            featureMacro);
+    }
+
+    m_Features[(uint32_t)index] = featureMacro;
+}
+
+void SYN::gfx::gl::ShaderCache::registerShader(std::string_view name,
+                                               std::string_view filePath) {
+    std::fstream file(SHADER_PATH + std::string(filePath.data()));
+    if (!file.is_open()) {
+        spdlog::error("Could not open file [{}]", filePath);
+        return;
+    }
+
+    m_ShaderSources[std::string(name)] = std::string(
+        std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
 SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
 SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
+                                           std::string_view name,
                                            uint32_t featureFlags) {
-    std::string versionString = "#version 450 core\n";
-    if (m_ShaderCache.find(featureFlags) != m_ShaderCache.cend()) {
-        return m_ShaderCache.at(featureFlags);
-    }
-    if (featureFlags & (uint32_t)ShaderFeatures::Normal) {
-        versionString += "#define FEATURE_NORMAL\n";
-    }
-    if (featureFlags & (uint32_t)ShaderFeatures::MetallicRoughness) {
-        versionString += "#define FEATURE_METALLIC_ROUGHNESS\n";
-    }
-    if (featureFlags & (uint32_t)ShaderFeatures::Skinned) {
-        versionString += "#define FEATURE_SKINNED\n";
+    if (!m_DefaultShader.has_value()) {
+        m_DefaultShader = createDefaultShader(context);
     }
 
-    std::string fullVertexSrc = versionString + m_VertexSource;
-    std::string fullFragmentSrc = versionString + m_FragmentSource;
-    m_ShaderCache[featureFlags] =
-        context.createShader(fullVertexSrc, fullFragmentSrc).value();
-    return m_ShaderCache.at(featureFlags);
+    std::string shaderName(name);
+    ShaderKey key{std::string(shaderName), featureFlags};
+    if (m_ShaderCache.find(key) != m_ShaderCache.cend()) {
+        return m_ShaderCache.at(key);
+    }
+    if (m_ShaderSources.find(shaderName) == m_ShaderSources.cend()) {
+        spdlog::error("Unable to find shader [{}]", name);
+        return m_DefaultShader.value();
+    }
+
+    std::string header = "#version 450 core\n";
+
+    uint32_t features = featureFlags;
+    uint32_t pos = 0;
+    while (features != 0) {
+        uint32_t mask = 1 << pos;
+        if (features & mask) {
+            header += "#define " + m_Features[pos] + "\n";
+            features &= ~mask;
+        }
+        ++pos;
+    }
+
+    auto replaceIncludes = [&](std::string src) -> std::string {
+        std::string output;
+        size_t i = src.npos;
+        constexpr size_t BASE_OFFSET = std::string("#include").length();
+        while (i = src.find("#include"), i != src.npos) {
+            output += src.substr(0, i);
+            uint32_t j = BASE_OFFSET;
+
+            std::string includeName;
+            bool startInclude = false;
+            while (i + j < src.length()) {
+                if (src.at(i + j) == '\"') {
+                    if (startInclude)
+                        break;
+                    startInclude = true;
+                    ++j;
+                    continue;
+                }
+                if (startInclude) {
+                    includeName += src.at(i + j);
+                }
+                ++j;
+            }
+            if (!startInclude ||
+                (includeName.find(".glsl") == includeName.npos) ||
+                includeName.empty()) {
+                spdlog::error("Invalid include path. Should be a glsl file.");
+                return "";
+            }
+
+            for (char c : includeName) {
+                if (std::isspace(c)) {
+                    spdlog::error(
+                        "Invalid include path. No whitespaces allowed.");
+                    return "";
+                }
+            }
+
+            std::string includeSrc = "";
+
+            bool shaderIncludeRegistered =
+                m_ShaderIncludes.find(includeName) != m_ShaderIncludes.cend();
+
+            if (!shaderIncludeRegistered) {
+                registerIncludes(includeName);
+            }
+
+            shaderIncludeRegistered =
+                m_ShaderIncludes.find(includeName) != m_ShaderIncludes.cend();
+
+            if (shaderIncludeRegistered) {
+                includeSrc = "\n" + m_ShaderIncludes.at(includeName) + "\n";
+            } else {
+                spdlog::error("Shader include [{}] doesn't exist.",
+                              includeName);
+                return "";
+            }
+            src = includeSrc + src.substr(i + j + 1);
+        }
+        output += src;
+
+        return output;
+    };
+
+    std::string source = replaceIncludes(m_ShaderSources.at(shaderName));
+
+    std::string fullVertexSrc = header + "#define VERTEX_SRC\n" + source;
+    std::string fullFragmentSrc = header + "#define FRAGMENT_SRC\n" + source;
+
+    std::optional<Handle<Shader>> shader =
+        context.createShader(fullVertexSrc, fullFragmentSrc);
+
+    if (!shader.has_value()) {
+        spdlog::error("Failed to compile shader {}", name);
+        return m_DefaultShader.value();
+    }
+
+    m_ShaderCache[key] = shader.value();
+
+    return m_ShaderCache.at(key);
+}
+
+void SYN::gfx::gl::ShaderCache::reset() {
+    m_ShaderCache.clear();
+    auto getFileContents = [](const std::string &filepath) -> std::string {
+        std::fstream file(filepath);
+        if (!file.is_open()) {
+            spdlog::error("Could not open [{}] while resetting shader cache.",
+                          filepath);
+            return "";
+        }
+        return std::string(std::istreambuf_iterator<char>(file),
+                           std::istreambuf_iterator<char>());
+    };
+    for (auto &[includePath, includeSource] : m_ShaderIncludes) {
+        includeSource = getFileContents(SHADER_PATH + includePath);
+    }
+    for (auto &[shaderName, shaderSource] : m_ShaderSources) {
+        shaderSource = getFileContents(SHADER_PATH + shaderName + ".glsl");
+    }
 }
 
 // Renderer
@@ -1715,7 +1889,8 @@ SYN::gfx::gl::Renderer::loadCubemapFromEquirectangularTexture(Context &context,
                       glm::vec3(0.0f, -1.0f, 0.0f))};
 
     PipelineState pipeline;
-    pipeline.shader = m_EquirectangularToCubemapShader.value();
+    pipeline.shader =
+        m_ShaderCache.getShaderHandle(context, "equirectangularToCubemap", 0);
     for (uint32_t i = 0; i < 6; ++i) {
         context.setColorAttachment(equirectangularProjection, 0, envCubemap, 0,
                                    i);
@@ -1741,32 +1916,8 @@ SYN::gfx::gl::Renderer::loadCubemapFromEquirectangularTexture(Context &context,
     return envCubemap;
 }
 
-void SYN::gfx::gl::Renderer::createIrradianceShader(Context &context) {
-    if (m_IrradianceShader.has_value())
-        return;
-
-    std::fstream vertexFile("resources/shaders/gl_skybox.vert");
-    if (!vertexFile) {
-        spdlog::error("OpenGL renderer could not open vertex shader (Skybox).");
-        return;
-    }
-    std::fstream fragmentFile("resources/shaders/gl_irradiance.frag");
-    if (!fragmentFile) {
-        spdlog::error(
-            "OpenGL renderer could not open fragment shader (Irradiance).");
-        return;
-    }
-
-    m_IrradianceShader =
-        context
-            .createShader(
-                std::string(std::istreambuf_iterator<char>(vertexFile),
-                            std::istreambuf_iterator<char>()),
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-
-    float irradianceData[] = {0.3f, 0.3f, 0.3f, 1.0f};
+void SYN::gfx::gl::Renderer::createDefaultIrradianceMap(Context &context) {
+    float irradianceData[] = {0.15f, 0.15f, 0.15f, 1.0f};
     m_DefaultIrradianceMap = context
                                  .createTexture({1, 1, TextureFormat::RGBA16F,
                                                  1, 1, TextureType::Cubemap})
@@ -1777,58 +1928,6 @@ void SYN::gfx::gl::Renderer::createIrradianceShader(Context &context) {
     }
 }
 
-void SYN::gfx::gl::Renderer::createPrefilterShader(Context &context) {
-    if (m_PrefilterShader.has_value())
-        return;
-
-    std::fstream vertexFile("resources/shaders/gl_skybox.vert");
-    if (!vertexFile) {
-        spdlog::error("OpenGL renderer could not open vertex shader (Skybox).");
-        return;
-    }
-    std::fstream fragmentFile("resources/shaders/gl_prefiltered_env.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader "
-                      "(Prefiltered map).");
-        return;
-    }
-
-    m_PrefilterShader =
-        context
-            .createShader(
-                std::string(std::istreambuf_iterator<char>(vertexFile),
-                            std::istreambuf_iterator<char>()),
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-}
-
-void SYN::gfx::gl::Renderer::createBRDFLutShader(Context &context) {
-    if (m_BRDFLutShader.has_value())
-        return;
-
-    std::fstream vertexFile("resources/shaders/hdr.vert");
-    if (!vertexFile) {
-        spdlog::error("OpenGL renderer could not open vertex shader (HDR).");
-        return;
-    }
-    std::fstream fragmentFile("resources/shaders/gl_brdf_lut.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader "
-                      "(BRDF LUT).");
-        return;
-    }
-
-    m_BRDFLutShader =
-        context
-            .createShader(
-                std::string(std::istreambuf_iterator<char>(vertexFile),
-                            std::istreambuf_iterator<char>()),
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-}
-
 void SYN::gfx::gl::Renderer::createDefaultPrefilterMap(Context &context) {
     float irradianceData[] = {0.0f, 0.0f, 0.0f, 0.0f};
     m_DefaultPrefilterMap = context
@@ -1837,97 +1936,9 @@ void SYN::gfx::gl::Renderer::createDefaultPrefilterMap(Context &context) {
                                 .value();
 }
 
-void SYN::gfx::gl::Renderer::createShadowmapShader(Context &context) {
+void SYN::gfx::gl::Renderer::createCSM(Context &context) {
     m_CascadedShadowmap.isInstanced =
         hasGLExtension("GL_ARB_shader_viewport_layer_array");
-    std::fstream vertexFile(
-        m_CascadedShadowmap.isInstanced
-            ? "resources/shaders/gl_depth_map_instanced.vert"
-            : "resources/shaders/gl_depth_map.vert");
-    if (!vertexFile) {
-        spdlog::error(
-            "OpenGL renderer could not open vertex shader (Depth map).");
-        return;
-    }
-    std::string vertexSrc =
-        std::string(std::istreambuf_iterator<char>(vertexFile),
-                    std::istreambuf_iterator<char>());
-
-    std::fstream fragmentFile("resources/shaders/gl_depth_map.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader "
-                      "(Depth map).");
-        return;
-    }
-
-    m_ShadowMapShaderOpaque =
-        context
-            .createShader(
-                vertexSrc,
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-
-    fragmentFile = std::fstream("resources/shaders/gl_depth_map_masked.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader "
-                      "(Depth map masked).");
-        return;
-    }
-
-    m_ShadowMapShaderMasked =
-        context
-            .createShader(
-                vertexSrc,
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-}
-
-void SYN::gfx::gl::Renderer::createZPrepassShader(Context &context) {
-    std::fstream vertexFile("resources/shaders/z_prepass.vert");
-    if (!vertexFile) {
-        spdlog::error(
-            "OpenGL renderer could not open vertex shader (Z Prepass).");
-        return;
-    }
-    std::string vertexSrc =
-        std::string(std::istreambuf_iterator<char>(vertexFile),
-                    std::istreambuf_iterator<char>());
-
-    std::fstream fragmentFile("resources/shaders/gl_depth_map.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader "
-                      "(Z Prepass).");
-        return;
-    }
-
-    m_ZPrepassShaderOpaque =
-        context
-            .createShader(
-                vertexSrc,
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-
-    fragmentFile = std::fstream("resources/shaders/gl_depth_map_masked.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader "
-                      "(Z Prepass Masked).");
-        return;
-    }
-
-    m_ZPrepassShaderMasked =
-        context
-            .createShader(
-                vertexSrc,
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-}
-
-void SYN::gfx::gl::Renderer::createCSM(Context &context) {
-    createShadowmapShader(context);
 
     m_CascadedShadowmap.depthTextureNear =
         context
@@ -1970,16 +1981,34 @@ void SYN::gfx::gl::Renderer::createCSM(Context &context) {
     m_CascadedShadowmap.cascadeTexelWorldSize.resize(4);
 }
 
-void SYN::gfx::gl::Renderer::init(Context &context) {
-    createScreenQuad(context);
-    createHdrShader(context);
-    createSkybox(context);
-    createIrradianceShader(context);
-    createPrefilterShader(context);
-    createBRDFLutShader(context);
-    createZPrepassShader(context);
-    createCSM(context);
+void SYN::gfx::gl::Renderer::initShaderCache() {
+    m_ShaderCache.registerIncludes("common.glsl");
+    m_ShaderCache.registerIncludes("pbr_brdf.glsl");
+    m_ShaderCache.registerIncludes("importance_sample.glsl");
 
+    m_ShaderCache.registerFeature("FEATURE_NORMAL", ShaderFeature::Normal);
+    m_ShaderCache.registerFeature("FEATURE_METALLIC_ROUGHNESS",
+                                  ShaderFeature::MetallicRoughness);
+    m_ShaderCache.registerFeature("FEATURE_SKINNED", ShaderFeature::Skinned);
+    m_ShaderCache.registerFeature("FEATURE_ALPHA_TEST",
+                                  ShaderFeature::AlphaTest);
+    m_ShaderCache.registerFeature("FEATURE_DEPTH_MAP_INSTANCED",
+                                  ShaderFeature::DepthMapInstanced);
+
+    m_ShaderCache.registerShader("forward", "forward.glsl");
+    m_ShaderCache.registerShader("skybox", "skybox.glsl");
+    m_ShaderCache.registerShader("brdf_lut", "brdf_lut.glsl");
+    m_ShaderCache.registerShader("depth_map", "depth_map.glsl");
+    m_ShaderCache.registerShader("equirectangularToCubemap",
+                                 "equirectangularToCubemap.glsl");
+
+    m_ShaderCache.registerShader("hdr", "hdr.glsl");
+    m_ShaderCache.registerShader("irradiance_map", "irradiance_map.glsl");
+    m_ShaderCache.registerShader("prefiltered_env", "prefiltered_env.glsl");
+    m_ShaderCache.registerShader("z_prepass", "z_prepass.glsl");
+}
+
+void SYN::gfx::gl::Renderer::initDefaultUBOs(Context &context) {
     m_ShadowConstants =
         context
             .createBuffer({BufferType::Uniform, MemoryUsage::CpuToGPU,
@@ -1998,17 +2027,14 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
                            sizeof(LightConstants)})
             .value();
 
+    Pass pass = context.beginPass({});
+    pass.bindUniformBuffer(0, m_CameraConstants);
+    pass.bindUniformBuffer(1, m_ShadowConstants);
+    pass.bindUniformBuffer(2, m_LightConstants);
+}
+
+void SYN::gfx::gl::Renderer::createTextureDefaults(Context &context) {
     m_DefaultWhite = createDefaultColoredTexture(context, {255, 255, 255, 255});
-    createDefaultPrefilterMap(context);
-
-    m_BRDFLut = createBRDFLut(context);
-
-    {
-        Pass pass = context.beginPass({});
-        pass.bindUniformBuffer(0, m_CameraConstants);
-        pass.bindUniformBuffer(1, m_ShadowConstants);
-        pass.bindUniformBuffer(2, m_LightConstants);
-    }
 
     m_DefaultModelSamplerDesc = {SampleFilter::Linear_Mipmap_Linear,
                                  SampleFilter::Linear, WrapMode::Repeat,
@@ -2019,6 +2045,21 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
         context.createSampler(m_DefaultModelSamplerDesc).value();
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+}
+
+void SYN::gfx::gl::Renderer::init(Context &context) {
+    initShaderCache();
+    initDefaultUBOs(context);
+
+    createScreenQuad(context);
+    createHdrShader(context);
+    createDefaultPrefilterMap(context);
+    createDefaultIrradianceMap(context);
+    createSkybox(context);
+    createCSM(context);
+    createTextureDefaults(context);
+
+    m_BRDFLut = createBRDFLut(context);
 }
 
 void SYN::gfx::gl::Renderer::setEnvironment(
@@ -2178,77 +2219,9 @@ void SYN::gfx::gl::Renderer::createScreenQuad(Context &context) {
     m_HdrFramebuffer.colorSampler = context.createSampler({}).value();
 }
 
-void SYN::gfx::gl::Renderer::createHdrShader(Context &context) {
-    if (m_HdrShader.has_value())
-        return;
-
-    std::fstream vertexFile("resources/shaders/hdr.vert");
-    if (!vertexFile) {
-        spdlog::error("OpenGL renderer could not open vertex shader (HDR).");
-        return;
-    }
-    std::fstream fragmentFile("resources/shaders/hdr.frag");
-    if (!fragmentFile) {
-        spdlog::error("OpenGL renderer could not open fragment shader (HDR).");
-        return;
-    }
-
-    m_HdrShader =
-        context
-            .createShader(
-                std::string(std::istreambuf_iterator<char>(vertexFile),
-                            std::istreambuf_iterator<char>()),
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-}
+void SYN::gfx::gl::Renderer::createHdrShader(Context &context) {}
 
 void SYN::gfx::gl::Renderer::createSkybox(Context &context) {
-    if (m_SkyboxShader.has_value())
-        return;
-
-    std::fstream vertexFile("resources/shaders/gl_skybox.vert");
-    if (!vertexFile) {
-        spdlog::error("OpenGL renderer could not open vertex shader (Skybox).");
-        return;
-    }
-    std::fstream fragmentFile("resources/shaders/gl_skybox.frag");
-    if (!fragmentFile) {
-        spdlog::error(
-            "OpenGL renderer could not open fragment shader (Skybox).");
-        return;
-    }
-
-    std::string vertexSrc =
-        std::string(std::istreambuf_iterator<char>(vertexFile),
-                    std::istreambuf_iterator<char>());
-
-    m_SkyboxShader =
-        context
-            .createShader(
-                vertexSrc,
-                std::string(std::istreambuf_iterator<char>(fragmentFile),
-                            std::istreambuf_iterator<char>()))
-            .value();
-
-    if (!m_EquirectangularToCubemapShader.has_value()) {
-        fragmentFile =
-            std::fstream("resources/shaders/equirectangularToCubemap.frag");
-        if (!fragmentFile) {
-            spdlog::error("OpenGL renderer could not open fragment shader "
-                          "(Equirectangular to Cubemap).");
-            return;
-        }
-
-        m_EquirectangularToCubemapShader =
-            context
-                .createShader(
-                    vertexSrc,
-                    std::string(std::istreambuf_iterator<char>(fragmentFile),
-                                std::istreambuf_iterator<char>()))
-                .value();
-    }
-
     if (m_SkyboxCube.has_value())
         return;
 
@@ -2350,7 +2323,8 @@ SYN::gfx::gl::Renderer::createIrradianceMap(Context &context,
             .value();
 
     PipelineState pipeline;
-    pipeline.shader = m_IrradianceShader.value();
+    pipeline.shader =
+        m_ShaderCache.getShaderHandle(context, "irradiance_map", 0);
     for (uint32_t i = 0; i < 6; ++i) {
         context.setColorAttachment(captureFramebuffer, 0, irradianceMap, 0, i);
         Pass pass =
@@ -2413,7 +2387,8 @@ SYN::gfx::gl::Renderer::createPrefilteredEnvironmentMap(
             .value();
 
     PipelineState pipeline;
-    pipeline.shader = m_PrefilterShader.value();
+    pipeline.shader =
+        m_ShaderCache.getShaderHandle(context, "prefiltered_env", 0);
 
     for (uint32_t i = 0; i < maxMipCount; ++i) {
         uint32_t mipSize =
@@ -2453,7 +2428,7 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
             .value();
 
     PipelineState pipeline;
-    pipeline.shader = m_BRDFLutShader.value();
+    pipeline.shader = m_ShaderCache.getShaderHandle(context, "brdf_lut", 0);
 
     Pass pass = context.beginPass(
         {captureFb, glm::vec4(1.0f), false, false, Viewport{0, 0, 512, 512}});
@@ -2466,34 +2441,31 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     return brdfLUT;
 }
 
-void SYN::gfx::gl::Renderer::drawRenderItems(
-    Pass &pass, const std::vector<RenderItem> &renderItems) {
-    for (const RenderItem &renderItem : renderItems) {
-        const Material &material = renderItem.material;
-        pass.bindUniform("u_tint", material.tint.r, material.tint.g,
-                         material.tint.b);
-        pass.bindUniform("u_metallic", material.metallic);
-        pass.bindUniform("u_roughness", material.roughness);
+void SYN::gfx::gl::Renderer::drawRenderItem(Pass &pass,
+                                            const RenderItem &renderItem) {
+    const Material &material = renderItem.material;
+    pass.bindUniform("u_tint", material.tint.r, material.tint.g,
+                     material.tint.b);
+    pass.bindUniform("u_metallic", material.metallic);
+    pass.bindUniform("u_roughness", material.roughness);
 
-        Handle<Sampler> sampler =
-            material.sampler.value_or(m_DefaultModelSampler);
+    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
 
-        if (material.albedo) {
-            pass.bindTexture(0, material.albedo.value(), sampler);
-        }
-
-        if (material.normalMap) {
-            pass.bindTexture(1, material.normalMap.value(), sampler);
-        }
-
-        if (material.metallicRoughnessMap) {
-            pass.bindTexture(2, material.metallicRoughnessMap.value(), sampler);
-        }
-
-        pass.bindUniform("u_Model", renderItem.transform);
-        pass.bindVertexArray(renderItem.vao);
-        pass.drawIndexed(renderItem.indexCount);
+    if (material.albedo) {
+        pass.bindTexture(0, material.albedo.value(), sampler);
     }
+
+    if (material.normalMap) {
+        pass.bindTexture(1, material.normalMap.value(), sampler);
+    }
+
+    if (material.metallicRoughnessMap) {
+        pass.bindTexture(2, material.metallicRoughnessMap.value(), sampler);
+    }
+
+    pass.bindUniform("u_Model", renderItem.transform);
+    pass.bindVertexArray(renderItem.vao);
+    pass.drawIndexed(renderItem.indexCount);
 }
 
 void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
@@ -2519,32 +2491,20 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     updateMsaaFramebuffer(context);
     updateHdrFramebuffer(context);
 
-    // Sort draw commands by shader
+    // Update anisotropy of all objects submitted to draw command
+    // TODO: Only update the anisotropy and not irrelevant sampler parameters.
+    // Only have to do it once per unique model (set of meshes) as multiple draw
+    // commands may refer to the same model.
     {
         if (m_AnisotropicUpdate) {
             context.updateSampler(m_DefaultModelSampler,
                                   m_DefaultModelSamplerDesc);
         }
 
-        std::vector<Plane> planes = planesFromCameraFrustum(m_MainCamera);
-
         for (const DrawCommand &cmd : m_DrawCommandList) {
             const Model *model =
                 m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle)
                     .value();
-            auto getMaterialOverride =
-                [&](uint32_t sourceIndex) -> std::optional<Material> {
-                for (const MaterialOverride &override : cmd.materialOverride) {
-                    if (sourceIndex != override.meshIndex)
-                        continue;
-                    Material material = override.material;
-                    if (!material.albedo) {
-                        material.albedo = m_DefaultWhite;
-                    }
-                    return material;
-                }
-                return std::nullopt;
-            };
             for (const Mesh &mesh : model->meshesOpaque) {
                 if (mesh.material.sampler.has_value() &&
                     mesh.material.samplerDesc.has_value() &&
@@ -2555,22 +2515,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     context.updateSampler(mesh.material.sampler.value(),
                                           samplerDesc);
                 }
-                if (!aabbVsFrustum(
-                        aabbToWorld(mesh.aabb,
-                                    cmd.transform * mesh.localTransform),
-                        planes))
-                    continue;
-
-                Material material = getMaterialOverride(mesh.sourceIndex)
-                                        .value_or(mesh.material);
-
-                uint32_t shaderFeatures = getShaderFeatures(
-                    material.normalMap.has_value(),
-                    material.metallicRoughnessMap.has_value(), false);
-
-                m_RenderBucketsOpaque[shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform, material,
-                               mesh.vao, mesh.indexCount});
             }
             for (const Mesh &mesh : model->meshesMasked) {
                 if (mesh.material.sampler.has_value() &&
@@ -2582,22 +2526,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     context.updateSampler(mesh.material.sampler.value(),
                                           samplerDesc);
                 }
-                if (!aabbVsFrustum(
-                        aabbToWorld(mesh.aabb,
-                                    cmd.transform * mesh.localTransform),
-                        planes))
-                    continue;
-
-                Material material = getMaterialOverride(mesh.sourceIndex)
-                                        .value_or(mesh.material);
-
-                uint32_t shaderFeatures = getShaderFeatures(
-                    material.normalMap.has_value(),
-                    material.metallicRoughnessMap.has_value(), false);
-
-                m_RenderBucketsMasked[shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform, material,
-                               mesh.vao, mesh.indexCount});
             }
         }
         m_AnisotropicUpdate = false;
@@ -2659,90 +2587,85 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
                              m_CascadedShadowmap.shadowSampler);
 
+            std::vector<Plane> planes = planesFromCameraFrustum(m_MainCamera);
+
+            std::vector<RenderItem> opaqueItems =
+                getRenderItemsByShader(0, &planes, true);
+
+            std::vector<RenderItem> alphaMaskedItems = getRenderItemsByShader(
+                (uint32_t)ShaderFeature::AlphaTest, &planes, true);
+
             PipelineState pipeline;
             pipeline.depth.writeEnabled = true;
             pipeline.color = {false, false, false, false};
-            pipeline.shader = m_ZPrepassShaderOpaque.value();
+            pipeline.shader =
+                m_ShaderCache.getShaderHandle(context, "z_prepass", 0);
             pipeline.cullMode = CullMode::Back;
             pass.usePipeline(pipeline);
 
             // Z Prepass
-            for (const std::vector<RenderItem> &renderItems :
-                 m_RenderBucketsOpaque) {
-                if (renderItems.empty()) {
-                    continue;
-                }
+            for (const RenderItem &renderItem : opaqueItems) {
+                const Material &material = renderItem.material;
+                Handle<Sampler> sampler =
+                    material.sampler.value_or(m_DefaultModelSampler);
 
-                for (const RenderItem &renderItem : renderItems) {
-                    const Material &material = renderItem.material;
-                    Handle<Sampler> sampler =
-                        material.sampler.value_or(m_DefaultModelSampler);
-
-                    if (material.albedo) {
-                        pass.bindTexture(0, material.albedo.value(), sampler);
-                    }
-
-                    pass.bindUniform("u_Model", renderItem.transform);
-                    pass.bindVertexArray(renderItem.vao);
-                    pass.drawIndexed(renderItem.indexCount);
-                }
+                pass.bindUniform("u_Model", renderItem.transform);
+                pass.bindVertexArray(renderItem.vao);
+                pass.drawIndexed(renderItem.indexCount);
             }
 
-            pipeline.shader = m_ZPrepassShaderMasked.value();
+            pipeline.shader = m_ShaderCache.getShaderHandle(
+                context, "z_prepass", (uint32_t)ShaderFeature::AlphaTest);
             pipeline.cullMode = CullMode::None;
             pass.usePipeline(pipeline);
-            for (const std::vector<RenderItem> &renderItems :
-                 m_RenderBucketsMasked) {
-                if (renderItems.empty()) {
-                    continue;
+            for (const RenderItem &renderItem : alphaMaskedItems) {
+                const Material &material = renderItem.material;
+                Handle<Sampler> sampler =
+                    material.sampler.value_or(m_DefaultModelSampler);
+
+                if (material.albedo) {
+                    pass.bindTexture(0, material.albedo.value(), sampler);
                 }
 
-                for (const RenderItem &renderItem : renderItems) {
-                    const Material &material = renderItem.material;
-                    Handle<Sampler> sampler =
-                        material.sampler.value_or(m_DefaultModelSampler);
-
-                    if (material.albedo) {
-                        pass.bindTexture(0, material.albedo.value(), sampler);
-                    }
-
-                    pass.bindUniform("u_Model", renderItem.transform);
-                    pass.bindUniform("u_alphaCutoff",
-                                     renderItem.material.alphaCutoff);
-                    pass.bindVertexArray(renderItem.vao);
-                    pass.drawIndexed(renderItem.indexCount);
-                }
+                pass.bindUniform("u_Model", renderItem.transform);
+                pass.bindUniform("u_alphaCutoff",
+                                 renderItem.material.alphaCutoff);
+                pass.bindVertexArray(renderItem.vao);
+                pass.drawIndexed(renderItem.indexCount);
             }
 
             pipeline.depth.test = DepthFunc::Equal;
             pipeline.depth.writeEnabled = false;
             pipeline.color = {true, true, true, true};
             pipeline.cullMode = CullMode::Back;
+            std::optional<uint32_t> currentShader = std::nullopt;
             // Actual forward + PBR
-            for (uint32_t i = 0; i < m_RenderBucketsOpaque.size(); ++i) {
-                const std::vector<RenderItem> &renderItems =
-                    m_RenderBucketsOpaque.at(i);
-                if (renderItems.empty())
-                    continue;
-                pipeline.shader = m_ShaderCache.getShaderHandle(context, i);
-                pass.usePipeline(pipeline);
-                drawRenderItems(pass, renderItems);
+            for (const RenderItem &renderItem : opaqueItems) {
+                if (!currentShader.has_value() ||
+                    currentShader.value() != renderItem.shaderIndex) {
+                    currentShader = renderItem.shaderIndex;
+                    pipeline.shader = m_ShaderCache.getShaderHandle(
+                        context, "forward", renderItem.shaderIndex);
+                    pass.usePipeline(pipeline);
+                }
+                drawRenderItem(pass, renderItem);
             }
-
+            currentShader = std::nullopt;
             pipeline.cullMode = CullMode::None;
-            for (uint32_t i = 0; i < m_RenderBucketsMasked.size(); ++i) {
-                const std::vector<RenderItem> &renderItems =
-                    m_RenderBucketsMasked.at(i);
-                if (renderItems.empty())
-                    continue;
-                pipeline.shader = m_ShaderCache.getShaderHandle(context, i);
-                pass.usePipeline(pipeline);
-                drawRenderItems(pass, renderItems);
+            for (const RenderItem &renderItem : alphaMaskedItems) {
+                if (!currentShader.has_value() ||
+                    currentShader.value() != renderItem.shaderIndex) {
+                    pipeline.shader = m_ShaderCache.getShaderHandle(
+                        context, "forward", renderItem.shaderIndex);
+                    pass.usePipeline(pipeline);
+                }
+                drawRenderItem(pass, renderItem);
             }
 
             if (m_Environment.has_value()) {
                 Environment currentEnvironment = m_Environment.value();
-                pipeline.shader = m_SkyboxShader.value();
+                pipeline.shader =
+                    m_ShaderCache.getShaderHandle(context, "skybox", 0);
                 pipeline.depth.test = DepthFunc::LessEqual;
                 pass.usePipeline(pipeline);
 
@@ -2764,7 +2687,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             Pass hdrPass = context.beginPass(
                 {std::nullopt, m_ClearColor, false, false, m_ScreenViewport});
             PipelineState hdrPipeline;
-            hdrPipeline.shader = m_HdrShader.value();
+            hdrPipeline.shader =
+                m_ShaderCache.getShaderHandle(context, "hdr", 0);
 
             hdrPass.usePipeline(hdrPipeline);
 
@@ -2780,12 +2704,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     }
 
     m_DrawCommandList.clear();
-    for (std::vector<RenderItem> &renderItems : m_RenderBucketsOpaque) {
-        renderItems.clear();
-    }
-    for (std::vector<RenderItem> &renderItems : m_RenderBucketsMasked) {
-        renderItems.clear();
-    }
 
     TracyGpuCollect;
 }
@@ -3047,7 +2965,8 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
         const Model *model =
             m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle).value();
 
-        pipeline.shader = m_ShadowMapShaderOpaque.value();
+        pipeline.shader = m_ShaderCache.getShaderHandle(
+            context, "depth_map", (uint32_t)ShaderFeature::DepthMapInstanced);
         pipeline.cullMode = CullMode::Back;
         pass.usePipeline(pipeline);
         pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
@@ -3058,7 +2977,11 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
             pass.drawInstancedIndexed(mesh.indexCount, 2);
         }
 
-        pipeline.shader = m_ShadowMapShaderMasked.value();
+        pipeline.shader = m_ShaderCache.getShaderHandle(
+            context, "depth_map",
+            (uint32_t)ShaderFeature::DepthMapInstanced |
+                (uint32_t)ShaderFeature::AlphaTest);
+
         pipeline.cullMode = CullMode::None;
         pass.usePipeline(pipeline);
         pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
@@ -3097,7 +3020,8 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
             const Model *model =
                 m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle)
                     .value();
-            pipeline.shader = m_ShadowMapShaderOpaque.value();
+            pipeline.shader =
+                m_ShaderCache.getShaderHandle(context, "depth_map", 0);
             pipeline.cullMode = CullMode::Back;
             pass.usePipeline(pipeline);
             for (const Mesh &mesh : model->meshesOpaque) {
@@ -3106,7 +3030,8 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
                 pass.bindVertexArray(mesh.vao);
                 pass.drawIndexed(mesh.indexCount);
             }
-            pipeline.shader = m_ShadowMapShaderMasked.value();
+            pipeline.shader = m_ShaderCache.getShaderHandle(
+                context, "depth_map", (uint32_t)ShaderFeature::AlphaTest);
             pipeline.cullMode = CullMode::None;
             pass.usePipeline(pipeline);
             for (const Mesh &mesh : model->meshesMasked) {
@@ -3241,4 +3166,70 @@ void SYN::gfx::gl::Renderer::setAnisotropicFiltering(float filter) {
     m_AnisotropicFilter = glm::clamp(filter, 1.0f, 16.0f);
     m_DefaultModelSamplerDesc.anisotropicLevel = m_AnisotropicFilter;
     m_AnisotropicUpdate = true;
+}
+
+void SYN::gfx::gl::Renderer::reloadInternalShaders() { m_ShaderCache.reset(); }
+
+std::vector<SYN::gfx::gl::Renderer::RenderItem>
+SYN::gfx::gl::Renderer::getRenderItemsByShader(
+    uint32_t shaderIndex, const std::vector<Plane> *frustumPlanes, bool sort) {
+    std::vector<RenderItem> renderItems;
+
+    auto getMaterialOverride =
+        [&](const DrawCommand &cmd,
+            uint32_t sourceIndex) -> std::optional<Material> {
+        for (const MaterialOverride &override : cmd.materialOverride) {
+            if (sourceIndex != override.meshIndex)
+                continue;
+            Material material = override.material;
+            if (!material.albedo) {
+                material.albedo = m_DefaultWhite;
+            }
+            return material;
+        }
+        return std::nullopt;
+    };
+
+    auto processMeshes = [&](const DrawCommand &cmd, const Model *model,
+                             const std::vector<Mesh> &meshes) {
+        for (const Mesh &mesh : meshes) {
+            Material material = getMaterialOverride(cmd, mesh.sourceIndex)
+                                    .value_or(mesh.material);
+
+            uint32_t shaderFeatures = getShaderFeatures(mesh, material);
+
+            if (!(bool)(shaderFeatures & shaderIndex) && shaderIndex != 0)
+                continue;
+
+            glm::mat4 worldTransform = cmd.transform * mesh.localTransform;
+            if (frustumPlanes != nullptr &&
+                !aabbVsFrustum(aabbToWorld(mesh.aabb, worldTransform),
+                               *frustumPlanes)) {
+                continue;
+            }
+
+            renderItems.push_back({worldTransform, material, mesh.vao,
+                                   mesh.indexCount, shaderFeatures});
+        }
+    };
+
+    for (const DrawCommand &cmd : m_DrawCommandList) {
+        const Model *model =
+            m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle).value();
+        const std::vector<Mesh> &meshes =
+            shaderIndex & (uint32_t)ShaderFeature::AlphaTest
+                ? model->meshesMasked
+                : model->meshesOpaque;
+        processMeshes(cmd, model, meshes);
+    }
+
+    if (!sort)
+        return renderItems;
+
+    std::sort(renderItems.begin(), renderItems.end(),
+              [](const RenderItem &a, const RenderItem &b) {
+                  return a.shaderIndex < b.shaderIndex;
+              });
+
+    return renderItems;
 }

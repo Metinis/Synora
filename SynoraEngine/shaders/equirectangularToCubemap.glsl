@@ -1,5 +1,17 @@
-#version 450 core
+#ifdef VERTEX_SRC
+layout(location = 0) in vec3 aPos;
 
+uniform mat4 u_ViewProjection;
+
+out vec3 fragTexCoords;
+
+void main() {
+  fragTexCoords = aPos;
+  vec4 vertexPos = u_ViewProjection * vec4(aPos, 1.0);
+  gl_Position = vertexPos.xyww;
+}
+#endif
+#ifdef FRAGMENT_SRC
 out vec4 fragColor;
 in vec3 fragTexCoords;
 
@@ -17,3 +29,4 @@ void main() {
   vec2 uv = sampleSphericalMap(normalize(fragTexCoords));
   fragColor = texture(u_equirectangularMap, uv);
 }
+#endif

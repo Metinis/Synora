@@ -13,6 +13,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(SYNORA_BUILD_EXAMPLES "Build Synora examples" ON)
+option(SYNORA_SHADER_DEBUG "Use in-source shader path for debugging" OFF)
 
 find_package(Vulkan REQUIRED)
 

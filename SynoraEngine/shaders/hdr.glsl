@@ -1,5 +1,15 @@
-#version 450 core
+#ifdef VERTEX_SRC
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec2 aTexCoords;
 
+out vec2 fragTexCoords;
+
+void main() {
+  fragTexCoords = aTexCoords;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+#endif
+#ifdef FRAGMENT_SRC
 in vec2 fragTexCoords;
 uniform sampler2D u_hdrBuffer;
 
@@ -16,3 +26,4 @@ void main() {
 
   fragColor = vec4(mapped, 1.0);
 }
+#endif

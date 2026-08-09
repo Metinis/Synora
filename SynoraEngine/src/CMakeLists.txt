@@ -17,9 +17,13 @@ add_library(SynoraEngine STATIC ${ENGINE_SOURCES})
 add_custom_command(TARGET SynoraEngine POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_CURRENT_SOURCE_DIR}/../shaders
-          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders
-  COMMENT "Copying SynoraEngine shaders to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders"
+          ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders/OpenGL
+          COMMENT "Copying SynoraEngine shaders to ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/resources/shaders/OpenGL"
 )
+
+if (SYNORA_SHADER_DEBUG)
+target_compile_definitions(SynoraEngine PRIVATE SHADER_DEBUG_PATH="${CMAKE_SOURCE_DIR}/SynoraEngine/shaders/")
+endif()
 
 target_precompile_headers(
   SynoraEngine
