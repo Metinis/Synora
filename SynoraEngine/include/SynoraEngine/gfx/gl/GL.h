@@ -10,6 +10,12 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
+#ifdef SHADER_DEBUG_PATH
+#define SHADER_PATH SHADER_DEBUG_PATH
+#else
+#define SHADER_PATH "resources/shaders/OpenGL/"
+#endif
+
 struct GLFWwindow;
 
 namespace SYN::gfx::gl {
@@ -661,6 +667,9 @@ class ShaderCache {
     void registerShader(std::string_view name, std::string_view filePath);
     Handle<Shader> getShaderHandle(Context &context, std::string_view name,
                                    uint32_t featureFlags);
+
+    // Use if registered shaders change source
+    // and you want to rebuild during runtime (hot reload).
     void reset();
 
   private:
@@ -751,6 +760,9 @@ class Renderer {
 
     // For debugging shadow maps. Render with ImGui
     std::vector<uint32_t> getCSMTextures(Context &context);
+
+    // Resets the shader cache. Use for hot reloading.
+    void reloadInternalShaders();
 
   private:
     struct {

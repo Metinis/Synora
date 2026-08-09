@@ -1552,7 +1552,7 @@ void SYN::gfx::gl::Context::generateMipmap(Handle<Texture> textureHandle) {
 // #include with the proper code.
 
 void SYN::gfx::gl::ShaderCache::registerIncludes(std::string_view includePath) {
-    std::fstream file(includePath.data());
+    std::fstream file(SHADER_PATH + std::string(includePath.data()));
     if (!file.is_open()) {
         spdlog::error("Could not open file [{}]", includePath);
         return;
@@ -1598,7 +1598,7 @@ void SYN::gfx::gl::ShaderCache::registerFeature(std::string_view featureMacro,
 
 void SYN::gfx::gl::ShaderCache::registerShader(std::string_view name,
                                                std::string_view filePath) {
-    std::fstream file(filePath.data());
+    std::fstream file(SHADER_PATH + std::string(filePath.data()));
     if (!file.is_open()) {
         spdlog::error("Could not open file [{}]", filePath);
         return;
@@ -1705,6 +1705,26 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
     m_ShaderCache[key] = shader.value();
 
     return m_ShaderCache.at(key);
+}
+
+void SYN::gfx::gl::ShaderCache::reset() {
+    m_ShaderCache.clear();
+    auto getFileContents = [](const std::string &filepath) -> std::string {
+        std::fstream file(filepath);
+        if (!file.is_open()) {
+            spdlog::error("Could not open [{}] while resetting shader cache.",
+                          filepath);
+            return "";
+        }
+        return std::string(std::istreambuf_iterator<char>(file),
+                           std::istreambuf_iterator<char>());
+    };
+    for (auto &[includePath, includeSource] : m_ShaderIncludes) {
+        includeSource = getFileContents(SHADER_PATH + includePath);
+    }
+    for (auto &[shaderName, shaderSource] : m_ShaderSources) {
+        shaderSource = getFileContents(SHADER_PATH + shaderName + ".glsl");
+    }
 }
 
 // Renderer
@@ -1923,9 +1943,9 @@ void SYN::gfx::gl::Renderer::createCSM(Context &context) {
 }
 
 void SYN::gfx::gl::Renderer::initShaderCache() {
-    m_ShaderCache.registerIncludes("resources/shaders/common.glsl");
-    m_ShaderCache.registerIncludes("resources/shaders/pbr_brdf.glsl");
-    m_ShaderCache.registerIncludes("resources/shaders/importance_sample.glsl");
+    m_ShaderCache.registerIncludes("common.glsl");
+    m_ShaderCache.registerIncludes("pbr_brdf.glsl");
+    m_ShaderCache.registerIncludes("importance_sample.glsl");
 
     m_ShaderCache.registerFeature("FEATURE_NORMAL", ShaderFeature::Normal);
     m_ShaderCache.registerFeature("FEATURE_METALLIC_ROUGHNESS",
@@ -1936,22 +1956,17 @@ void SYN::gfx::gl::Renderer::initShaderCache() {
     m_ShaderCache.registerFeature("FEATURE_DEPTH_MAP_INSTANCED",
                                   ShaderFeature::DepthMapInstanced);
 
-    m_ShaderCache.registerShader("forward", "resources/shaders/forward.glsl");
-    m_ShaderCache.registerShader("skybox", "resources/shaders/skybox.glsl");
-    m_ShaderCache.registerShader("brdf_lut", "resources/shaders/brdf_lut.glsl");
-    m_ShaderCache.registerShader("depth_map",
-                                 "resources/shaders/depth_map.glsl");
-    m_ShaderCache.registerShader(
-        "equirectangularToCubemap",
-        "resources/shaders/equirectangularToCubemap.glsl");
+    m_ShaderCache.registerShader("forward", "forward.glsl");
+    m_ShaderCache.registerShader("skybox", "skybox.glsl");
+    m_ShaderCache.registerShader("brdf_lut", "brdf_lut.glsl");
+    m_ShaderCache.registerShader("depth_map", "depth_map.glsl");
+    m_ShaderCache.registerShader("equirectangularToCubemap",
+                                 "equirectangularToCubemap.glsl");
 
-    m_ShaderCache.registerShader("hdr", "resources/shaders/hdr.glsl");
-    m_ShaderCache.registerShader("irradiance_map",
-                                 "resources/shaders/irradiance_map.glsl");
-    m_ShaderCache.registerShader("prefiltered_env",
-                                 "resources/shaders/prefiltered_env.glsl");
-    m_ShaderCache.registerShader("z_prepass",
-                                 "resources/shaders/z_prepass.glsl");
+    m_ShaderCache.registerShader("hdr", "hdr.glsl");
+    m_ShaderCache.registerShader("irradiance_map", "irradiance_map.glsl");
+    m_ShaderCache.registerShader("prefiltered_env", "prefiltered_env.glsl");
+    m_ShaderCache.registerShader("z_prepass", "z_prepass.glsl");
 }
 
 void SYN::gfx::gl::Renderer::initDefaultUBOs(Context &context) {
@@ -3176,3 +3191,5 @@ void SYN::gfx::gl::Renderer::setAnisotropicFiltering(float filter) {
     m_DefaultModelSamplerDesc.anisotropicLevel = m_AnisotropicFilter;
     m_AnisotropicUpdate = true;
 }
+
+void SYN::gfx::gl::Renderer::reloadInternalShaders() { m_ShaderCache.reset(); }

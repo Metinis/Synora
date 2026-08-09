@@ -272,6 +272,9 @@ class GraphicsScene : public SYN::ILayer {
                                    2.0f)) {
                 m_Renderer.setRenderScale(m_RenderScale);
             }
+            if (ImGui::Button("Reload shaders")) {
+                m_Renderer.reloadInternalShaders();
+            }
 
             const char *environments[] = {"Ghibli (no irradiance)",
                                           "Cowboy Saloon", "Suburbs", "Lobby"};
