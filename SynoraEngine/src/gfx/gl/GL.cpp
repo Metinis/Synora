@@ -1581,7 +1581,8 @@ void SYN::gfx::gl::Context::generateMipmap(Handle<Texture> textureHandle) {
 // #include with the proper code.
 
 void SYN::gfx::gl::ShaderCache::registerIncludes(std::string_view includePath) {
-    std::fstream file(SHADER_PATH + std::string(includePath.data()));
+    std::string includePathStr(includePath.data());
+    std::fstream file(SHADER_PATH + includePathStr);
     if (!file.is_open()) {
         spdlog::error("Could not open file [{}]", includePath);
         return;
@@ -1593,12 +1594,7 @@ void SYN::gfx::gl::ShaderCache::registerIncludes(std::string_view includePath) {
                     std::istreambuf_iterator<char>()) +
         "\n";
 
-    std::string finalPath(includePath);
-    size_t directory = finalPath.find_last_of('/');
-    if (directory != finalPath.npos) {
-        finalPath = finalPath.substr(directory + 1);
-    }
-    m_ShaderIncludes[finalPath] = includeContents;
+    m_ShaderIncludes[includePathStr] = includeContents;
 }
 
 void SYN::gfx::gl::ShaderCache::registerFeature(std::string_view featureMacro,
@@ -1707,11 +1703,21 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
             }
 
             std::string includeSrc = "";
-            if (m_ShaderIncludes.find(includeName) != m_ShaderIncludes.cend()) {
+
+            bool shaderIncludeRegistered =
+                m_ShaderIncludes.find(includeName) != m_ShaderIncludes.cend();
+
+            if (!shaderIncludeRegistered) {
+                registerIncludes(includeName);
+            }
+
+            shaderIncludeRegistered =
+                m_ShaderIncludes.find(includeName) != m_ShaderIncludes.cend();
+
+            if (shaderIncludeRegistered) {
                 includeSrc = "\n" + m_ShaderIncludes.at(includeName) + "\n";
             } else {
-                spdlog::error("Shader include [{}] doesn't exist. Did you "
-                              "register it in the shader cache?",
+                spdlog::error("Shader include [{}] doesn't exist.",
                               includeName);
                 return "";
             }
