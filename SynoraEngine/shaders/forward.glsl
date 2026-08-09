@@ -1,3 +1,44 @@
+#include "common.glsl"
+
+#ifdef VERTEX_SRC
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aTexCoords;
+layout(location = 3) in vec4 aTangent;
+layout(location = 4) in ivec4 aBoneID;
+layout(location = 5) in vec4 aBoneWeight;
+
+uniform mat4 u_Model;
+
+out vec3 fragNormal;
+out vec3 fragPos;
+out vec2 fragTexCoords;
+
+#ifdef FEATURE_NORMAL
+out mat3 TBN;
+#endif
+
+invariant gl_Position;
+
+void main() {
+  #ifdef FEATURE_NORMAL
+  vec3 T = normalize(mat3(u_Model) * aTangent.xyz);
+  vec3 N = normalize(mat3(u_Model) * aNormal);
+  T = normalize(T - N * dot(N, T));
+
+  vec3 B = cross(N, T) * aTangent.w;
+
+  TBN = mat3(T, B, N);
+  #endif
+
+  fragNormal = normalize(mat3(transpose(inverse(u_Model))) * aNormal);
+  fragPos = vec3(u_Model * vec4(aPos, 1.0));
+  fragTexCoords = aTexCoords;
+
+  gl_Position = u_ViewProjection * u_Model * vec4(aPos, 1.0);
+}
+#endif
+#ifdef FRAGMENT_SRC
 out vec4 fragColor;
 
 in vec3 fragNormal;
@@ -21,75 +62,13 @@ layout(binding = 2) uniform sampler2D u_metallicRoughness;
 const float PI = 3.14159265359;
 const float MAX_REFLECTION_LOD = 8.0;
 
-layout(std140, binding = 0) uniform CameraConstants {
-  mat4 u_ViewProjection;
-  mat4 u_View;
-  vec3 u_cameraPos;
-};
-
-#define CASCADE_COUNT 4
-#define NEAR_CASCADE_COUNT 2
-layout(std140, binding = 1) uniform ShadowConstants {
-  mat4 u_lightSpaceMatrices[CASCADE_COUNT];
-  vec4 u_cascadePlaneDistances;
-  vec4 u_cascadeTexelWorldSize;
-};
-
-struct DirectionalLight {
-  vec3 direction;
-  vec3 color;
-  float intensity;
-  bool castShadow;
-};
-layout(std140, binding = 2) uniform LightConstants {
-  DirectionalLight u_light;
-};
-
 layout(binding = 3) uniform samplerCube u_irradianceMap;
 layout(binding = 4) uniform samplerCube u_prefilterMap;
 layout(binding = 5) uniform sampler2D u_brdfLUT;
 layout(binding = 6) uniform sampler2DArrayShadow u_csmNear;
 layout(binding = 7) uniform sampler2DArrayShadow u_csmFar;
 
-vec3 fresnelSchlick(float cosTheta, vec3 F0) {
-  return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
-  return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-float DistributionGGX(vec3 N, vec3 H, float roughness) {
-  float a = roughness * roughness;
-  float a2 = a * a;
-  float NdotH = max(dot(N, H), 0.0);
-  float NdotH2 = NdotH * NdotH;
-
-  float num = a2;
-  float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-  denom = PI * denom * denom;
-
-  return num / denom;
-}
-
-float GeometrySchlickGGX(float NdotV, float roughness) {
-  float r = (roughness + 1.0);
-  float k = (r * r) / 8.0;
-
-  float num = NdotV;
-  float denom = NdotV * (1.0 - k) + k;
-
-  return num / denom;
-}
-
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-  float NdotV = max(dot(N, V), 0.0);
-  float NdotL = max(dot(N, L), 0.0);
-  float ggx2 = GeometrySchlickGGX(NdotV, roughness);
-  float ggx1 = GeometrySchlickGGX(NdotL, roughness);
-
-  return ggx1 * ggx2;
-}
+#include "pbr_brdf.glsl"
 
 // No variance without normal map
 vec3 getNormalAvg() {
@@ -335,3 +314,4 @@ void main() {
 
   fragColor = vec4(finalColor, 1.0);
 }
+#endif
