@@ -95,8 +95,8 @@ enum class ShaderFeature : uint32_t {
     Normal = 1,
     MetallicRoughness = 1 << 1,
     Skinned = 1 << 2,
-    AlphaTest = 1 << 3,
-    DepthMapInstanced = 1 << 4
+    DepthMapInstanced = 1 << 3,
+    AlphaTest = 1 << 4
 };
 
 enum class AntiAliasMode { None, FXAA, MSAA_2x, MSAA_4x, MSAA_8x };
@@ -462,6 +462,8 @@ struct Mesh {
     uint32_t indexCount;
 
     glm::mat4 localTransform;
+
+    bool hasSkin;
 
     AABB aabb;
     uint32_t sourceIndex;
@@ -880,15 +882,19 @@ class Renderer {
         Material material;
         Handle<VertexArray> vao;
         uint32_t indexCount;
+
+        // Bitmask of shader features.
+        // Sorted in render bucket
+        uint32_t shaderIndex;
     };
 
-    void drawRenderItems(Pass &pass,
-                         const std::vector<RenderItem> &renderItems);
+    void drawRenderItem(Pass &pass, const RenderItem &renderItems);
 
-    // Possible permutations of shaders so far
-    // Update as needed or turn into hashmap
-    std::array<std::vector<RenderItem>, 8> m_RenderBucketsOpaque;
-    std::array<std::vector<RenderItem>, 8> m_RenderBucketsMasked;
+    // Set frustum plane if you want frustum culling
+    std::vector<RenderItem>
+    getRenderItemsByShader(uint32_t shaderIndex,
+                           const std::vector<Plane> *frustumPlanes = nullptr,
+                           bool sort = false);
 
     struct alignas(16) CameraConstants {
         glm::mat4 u_viewProjection;

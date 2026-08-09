@@ -170,6 +170,8 @@ SYN::gfx::gl::Mesh createMesh(
 
     mesh.indexCount = meshData.indices.size();
     mesh.localTransform = meshData.localTransform;
+    mesh.hasSkin = meshData.hasSkin;
+
     mesh.material = loadMaterial(context, meshData.material, textureCache);
 
     mesh.aabb = meshData.aabb;
@@ -177,19 +179,25 @@ SYN::gfx::gl::Mesh createMesh(
     return mesh;
 }
 
-uint32_t getShaderFeatures(bool hasNormal, bool hasMetallicRoughness,
-                           bool hasSkin) {
+uint32_t getShaderFeatures(const SYN::gfx::gl::Mesh &mesh,
+                           const SYN::gfx::gl::Material &material) {
     uint32_t featureFlag = 0;
 
-    featureFlag |= hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeature::Skinned : 0;
+    featureFlag |=
+        mesh.hasSkin ? (uint32_t)SYN::gfx::gl::ShaderFeature::Skinned : 0;
 
     featureFlag |=
-        hasMetallicRoughness
+        material.metallicRoughnessMap.has_value()
             ? (uint32_t)SYN::gfx::gl::ShaderFeature::MetallicRoughness
             : 0;
 
-    featureFlag |=
-        hasNormal ? (uint32_t)SYN::gfx::gl::ShaderFeature::Normal : 0;
+    featureFlag |= material.normalMap.has_value()
+                       ? (uint32_t)SYN::gfx::gl::ShaderFeature::Normal
+                       : 0;
+
+    featureFlag |= material.alphaCutoff < 1.0f
+                       ? (uint32_t)SYN::gfx::gl::ShaderFeature::AlphaTest
+                       : 0;
 
     return featureFlag;
 }
@@ -2402,34 +2410,31 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     return brdfLUT;
 }
 
-void SYN::gfx::gl::Renderer::drawRenderItems(
-    Pass &pass, const std::vector<RenderItem> &renderItems) {
-    for (const RenderItem &renderItem : renderItems) {
-        const Material &material = renderItem.material;
-        pass.bindUniform("u_tint", material.tint.r, material.tint.g,
-                         material.tint.b);
-        pass.bindUniform("u_metallic", material.metallic);
-        pass.bindUniform("u_roughness", material.roughness);
+void SYN::gfx::gl::Renderer::drawRenderItem(Pass &pass,
+                                            const RenderItem &renderItem) {
+    const Material &material = renderItem.material;
+    pass.bindUniform("u_tint", material.tint.r, material.tint.g,
+                     material.tint.b);
+    pass.bindUniform("u_metallic", material.metallic);
+    pass.bindUniform("u_roughness", material.roughness);
 
-        Handle<Sampler> sampler =
-            material.sampler.value_or(m_DefaultModelSampler);
+    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
 
-        if (material.albedo) {
-            pass.bindTexture(0, material.albedo.value(), sampler);
-        }
-
-        if (material.normalMap) {
-            pass.bindTexture(1, material.normalMap.value(), sampler);
-        }
-
-        if (material.metallicRoughnessMap) {
-            pass.bindTexture(2, material.metallicRoughnessMap.value(), sampler);
-        }
-
-        pass.bindUniform("u_Model", renderItem.transform);
-        pass.bindVertexArray(renderItem.vao);
-        pass.drawIndexed(renderItem.indexCount);
+    if (material.albedo) {
+        pass.bindTexture(0, material.albedo.value(), sampler);
     }
+
+    if (material.normalMap) {
+        pass.bindTexture(1, material.normalMap.value(), sampler);
+    }
+
+    if (material.metallicRoughnessMap) {
+        pass.bindTexture(2, material.metallicRoughnessMap.value(), sampler);
+    }
+
+    pass.bindUniform("u_Model", renderItem.transform);
+    pass.bindVertexArray(renderItem.vao);
+    pass.drawIndexed(renderItem.indexCount);
 }
 
 void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
@@ -2455,32 +2460,20 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     updateMsaaFramebuffer(context);
     updateHdrFramebuffer(context);
 
-    // Sort draw commands by shader
+    // Update anisotropy of all objects submitted to draw command
+    // TODO: Only update the anisotropy and not irrelevant sampler parameters.
+    // Only have to do it once per unique model (set of meshes) as multiple draw
+    // commands may refer to the same model.
     {
         if (m_AnisotropicUpdate) {
             context.updateSampler(m_DefaultModelSampler,
                                   m_DefaultModelSamplerDesc);
         }
 
-        std::vector<Plane> planes = planesFromCameraFrustum(m_MainCamera);
-
         for (const DrawCommand &cmd : m_DrawCommandList) {
             const Model *model =
                 m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle)
                     .value();
-            auto getMaterialOverride =
-                [&](uint32_t sourceIndex) -> std::optional<Material> {
-                for (const MaterialOverride &override : cmd.materialOverride) {
-                    if (sourceIndex != override.meshIndex)
-                        continue;
-                    Material material = override.material;
-                    if (!material.albedo) {
-                        material.albedo = m_DefaultWhite;
-                    }
-                    return material;
-                }
-                return std::nullopt;
-            };
             for (const Mesh &mesh : model->meshesOpaque) {
                 if (mesh.material.sampler.has_value() &&
                     mesh.material.samplerDesc.has_value() &&
@@ -2491,22 +2484,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     context.updateSampler(mesh.material.sampler.value(),
                                           samplerDesc);
                 }
-                if (!aabbVsFrustum(
-                        aabbToWorld(mesh.aabb,
-                                    cmd.transform * mesh.localTransform),
-                        planes))
-                    continue;
-
-                Material material = getMaterialOverride(mesh.sourceIndex)
-                                        .value_or(mesh.material);
-
-                uint32_t shaderFeatures = getShaderFeatures(
-                    material.normalMap.has_value(),
-                    material.metallicRoughnessMap.has_value(), false);
-
-                m_RenderBucketsOpaque[shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform, material,
-                               mesh.vao, mesh.indexCount});
             }
             for (const Mesh &mesh : model->meshesMasked) {
                 if (mesh.material.sampler.has_value() &&
@@ -2518,22 +2495,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                     context.updateSampler(mesh.material.sampler.value(),
                                           samplerDesc);
                 }
-                if (!aabbVsFrustum(
-                        aabbToWorld(mesh.aabb,
-                                    cmd.transform * mesh.localTransform),
-                        planes))
-                    continue;
-
-                Material material = getMaterialOverride(mesh.sourceIndex)
-                                        .value_or(mesh.material);
-
-                uint32_t shaderFeatures = getShaderFeatures(
-                    material.normalMap.has_value(),
-                    material.metallicRoughnessMap.has_value(), false);
-
-                m_RenderBucketsMasked[shaderFeatures].push_back(
-                    RenderItem{cmd.transform * mesh.localTransform, material,
-                               mesh.vao, mesh.indexCount});
             }
         }
         m_AnisotropicUpdate = false;
@@ -2595,6 +2556,14 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
                              m_CascadedShadowmap.shadowSampler);
 
+            std::vector<Plane> planes = planesFromCameraFrustum(m_MainCamera);
+
+            std::vector<RenderItem> opaqueItems =
+                getRenderItemsByShader(0, &planes, true);
+
+            std::vector<RenderItem> alphaMaskedItems = getRenderItemsByShader(
+                (uint32_t)ShaderFeature::AlphaTest, &planes, true);
+
             PipelineState pipeline;
             pipeline.depth.writeEnabled = true;
             pipeline.color = {false, false, false, false};
@@ -2604,80 +2573,62 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
             pass.usePipeline(pipeline);
 
             // Z Prepass
-            for (const std::vector<RenderItem> &renderItems :
-                 m_RenderBucketsOpaque) {
-                if (renderItems.empty()) {
-                    continue;
-                }
+            for (const RenderItem &renderItem : opaqueItems) {
+                const Material &material = renderItem.material;
+                Handle<Sampler> sampler =
+                    material.sampler.value_or(m_DefaultModelSampler);
 
-                for (const RenderItem &renderItem : renderItems) {
-                    const Material &material = renderItem.material;
-                    Handle<Sampler> sampler =
-                        material.sampler.value_or(m_DefaultModelSampler);
-
-                    if (material.albedo) {
-                        pass.bindTexture(0, material.albedo.value(), sampler);
-                    }
-
-                    pass.bindUniform("u_Model", renderItem.transform);
-                    pass.bindVertexArray(renderItem.vao);
-                    pass.drawIndexed(renderItem.indexCount);
-                }
+                pass.bindUniform("u_Model", renderItem.transform);
+                pass.bindVertexArray(renderItem.vao);
+                pass.drawIndexed(renderItem.indexCount);
             }
 
             pipeline.shader = m_ShaderCache.getShaderHandle(
                 context, "z_prepass", (uint32_t)ShaderFeature::AlphaTest);
             pipeline.cullMode = CullMode::None;
             pass.usePipeline(pipeline);
-            for (const std::vector<RenderItem> &renderItems :
-                 m_RenderBucketsMasked) {
-                if (renderItems.empty()) {
-                    continue;
+            for (const RenderItem &renderItem : alphaMaskedItems) {
+                const Material &material = renderItem.material;
+                Handle<Sampler> sampler =
+                    material.sampler.value_or(m_DefaultModelSampler);
+
+                if (material.albedo) {
+                    pass.bindTexture(0, material.albedo.value(), sampler);
                 }
 
-                for (const RenderItem &renderItem : renderItems) {
-                    const Material &material = renderItem.material;
-                    Handle<Sampler> sampler =
-                        material.sampler.value_or(m_DefaultModelSampler);
-
-                    if (material.albedo) {
-                        pass.bindTexture(0, material.albedo.value(), sampler);
-                    }
-
-                    pass.bindUniform("u_Model", renderItem.transform);
-                    pass.bindUniform("u_alphaCutoff",
-                                     renderItem.material.alphaCutoff);
-                    pass.bindVertexArray(renderItem.vao);
-                    pass.drawIndexed(renderItem.indexCount);
-                }
+                pass.bindUniform("u_Model", renderItem.transform);
+                pass.bindUniform("u_alphaCutoff",
+                                 renderItem.material.alphaCutoff);
+                pass.bindVertexArray(renderItem.vao);
+                pass.drawIndexed(renderItem.indexCount);
             }
 
             pipeline.depth.test = DepthFunc::Equal;
             pipeline.depth.writeEnabled = false;
             pipeline.color = {true, true, true, true};
             pipeline.cullMode = CullMode::Back;
+            std::optional<uint32_t> currentShader = std::nullopt;
             // Actual forward + PBR
-            for (uint32_t i = 0; i < m_RenderBucketsOpaque.size(); ++i) {
-                const std::vector<RenderItem> &renderItems =
-                    m_RenderBucketsOpaque.at(i);
-                if (renderItems.empty())
-                    continue;
-                pipeline.shader =
-                    m_ShaderCache.getShaderHandle(context, "forward", i);
-                pass.usePipeline(pipeline);
-                drawRenderItems(pass, renderItems);
+            for (const RenderItem &renderItem : opaqueItems) {
+                if (!currentShader.has_value() ||
+                    currentShader.value() != renderItem.shaderIndex) {
+                    currentShader = renderItem.shaderIndex;
+                    pipeline.shader = m_ShaderCache.getShaderHandle(
+                        context, "forward", renderItem.shaderIndex);
+                    pass.usePipeline(pipeline);
+                }
+                drawRenderItem(pass, renderItem);
             }
-
+            currentShader = std::nullopt;
             pipeline.cullMode = CullMode::None;
-            for (uint32_t i = 0; i < m_RenderBucketsMasked.size(); ++i) {
-                const std::vector<RenderItem> &renderItems =
-                    m_RenderBucketsMasked.at(i);
-                if (renderItems.empty())
-                    continue;
-                pipeline.shader =
-                    m_ShaderCache.getShaderHandle(context, "forward", i);
-                pass.usePipeline(pipeline);
-                drawRenderItems(pass, renderItems);
+            for (const RenderItem &renderItem : alphaMaskedItems) {
+                if (!currentShader.has_value() ||
+                    currentShader.value() != renderItem.shaderIndex) {
+                    pipeline.shader = m_ShaderCache.getShaderHandle(
+                        context, "forward", renderItem.shaderIndex);
+                    pass.usePipeline(pipeline);
+                }
+                drawRenderItem(pass, renderItem);
             }
 
             if (m_Environment.has_value()) {
@@ -2722,12 +2673,6 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     }
 
     m_DrawCommandList.clear();
-    for (std::vector<RenderItem> &renderItems : m_RenderBucketsOpaque) {
-        renderItems.clear();
-    }
-    for (std::vector<RenderItem> &renderItems : m_RenderBucketsMasked) {
-        renderItems.clear();
-    }
 
     TracyGpuCollect;
 }
@@ -3193,3 +3138,67 @@ void SYN::gfx::gl::Renderer::setAnisotropicFiltering(float filter) {
 }
 
 void SYN::gfx::gl::Renderer::reloadInternalShaders() { m_ShaderCache.reset(); }
+
+std::vector<SYN::gfx::gl::Renderer::RenderItem>
+SYN::gfx::gl::Renderer::getRenderItemsByShader(
+    uint32_t shaderIndex, const std::vector<Plane> *frustumPlanes, bool sort) {
+    std::vector<RenderItem> renderItems;
+
+    auto getMaterialOverride =
+        [&](const DrawCommand &cmd,
+            uint32_t sourceIndex) -> std::optional<Material> {
+        for (const MaterialOverride &override : cmd.materialOverride) {
+            if (sourceIndex != override.meshIndex)
+                continue;
+            Material material = override.material;
+            if (!material.albedo) {
+                material.albedo = m_DefaultWhite;
+            }
+            return material;
+        }
+        return std::nullopt;
+    };
+
+    auto processMeshes = [&](const DrawCommand &cmd, const Model *model,
+                             const std::vector<Mesh> &meshes) {
+        for (const Mesh &mesh : meshes) {
+            Material material = getMaterialOverride(cmd, mesh.sourceIndex)
+                                    .value_or(mesh.material);
+
+            uint32_t shaderFeatures = getShaderFeatures(mesh, material);
+
+            if (!(bool)(shaderFeatures & shaderIndex) && shaderIndex != 0)
+                continue;
+
+            glm::mat4 worldTransform = cmd.transform * mesh.localTransform;
+            if (frustumPlanes != nullptr &&
+                !aabbVsFrustum(aabbToWorld(mesh.aabb, worldTransform),
+                               *frustumPlanes)) {
+                continue;
+            }
+
+            renderItems.push_back({worldTransform, material, mesh.vao,
+                                   mesh.indexCount, shaderFeatures});
+        }
+    };
+
+    for (const DrawCommand &cmd : m_DrawCommandList) {
+        const Model *model =
+            m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle).value();
+        const std::vector<Mesh> &meshes =
+            shaderIndex & (uint32_t)ShaderFeature::AlphaTest
+                ? model->meshesMasked
+                : model->meshesOpaque;
+        processMeshes(cmd, model, meshes);
+    }
+
+    if (!sort)
+        return renderItems;
+
+    std::sort(renderItems.begin(), renderItems.end(),
+              [](const RenderItem &a, const RenderItem &b) {
+                  return a.shaderIndex < b.shaderIndex;
+              });
+
+    return renderItems;
+}
