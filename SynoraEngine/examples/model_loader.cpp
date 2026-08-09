@@ -459,7 +459,8 @@ processMaterial(const aiMaterial *material, const aiScene *scene,
     float alphaCutoff{};
     result.alphaCutoff = albedoNeedsAlphaMask(result.albedoData) ? 0.5f : 1.0f;
     if (material->Get("$mat.gltf.alphaCutoff", 0, 0, alphaCutoff) ==
-        AI_SUCCESS) {
+            AI_SUCCESS &&
+        (result.alphaCutoff < 1.0f)) {
         result.alphaCutoff = alphaCutoff;
     }
 
