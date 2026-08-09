@@ -667,6 +667,7 @@ class ShaderCache {
     void registerIncludes(std::string_view includePath);
     void registerFeature(std::string_view featureMacro, ShaderFeature feature);
     void registerShader(std::string_view name, std::string_view filePath);
+
     Handle<Shader> getShaderHandle(Context &context, std::string_view name,
                                    uint32_t featureFlags);
 
@@ -692,6 +693,9 @@ class ShaderCache {
                                   (nameHash >> 2);
         }
     };
+
+  private:
+    std::optional<Handle<Shader>> m_DefaultShader;
 
   private:
     std::unordered_map<ShaderKey, Handle<Shader>, ShaderHash> m_ShaderCache;

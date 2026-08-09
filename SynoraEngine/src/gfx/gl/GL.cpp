@@ -118,6 +118,27 @@ SYN::gfx::gl::Material loadMaterial(
     return material;
 }
 
+SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
+createDefaultShader(SYN::gfx::gl::Context &context) {
+    std::string defaultVertexSource = R"(
+        #version 450 core
+        void main() {
+            gl_Position = vec4(vec3(0.0f), 1.0f);
+        }
+    )";
+
+    std::string defaultFragmentSource = R"(
+        #version 450 core
+        out vec4 fragColor;
+        void main() {
+            fragColor = vec4(1.0f);    
+        }
+    )";
+
+    return context.createShader(defaultVertexSource, defaultFragmentSource)
+        .value();
+}
+
 SYN::gfx::gl::Mesh createMesh(
     SYN::gfx::gl::Context &context, const SYN::gfx::gl::MeshData &meshData,
     std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
@@ -1620,6 +1641,9 @@ SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
 SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
                                            std::string_view name,
                                            uint32_t featureFlags) {
+    if (!m_DefaultShader.has_value()) {
+        m_DefaultShader = createDefaultShader(context);
+    }
 
     std::string shaderName(name);
     ShaderKey key{std::string(shaderName), featureFlags};
@@ -1628,6 +1652,7 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
     }
     if (m_ShaderSources.find(shaderName) == m_ShaderSources.cend()) {
         spdlog::error("Unable to find shader [{}]", name);
+        return m_DefaultShader.value();
     }
 
     std::string header = "#version 450 core\n";
@@ -1707,7 +1732,7 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
 
     if (!shader.has_value()) {
         spdlog::error("Failed to compile shader {}", name);
-        return Handle<Shader>{};
+        return m_DefaultShader.value();
     }
 
     m_ShaderCache[key] = shader.value();
