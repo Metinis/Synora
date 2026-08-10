@@ -1746,7 +1746,10 @@ SYN::gfx::gl::ShaderCache::getShaderHandle(Context &context,
     return m_ShaderCache.at(key);
 }
 
-void SYN::gfx::gl::ShaderCache::reset() {
+void SYN::gfx::gl::ShaderCache::reset(Context &context) {
+    for (auto &[_, shader] : m_ShaderCache) {
+        context.deleteShader(shader);
+    }
     m_ShaderCache.clear();
     auto getFileContents = [](const std::string &filepath) -> std::string {
         std::fstream file(filepath);
@@ -3168,7 +3171,9 @@ void SYN::gfx::gl::Renderer::setAnisotropicFiltering(float filter) {
     m_AnisotropicUpdate = true;
 }
 
-void SYN::gfx::gl::Renderer::reloadInternalShaders() { m_ShaderCache.reset(); }
+void SYN::gfx::gl::Renderer::reloadInternalShaders(Context &context) {
+    m_ShaderCache.reset(context);
+}
 
 std::vector<SYN::gfx::gl::Renderer::RenderItem>
 SYN::gfx::gl::Renderer::getRenderItemsByShader(

@@ -273,7 +273,7 @@ class GraphicsScene : public SYN::ILayer {
                 m_Renderer.setRenderScale(m_RenderScale);
             }
             if (ImGui::Button("Reload shaders")) {
-                m_Renderer.reloadInternalShaders();
+                m_Renderer.reloadInternalShaders(*m_Context);
             }
 
             const char *environments[] = {"Ghibli (no irradiance)",
