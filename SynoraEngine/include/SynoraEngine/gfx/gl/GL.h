@@ -673,7 +673,7 @@ class ShaderCache {
 
     // Use if registered shaders change source
     // and you want to rebuild during runtime (hot reload).
-    void reset();
+    void reset(Context &context);
 
   private:
     struct ShaderKey {
@@ -768,7 +768,7 @@ class Renderer {
     std::vector<uint32_t> getCSMTextures(Context &context);
 
     // Resets the shader cache. Use for hot reloading.
-    void reloadInternalShaders();
+    void reloadInternalShaders(Context &context);
 
   private:
     struct {
