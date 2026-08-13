@@ -106,7 +106,7 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
     m_UploadedMeshes[modelID] = std::move(mesh);
 }
 void Renderer::addMaterial(UUID materialID, const MaterialData &materialData) {
-    if (m_UploadedMeshes.contains(materialID)) {
+    if (m_UploadedMaterials.contains(materialID)) {
         spdlog::warn("Trying to add model (uuid = {}) that was already added",
                      materialID);
         return;

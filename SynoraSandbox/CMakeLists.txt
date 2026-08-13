@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.1)
+cmake_minimum_required(VERSION 3.3)
 
 project(SynoraSandbox)
 
@@ -10,6 +10,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+option(BUILD_MAIN "Build the main application" ON)
 
 file(GLOB_RECURSE SYSTEM_SOURCES
         CONFIGURE_DEPENDS
@@ -66,3 +67,9 @@ foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
             SynoraEngine
     )
 endforeach()
+
+#building standalone game
+if(BUILD_MAIN)
+    add_executable(SynoraSandbox main.cpp)
+    target_link_libraries(SynoraSandbox PRIVATE SynoraEngine)
+endif()

@@ -34,8 +34,17 @@ void ScriptManager::init(EngineContext *ctx) {
 
     std::string currentDir = std::filesystem::current_path().string();
     if (const char *folder = tinyfd_selectFolderDialog("Select Game Folder", currentDir.c_str())) {
-        initAllSystems(folder);
-        std::filesystem::remove_all(std::string(folder) + "/.hotreload");
+        auto path = std::filesystem::path(folder);
+        if (!exists(path / "systems")) {
+            std::filesystem::create_directory(path / "systems");
+            spdlog::debug("Systems dir not found.. Creating a new one");
+        }
+        if (!exists(path / "assets")) {
+            std::filesystem::create_directory(path / "assets");
+            spdlog::debug("Assets dir not found.. Creating a new one");
+        }
+        initAllSystems(path / "systems");
+        std::filesystem::remove_all(path / "systems" / ".hotreload");
 
     }
 }
