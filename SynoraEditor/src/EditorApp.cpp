@@ -5,7 +5,7 @@ using namespace SYE;
 EditorApp::EditorApp() {
     m_ScenePanel = std::make_unique<EditorPanel>();
 }
-void EditorApp::init() {
+void EditorApp::init(const std::filesystem::path& path) {
     Application::init();
     m_ScenePanel->init(&m_EngineContext);
     m_Layers.push_front(m_ScenePanel.get());

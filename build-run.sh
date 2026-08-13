@@ -1,2 +1,2 @@
 #!/bin/bash
-cmake -B build -S . && cmake --build build && cd build/bin && ./SynoraEditor
+cmake -B build -S . && cmake --build build -j$(nproc) && cd build/bin && ./SynoraEditor

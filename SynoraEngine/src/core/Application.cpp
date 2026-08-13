@@ -36,8 +36,10 @@ Application::Application() {
     m_EngineContext.projectConfig = std::move(projectConfig);
 }
 
-void Application::init() {
+void Application::init(const std::filesystem::path& projectPath) {
     spdlog::set_level(spdlog::level::debug);
+
+    m_EngineContext.projectConfig.resourceRoot = projectPath;
     // create window etc
     m_IsRunning = true;
 
@@ -47,7 +49,7 @@ void Application::init() {
     m_EngineContext.renderer->init(&m_EngineContext);
     m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
     m_EngineContext.scene->init(&m_EngineContext);
-    m_EngineContext.scriptManager->init(&m_EngineContext);
+    m_EngineContext.scriptManager->init(&m_EngineContext, projectPath);
     m_EngineContext.cameraSystem->init(&m_EngineContext);
     m_EngineContext.fileWatcher->watch();
 

@@ -28,7 +28,7 @@ struct EngineContext {
 class Application {
   public:
     Application();
-    virtual void init();
+    virtual void init(const std::filesystem::path& projectPath = "");
     void run();
     void shutdown();
     static Application &get() { return *s_Instance; }

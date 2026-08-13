@@ -17,7 +17,7 @@ class ScriptManager : public ILayer {
 public:
     ScriptManager() = default;
 
-    void init(EngineContext* ctx);
+    void init(EngineContext* ctx, const std::filesystem::path& path = "");
 
     void onAttach() override;
     void onUpdate(float dt) override;

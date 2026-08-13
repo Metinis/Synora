@@ -68,8 +68,11 @@ foreach(SYSTEM_FILE ${SYSTEM_SOURCES})
     )
 endforeach()
 
-#building standalone game
+# Building standalone game
 if(BUILD_MAIN)
     add_executable(SynoraSandbox main.cpp)
     target_link_libraries(SynoraSandbox PRIVATE SynoraEngine)
+    add_definitions(-DPROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
+
+
