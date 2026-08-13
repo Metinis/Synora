@@ -28,7 +28,8 @@ void EditorPanel::onInspectorPanelRender() {
             }
         } else {
             if (ImGui::BeginCombo("Mesh", "TestMesh")) {
-                for (auto& meshID : m_AssetManager->getAssets<SYN::MeshData>()) {
+                auto* assetManager = m_Ctx->projectConfig.assetManager.get();
+                for (auto& meshID : assetManager->getAssets<SYN::MeshData>()) {
                     if (ImGui::Selectable(std::to_string(meshID).c_str())) {
                         e.removeComponent<MeshComp>();
                         e.addComponent<MeshComp>(MeshComp{.id = meshID});

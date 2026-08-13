@@ -29,6 +29,7 @@ set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(assimp)
 add_subdirectory(efsw)
+add_subdirectory(yaml-cpp)
 
 add_library(imgui STATIC
         imgui/imgui.cpp

@@ -17,7 +17,7 @@ struct RuntimeComponent;
 class Scene : public ILayer {
   public:
     Scene();
-    ~Scene() override = default;
+    ~Scene() override;
 
     void onUpdate(float dt) override;
     void onAttach() override;

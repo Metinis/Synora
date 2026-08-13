@@ -1,7 +1,9 @@
 #include "SynoraEngine/scene/Scene.h"
 
 #include "../../include/SynoraEngine/renderer/Renderer.h"
+#include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/project/AssetManager.h"
+#include "SynoraEngine/project/Project.h"
 #include "SynoraEngine/scene/Components.h"
 #include "glm/ext.hpp"
 #include "renderer/backends/vulkan/Backend.h"
@@ -17,6 +19,8 @@
 using namespace SYN;
 
 Scene::Scene() {}
+Scene::~Scene() {
+}
 
 Entity Scene::getEntity(UUID id) {
     if (m_EntityUUIDCache.contains(id)) {

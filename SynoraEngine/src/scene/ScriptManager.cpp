@@ -22,28 +22,12 @@ void ScriptManager::loadSystem(ISystem *system) {
 void ScriptManager::unloadSystem(ISystem *system) {
   system->onUnload();
 }
-void ScriptManager::init(EngineContext *ctx, const std::filesystem::path& path) {
+void ScriptManager::init(EngineContext *ctx) {
   m_Ctx = ctx;
 
-  std::string currentDir = std::filesystem::current_path().string();
-  std::filesystem::path gamePath;
-  if(path == "") {
-    const char *folder = tinyfd_selectFolderDialog("Select Game Folder", currentDir.c_str());
-    gamePath = std::filesystem::path(folder);
-  } else {
-    gamePath = currentDir;
-  }
-
-  if (!exists(gamePath / "systems")) {
-    std::filesystem::create_directory(gamePath / "systems");
-    spdlog::debug("Systems dir not found.. Creating a new one");
-  }
-  if (!exists(gamePath / "assets")) {
-    std::filesystem::create_directory(gamePath / "assets");
-    spdlog::debug("Assets dir not found.. Creating a new one");
-  }
-  initAllSystems(gamePath / "systems");
-  std::filesystem::remove_all(gamePath / "systems" / ".hotreload");
+  spdlog::debug(ctx->projectConfig.projectRoot + "/systems");
+  initAllSystems(ctx->projectConfig.projectRoot + "/systems");
+  std::filesystem::remove_all(ctx->projectConfig.projectRoot + "/systems" + "/.hotreload");
 
   m_Listener.onFileChanged = [this](const std::string &gamePath, efsw::Action action) {
     handleFileChanged(gamePath, action);

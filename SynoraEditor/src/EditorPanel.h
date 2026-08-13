@@ -1,4 +1,5 @@
 #pragma once
+#include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/scene/Entity.h"
 
@@ -29,8 +30,7 @@ public:
     ~EditorPanel() override;
 private:
     SYN::Entity m_SelectedEntity{};
-    SYN::Scene* m_Scene{};
-    SYN::AssetManager* m_AssetManager{};
+    SYN::EngineContext* m_Ctx{};
     std::optional<PendingReparent> m_PendingReparent;
 };
 }

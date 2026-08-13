@@ -3,8 +3,7 @@
 using namespace SYE;
 
 void EditorPanel::init(SYN::EngineContext *ctx) {
-    m_Scene = ctx->scene.get();
-    m_AssetManager = ctx->projectConfig.assetManager.get();
+  m_Ctx = ctx;
 }
 void EditorPanel::onUIRender() {
     onScenePanelRender();

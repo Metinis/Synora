@@ -1,6 +1,7 @@
 #include "EditorPanel.h"
 #include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/scene/ScriptManager.h"
+#include "SynoraEngine/file/SceneSerializer.h"
 #include "imgui.h"
 
 namespace SYE {
@@ -15,9 +16,12 @@ namespace SYE {
           if (ImGui::MenuItem("Open")) {
           }
           if (ImGui::MenuItem("Save")) {
+            auto* scene = m_Ctx->scene.get();
+            SYN::SceneSerializer::serialize(scene, m_Ctx->projectConfig.resourceRoot); 
           }
           ImGui::Separator();
           if (ImGui::MenuItem("Exit")) {
+            SYN::Application::get().shutdown();
           }
           ImGui::EndMenu();
         }

@@ -16,14 +16,15 @@ void EditorPanel::onScenePanelRender() {
     ImGui::SetWindowPos(ImVec2(0, 20), ImGuiCond_Once);
     ImGui::SetWindowSize(ImVec2(200, 400), ImGuiCond_Once);
     ImGui::BeginChild("SceneHierarchyRegion", ImVec2(0, 0), false);
+    auto* scene = m_Ctx->scene.get();
 
     std::vector<SYN::Entity> deleteQueue;
-    for (auto &e : m_Scene->getEntities<TransformComp>()) {
+    for (auto &e : scene->getEntities<TransformComp>()) {
         if (!e.hasComponent<ParentComp>())
             drawEntityNode(e, deleteQueue);
     }
     for (const auto e : deleteQueue) {
-        m_Scene->removeEntity(e);
+        scene->removeEntity(e);
     }
     if (ImGui::BeginDragDropTargetCustom(  ImGui::GetCurrentWindow()->Rect(),
             ImGui::GetID("SceneRootDrop"))) {
@@ -40,11 +41,11 @@ void EditorPanel::onScenePanelRender() {
     if (m_PendingReparent) {
         auto& [childID, parentID] = *m_PendingReparent;
 
-        auto child  = m_Scene->getEntity(childID);
-        auto parent = m_Scene->getEntity(parentID);
+        auto child  = scene->getEntity(childID);
+        auto parent = scene->getEntity(parentID);
 
         if (child.isValid() && parent.isValid() &&
-            !m_Scene->isDescendantOf(parent, child))
+            !scene->isDescendantOf(parent, child))
         {
             if (!child.hasComponent<ParentComp>()) {
                 child.addParent(ParentComp{.id = parentID});
@@ -72,8 +73,9 @@ void EditorPanel::onScenePanelRender() {
             const char *path =
                 tinyfd_openFileDialog("Choose a model", "", filters.size(),
                                       filters.data(), "3D Model Files", 1);
+            auto* assetManager = m_Ctx->projectConfig.assetManager.get();
             if (path) {
-                m_AssetManager->loadModel(m_Scene, path);
+                assetManager->loadModel(scene, path);
             }
         }
 
@@ -91,7 +93,7 @@ void EditorPanel::onScenePanelRender() {
         ImGui::Separator();
 
         if (ImGui::Button("Create", ImVec2(120, 0))) {
-            m_Scene->createEntity(entityName);
+            scene->createEntity(entityName);
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -147,7 +149,8 @@ void EditorPanel::drawEntityNode(SYN::Entity entity,
     }
     // draw children
     if (opened) {
-        for (auto e : m_Scene->getEntities<ParentComp>()) {
+    auto* scene = m_Ctx->scene.get();
+        for (auto e : scene->getEntities<ParentComp>()) {
             if (e.getComponent<ParentComp>().id == entity.getUUID()) {
                 drawEntityNode(e, deletionQueue);
             }
