@@ -1,8 +1,5 @@
-#include "ScriptManager.h"
-
-#include "FileListener.h"
 #include "efsw/efsw.hpp"
-
+#include "SynoraEngine/scene/ScriptManager.h"
 #include <SynoraEngine/core/Application.h>
 #include <dlfcn.h>
 #include <spdlog/spdlog.h>
@@ -123,19 +120,21 @@ void ScriptManager::reloadSystem(const std::string& path) {
   m_Systems.insert_or_assign(path, std::move(sys));
 }
 void ScriptManager::onUpdate(float dt) {
-  for(auto it = m_PendingReloads.begin(); it != m_PendingReloads.end();) {
-    it->timer -= dt;
+  if(m_Ctx->isGameRunning) {
+    for(auto it = m_PendingReloads.begin(); it != m_PendingReloads.end();) {
+      it->timer -= dt;
 
-    if(it->timer <= 0.0f) {
-      reloadSystem(it->path);
-      it = m_PendingReloads.erase(it);
+      if(it->timer <= 0.0f) {
+        reloadSystem(it->path);
+        it = m_PendingReloads.erase(it);
+      }
+      else {
+        ++it;
+      }
     }
-    else {
-      ++it;
+    for (auto& system : m_Systems) {
+      system.second.system->onUpdate(dt);
     }
-  }
-  for (auto& system : m_Systems) {
-    system.second.system->onUpdate(dt);
   }
 }
 void ScriptManager::onDetach() {

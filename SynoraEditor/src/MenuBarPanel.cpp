@@ -1,4 +1,6 @@
 #include "EditorPanel.h"
+#include "SynoraEngine/core/Application.h"
+#include "SynoraEngine/scene/ScriptManager.h"
 #include "imgui.h"
 
 namespace SYE {
@@ -27,6 +29,23 @@ namespace SYE {
           if (ImGui::MenuItem("Cut")) {}
           if (ImGui::MenuItem("Copy")) {}
           if (ImGui::MenuItem("Paste")) {}
+          ImGui::EndMenu();
+        }
+
+        bool& isGameRunning = SYN::Application::get().getCtx()->isGameRunning;
+
+        if (ImGui::BeginMenu("Run")) {
+          if(!isGameRunning) {
+            if(ImGui::MenuItem("Start")) {
+              isGameRunning = true;
+              SYN::Application::get().getCtx()->scriptManager.get()->loadAllSystems();
+            }          
+          }
+          if(isGameRunning) {
+            if(ImGui::MenuItem("Stop")) {
+              isGameRunning = false;
+            }          
+          }
           ImGui::EndMenu();
         }
 

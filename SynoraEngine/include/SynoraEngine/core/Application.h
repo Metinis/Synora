@@ -24,6 +24,7 @@ struct EngineContext {
     std::unique_ptr<efsw::FileWatcher> fileWatcher;
     std::unique_ptr<RuntimeCompManager> compManager;
     ProjectConfig projectConfig;
+    bool isGameRunning {false};
 };
 class Application {
   public:

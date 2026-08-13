@@ -9,7 +9,7 @@
 #include <GLFW/glfw3.h>
 #include <SynoraEngine/core/Application.h>
 #include <SynoraEngine/scene/RuntimeCompManager.h>
-#include "scene/ScriptManager.h"
+#include "SynoraEngine/scene/ScriptManager.h"
 #include <SynoraEngine/core/Input.h>
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
@@ -56,8 +56,6 @@ void Application::init(const std::filesystem::path& projectPath) {
     m_Layers.push_back(m_EngineContext.scene.get());
     m_Layers.push_back(m_EngineContext.cameraSystem.get());
     m_Layers.push_back(m_EngineContext.scriptManager.get());
-
-    m_EngineContext.scriptManager->loadAllSystems();
 }
 
 void Application::run() {
