@@ -9,4 +9,5 @@ void EditorPanel::init(SYN::EngineContext *ctx) {
 void EditorPanel::onUIRender() {
     onScenePanelRender();
     onInspectorPanelRender();
+    onMenuBarPanelRender();
 }

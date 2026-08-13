@@ -24,6 +24,7 @@ public:
     void drawEntityNode(SYN::Entity entity, std::vector<SYN::Entity>& deletionQueue);
     void onScenePanelRender();
     void onInspectorPanelRender();
+    void onMenuBarPanelRender();
 
     ~EditorPanel() override;
 private:

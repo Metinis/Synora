@@ -13,7 +13,7 @@ static constexpr const char* ENTITY_DRAG_PAYLOAD = "SYN_ENTITY";
 
 void EditorPanel::onScenePanelRender() {
     ImGui::Begin("Scene UI");
-    ImGui::SetWindowPos(ImVec2(0, 0), ImGuiCond_Once);
+    ImGui::SetWindowPos(ImVec2(0, 20), ImGuiCond_Once);
     ImGui::SetWindowSize(ImVec2(200, 400), ImGuiCond_Once);
     ImGui::BeginChild("SceneHierarchyRegion", ImVec2(0, 0), false);
 

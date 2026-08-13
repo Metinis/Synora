@@ -37,19 +37,19 @@ void ScriptManager::init(EngineContext *ctx, const std::filesystem::path& path) 
     gamePath = currentDir;
   }
 
-  if (!exists(path / "systems")) {
-    std::filesystem::create_directory(path / "systems");
+  if (!exists(gamePath / "systems")) {
+    std::filesystem::create_directory(gamePath / "systems");
     spdlog::debug("Systems dir not found.. Creating a new one");
   }
-  if (!exists(path / "assets")) {
-    std::filesystem::create_directory(path / "assets");
+  if (!exists(gamePath / "assets")) {
+    std::filesystem::create_directory(gamePath / "assets");
     spdlog::debug("Assets dir not found.. Creating a new one");
   }
-  initAllSystems(path / "systems");
-  std::filesystem::remove_all(path / "systems" / ".hotreload");
+  initAllSystems(gamePath / "systems");
+  std::filesystem::remove_all(gamePath / "systems" / ".hotreload");
 
-  m_Listener.onFileChanged = [this](const std::string &path, efsw::Action action) {
-    handleFileChanged(path, action);
+  m_Listener.onFileChanged = [this](const std::string &gamePath, efsw::Action action) {
+    handleFileChanged(gamePath, action);
   };
 
 

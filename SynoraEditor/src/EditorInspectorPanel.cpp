@@ -56,7 +56,7 @@ void EditorPanel::onInspectorPanelRender() {
         }
     };
     ImGui::Begin("Inspector UI");
-    ImGui::SetWindowPos(ImVec2(0, 400), ImGuiCond_Once);
+    ImGui::SetWindowPos(ImVec2(0, 420), ImGuiCond_Once);
     ImGui::SetWindowSize(ImVec2(200, 300), ImGuiCond_Once);
 
     if (m_SelectedEntity.isValid()) {

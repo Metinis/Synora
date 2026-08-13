@@ -86,7 +86,7 @@ void TestSystem::onLoad() {
 void TestSystem::onUpdate(float dt) {
     for (auto &e : m_Ctx->scene->getEntitiesRuntime("Test")) {
         auto& tc = e.getComponent<TransformComp>();
-        tc.rotation = glm::rotate(tc.rotation, -glm::radians(dt * 900), glm::vec3(0.0f, 1.0f, 0.0f));
+        tc.rotation = glm::rotate(tc.rotation, -glm::radians(dt * 90), glm::vec3(5.0f, 1.0f, 0.0f));
     }
 }
 void TestSystem::onUnload() {
