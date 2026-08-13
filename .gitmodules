@@ -31,3 +31,6 @@
 [submodule "SynoraEngine/3rdparty/efsw"]
 	path = SynoraEngine/3rdparty/efsw
 	url = https://github.com/SpartanJ/efsw
+[submodule "SynoraEngine/3rdparty/yaml-cpp"]
+	path = SynoraEngine/3rdparty/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp
