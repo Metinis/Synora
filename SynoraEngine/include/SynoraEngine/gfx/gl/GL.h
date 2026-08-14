@@ -1,14 +1,15 @@
 #pragma once
 
 #include <cstdint>
-#include <glm/vec4.hpp>
 #include <optional>
 #include <span>
 #include <string_view>
 
+#include <glm/gtc/quaternion.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 #ifdef SHADER_DEBUG_PATH
 #define SHADER_PATH SHADER_DEBUG_PATH
@@ -24,6 +25,7 @@ constexpr uint32_t MAX_VERTEX_ATTRIBUTES = 16;
 constexpr float MIN_GAMMA = 1.8f;
 constexpr float MAX_GAMMA = 2.6f;
 constexpr uint32_t MAX_SHADER_FEATURES = 32;
+constexpr uint32_t MAX_BONES = 128;
 
 enum class BufferType : uint8_t { Vertex, Index, Uniform };
 enum class MemoryUsage : uint8_t { GpuOnly, CpuToGPU };
@@ -294,7 +296,7 @@ struct FramebufferDesc {
 struct PassDesc {
     std::optional<Handle<Framebuffer>> framebufferHandle;
     std::optional<glm::vec4> clearColor;
-
+    bool clearDepth;
     bool enableDepthTest;
     bool enableStencilTest;
 
@@ -443,13 +445,31 @@ struct MeshData {
     MaterialData material;
     glm::mat4 localTransform = glm::mat4(1.0);
 
-    bool hasSkin;
+    bool hasSkin = false;
 
     AABB aabb;
 };
 
+struct Skeleton {
+    struct Node {
+        std::string name;
+        std::optional<uint32_t> parentIndex;
+        glm::mat4 localBindTransform = glm::mat4(1.0f);
+    };
+
+    struct BoneInfo {
+        uint32_t nodeIndex;
+        glm::mat4 inverseBindMatrix = glm::mat4(1.0f);
+    };
+
+    std::vector<Node> nodes;
+
+    std::vector<BoneInfo> boneInfo;
+};
+
 struct ModelData {
     std::vector<MeshData> meshes;
+    Skeleton skeleton;
 };
 
 struct Mesh {
@@ -463,7 +483,7 @@ struct Mesh {
 
     glm::mat4 localTransform;
 
-    bool hasSkin;
+    bool hasSkin = false;
 
     AABB aabb;
     uint32_t sourceIndex;
@@ -472,6 +492,33 @@ struct Mesh {
 struct Model {
     std::vector<Mesh> meshesOpaque;
     std::vector<Mesh> meshesMasked;
+    Skeleton skeleton;
+};
+
+struct VectorKey {
+    glm::vec3 value;
+    float timestamp;
+};
+
+struct QuatKey {
+    glm::quat value;
+    float timestamp;
+};
+
+struct AnimationChannel {
+    std::vector<VectorKey> translation;
+    std::vector<VectorKey> scale;
+    std::vector<QuatKey> rotation;
+};
+
+struct AnimationClip {
+    std::string name;
+
+    float duration;
+    float fps;
+
+    // Bone name -> Animation Channel
+    std::unordered_map<std::string, AnimationChannel> channels;
 };
 
 struct Environment {
@@ -485,6 +532,19 @@ struct Plane {
     float b;
     float c;
     float d;
+};
+
+struct RenderItem {
+    glm::mat4 transform;
+    Material material;
+    Handle<VertexArray> vao;
+    uint32_t indexCount;
+
+    // Bitmask of shader features.
+    // Sorted in render bucket
+    uint32_t shaderIndex;
+    AABB aabb;
+    std::vector<glm::mat4> boneMatrices;
 };
 
 class Pass {
@@ -707,6 +767,108 @@ class ShaderCache {
     std::unordered_map<std::string, std::string> m_ShaderSources;
 };
 
+class AnimationPlayer {
+  public:
+    AnimationPlayer() = default;
+    AnimationPlayer(class Renderer *renderer);
+
+    void setClip(AnimationClip *clip);
+    void setTargetClip(AnimationClip *target);
+    void setBlendWeight(float blendWeight);
+    void setLoop(bool loop);
+
+    const std::vector<glm::mat4> &getOutput() const;
+
+    void update(Handle<Model> modelHandle, float dt);
+
+  private:
+    const AnimationClip *m_Clip = nullptr;
+    float m_CurrentTime = 0.0f;
+    float m_LastPlayedTime = 0.0f;
+
+    const AnimationClip *m_TargetClip = nullptr;
+    float m_BlendWeight = 0.0f;
+
+    bool m_IsLooping = false;
+
+    std::vector<glm::mat4> m_BoneMatrices;
+
+  private:
+    class Renderer *m_Renderer = nullptr;
+};
+
+class RenderTechnique {
+  public:
+    struct GroupDesc {
+        uint32_t queryMask = 0;
+        uint32_t exclusionMask = 0;
+        std::function<PipelineState(void)> setupGroup;
+        bool cull = false;
+        bool sort = false;
+        std::optional<std::function<void(Pass &, const RenderItem &item)>> draw;
+
+        // Only meant for hashing groups for render technique cache.
+        // Ignores callbacks on purpose.
+        bool operator==(const GroupDesc &b) const {
+            return queryMask == b.queryMask &&
+                   exclusionMask == b.exclusionMask && cull == b.cull &&
+                   sort == b.sort;
+        }
+    };
+
+    struct GroupDescHash {
+        size_t operator()(const GroupDesc &desc) const {
+            size_t maskHash = std::hash<uint64_t>{}((desc.queryMask << 31) |
+                                                    desc.exclusionMask);
+            size_t stateHash =
+                std::hash<uint32_t>{}((desc.cull << 1) | desc.sort);
+
+            return maskHash ^
+                   stateHash + 0x9e3779b9 + (maskHash << 6) + (maskHash >> 2);
+        }
+    };
+
+    // Query/exclusion -> group
+    using GroupCache = std::unordered_map<uint64_t, std::vector<RenderItem>>;
+
+    using GroupStateCache =
+        std::unordered_map<GroupDesc, std::vector<RenderItem>, GroupDescHash>;
+
+    using BindUniformFunc = std::function<void(Pass &, RenderItem)>;
+
+  public:
+    RenderTechnique() = default;
+
+    RenderTechnique &setShader(const std::string &name);
+    RenderTechnique &setBindUniformBase(const BindUniformFunc &func);
+    RenderTechnique &addFeatureUniform(ShaderFeature feature,
+                                       const BindUniformFunc &func);
+    RenderTechnique &addGroup(const GroupDesc &desc);
+
+    // Set default shader mask
+    RenderTechnique &setShaderFeature(uint32_t defaultFeature);
+
+    void setPassDesc(const PassDesc &desc);
+
+    PassDesc getPassDesc() const;
+    const std::vector<GroupDesc> &getGroups() const;
+    void bindUniforms(Pass &pass, const GroupDesc &group,
+                      const RenderItem &item) const;
+    const std::string &getShaderName() const;
+    uint32_t getDefaultShaderMask() const;
+
+  private:
+    PassDesc m_PassDesc;
+    std::vector<GroupDesc> m_Groups;
+    BindUniformFunc m_BindUniformBase;
+
+    // Feature Bit -> Special case function
+    std::unordered_map<uint32_t, BindUniformFunc> m_BindFeature;
+
+    std::string m_ShaderName;
+    uint32_t m_DefaultShaderFeature = 0;
+};
+
 class Renderer {
   public:
     explicit Renderer(const RendererConfig &config);
@@ -716,6 +878,9 @@ class Renderer {
 
     std::optional<Handle<Model>> createModel(Context &context,
                                              const ModelData &data);
+
+    AnimationPlayer createAnimationPlayer();
+
     // Cubemap faces must be RGBA8!
     Handle<Texture> loadCubemap(Context &context,
                                 const std::array<uint8_t *, 6> &faces,
@@ -743,10 +908,12 @@ class Renderer {
     void destroyModel(Context &context, Handle<Model> meshHandle);
 
     void setClearColor(const glm::vec4 &clearColor);
+
     void beginFrame(const Camera &camera);
     void setDirectionalLight(const DirectionalLight &light);
     void submit(Handle<Model> modelHandle, const glm::mat4 &transform,
-                std::span<const MaterialOverride> materialOverride = {});
+                std::span<const MaterialOverride> materialOverride = {},
+                std::span<const glm::mat4> boneMatrices = {});
     void endFrame(Context &context);
 
     // Clamped between MIN_GAMMA and MAX_GAMMA
@@ -830,6 +997,8 @@ class Renderer {
     SamplerDesc m_DefaultModelSamplerDesc;
 
   private:
+    friend class AnimationPlayer;
+
     ResourceRegistry<Model> m_ModelRegistry;
     ShaderCache m_ShaderCache;
     std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
@@ -878,27 +1047,35 @@ class Renderer {
         Handle<Model> modelHandle;
         glm::mat4 transform;
         std::vector<MaterialOverride> materialOverride;
+        std::vector<glm::mat4> boneMatrices;
     };
     std::vector<DrawCommand> m_DrawCommandList;
+    std::vector<Plane> m_FrustumPlanes;
 
-    struct RenderItem {
-        glm::mat4 transform;
-        Material material;
-        Handle<VertexArray> vao;
-        uint32_t indexCount;
+    RenderTechnique m_ShadowPass;
+    void createShadowPassTechnique();
 
-        // Bitmask of shader features.
-        // Sorted in render bucket
-        uint32_t shaderIndex;
-    };
+    RenderTechnique m_ZPrepass;
+    void createZPrepassTechnique();
+
+    RenderTechnique m_ForwardPass;
+    void createForwardPassTechnique();
+
+    RenderTechnique::GroupCache m_GroupCache;
+    RenderTechnique::GroupStateCache m_GroupStateCache;
+
+    void drawRenderItems(Context &context, const RenderTechnique &technique);
 
     void drawRenderItem(Pass &pass, const RenderItem &renderItems);
 
-    // Set frustum plane if you want frustum culling
-    std::vector<RenderItem>
-    getRenderItemsByShader(uint32_t shaderIndex,
-                           const std::vector<Plane> *frustumPlanes = nullptr,
-                           bool sort = false);
+    void bindBoneMatrices(Pass &pass,
+                          const std::vector<glm::mat4> &boneMatrices);
+
+    std::vector<RenderItem> getRenderItemsByShader(uint32_t shaderIndex,
+                                                   uint32_t exclusionMask = 0);
+    void frustumCullRenderItems(std::vector<RenderItem> &items,
+                                const std::vector<Plane> &planes);
+    void sortRenderItems(std::vector<RenderItem> &items);
 
     struct alignas(16) CameraConstants {
         glm::mat4 u_viewProjection;
