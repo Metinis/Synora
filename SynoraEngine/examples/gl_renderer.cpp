@@ -47,6 +47,15 @@ class GraphicsScene : public SYN::ILayer {
             gl::loadModelData("resources/assets/Sphere.glb").value();
         m_Sphere = m_Renderer.createModel(*m_Context, sphereModelData).value();
 
+        gl::ModelData dancerModelData =
+            gl::loadModelData("resources/assets/dancer.glb").value();
+        m_Dancer = m_Renderer.createModel(*m_Context, dancerModelData).value();
+        m_DancerClips = gl::loadAnimationClips("resources/assets/dancer.glb");
+        m_DancerPlayer = m_Renderer.createAnimationPlayer();
+        assert(m_DancerClips.size() > 0 && "Unable to load dancer animations!");
+        m_DancerPlayer.setClip(&m_DancerClips[0]);
+        m_DancerPlayer.setLoop(true);
+
         m_Renderer.setDirectionalLight(m_Light);
 
         m_Camera.fovYDegrees = 90.0f;
@@ -148,6 +157,8 @@ class GraphicsScene : public SYN::ILayer {
         for (float history : m_FrameHistory)
             m_FrameAvg += history;
         m_FrameAvg /= 120.0f;
+
+        m_DancerPlayer.update(m_Dancer, dt);
     }
 
     void setCameraRotation() {
@@ -184,10 +195,19 @@ class GraphicsScene : public SYN::ILayer {
         m_Renderer.setClearColor({0.48, 0.68, 0.54, 1.0});
         m_Renderer.beginFrame(m_Camera);
         m_Renderer.submit(m_Cabin, glm::mat4(1.0));
+
         m_Renderer.submit(
             m_Waltuh,
             glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 0.0f)));
 
+        glm::mat4 dancerTransform =
+            glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 3.0f)) *
+            glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f),
+                        glm::vec3(1.0f, 0.0f, 0.0f)) *
+            glm::scale(glm::mat4(1.0f), glm::vec3(100.0f));
+
+        m_Renderer.submit(m_Dancer, dancerTransform, {},
+                          m_DancerPlayer.getOutput());
         m_Renderer.endFrame(*m_Context);
     }
 
@@ -216,6 +236,13 @@ class GraphicsScene : public SYN::ILayer {
                          glm::vec4(m_Color.r, m_Color.g, m_Color.b, 1.0f)}}});
             }
         }
+        // m_Renderer.submit(
+        //     m_Sphere, glm::translate(glm::mat4(1.0f), glm::vec3(0.0f)),
+        //     std::array<gl::MaterialOverride, 1>{gl::MaterialOverride{
+        //         0,
+        //         {std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+        //          std::nullopt, 1.0f, 1.0f,
+        //          glm::vec4(m_Color.r, m_Color.g, m_Color.b, 1.0f)}}});
 
         m_Renderer.endFrame(*m_Context);
     }
@@ -367,6 +394,11 @@ class GraphicsScene : public SYN::ILayer {
     int m_FrameIdx = 0;
 
     gl::Handle<gl::Model> m_Waltuh;
+
+    gl::Handle<gl::Model> m_Dancer;
+    std::vector<gl::AnimationClip> m_DancerClips;
+    gl::AnimationPlayer m_DancerPlayer;
+
     gl::Handle<gl::Model> m_Cabin;
     gl::Handle<gl::Model> m_Sphere;
     std::array<gl::Environment, 4> m_Environments;
