@@ -8,5 +8,7 @@
 namespace SYN::gfx::gl {
 
 std::optional<ModelData> loadModelData(const std::filesystem::path &path);
+std::vector<AnimationClip>
+loadAnimationClips(const std::filesystem::path &path);
 
 } // namespace SYN::gfx::gl

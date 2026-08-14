@@ -18,12 +18,24 @@ out vec2 fragTexCoords;
 out mat3 TBN;
 #endif
 
+#ifdef FEATURE_SKINNED
+uniform mat4 boneTransforms[MAX_BONES];
+#endif
+
 invariant gl_Position;
 
 void main() {
+  vec4 vertexPos = vec4(aPos, 1.0);
+  vec3 vertexNormal = aNormal;
+
+  #ifdef FEATURE_SKINNED
+  vertexPos = applyBoneTransform(boneTransforms, aBoneID, aBoneWeight, vertexPos);
+  vertexNormal = normalize(applyBoneTransform(boneTransforms, aBoneID, aBoneWeight, vec4(vertexNormal, 0.0f)).xyz);
+  #endif
+
   #ifdef FEATURE_NORMAL
   vec3 T = normalize(mat3(u_Model) * aTangent.xyz);
-  vec3 N = normalize(mat3(u_Model) * aNormal);
+  vec3 N = normalize(mat3(u_Model) * vertexNormal);
   T = normalize(T - N * dot(N, T));
 
   vec3 B = cross(N, T) * aTangent.w;
@@ -31,11 +43,12 @@ void main() {
   TBN = mat3(T, B, N);
   #endif
 
-  fragNormal = normalize(mat3(transpose(inverse(u_Model))) * aNormal);
-  fragPos = vec3(u_Model * vec4(aPos, 1.0));
+  fragNormal = normalize(mat3(transpose(inverse(u_Model))) * vertexNormal);
+
+  fragPos = vec3(u_Model * vertexPos);
   fragTexCoords = aTexCoords;
 
-  gl_Position = u_ViewProjection * u_Model * vec4(aPos, 1.0);
+  gl_Position = u_ViewProjection * u_Model * vertexPos;
 }
 #endif
 #ifdef FRAGMENT_SRC
@@ -291,9 +304,10 @@ vec3 getAmbientColor(vec3 objectColor, vec3 normal, vec2 metallicRoughness) {
 void main() {
   vec4 albedoTexture = texture(u_albedoTexture, fragTexCoords);
 
-  albedoTexture.r /= albedoTexture.a;
-  albedoTexture.g /= albedoTexture.a;
-  albedoTexture.b /= albedoTexture.a;
+  float alpha = max(albedoTexture.a, 0.001);
+  albedoTexture.r /= alpha;
+  albedoTexture.g /= alpha;
+  albedoTexture.b /= alpha;
 
   vec3 objectColor = vec3(vec4(u_tint, 1.0) * albedoTexture);
 

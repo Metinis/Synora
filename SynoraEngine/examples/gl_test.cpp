@@ -152,7 +152,7 @@ int main(void) {
             vp.height = h;
             gl::Pass pass = glContext.beginPass(
                 {std::nullopt, glm::vec4(0.74, 0.32, 0.24, 1.0), false, false,
-                 vp, std::nullopt});
+                 false, vp, std::nullopt});
             pass.usePipeline(defaultPipeline);
 
             float t = glfwGetTime();

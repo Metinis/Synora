@@ -6,12 +6,14 @@
 
 layout(location = 0) in vec3 aPos;
 layout(location = 2) in vec2 aTexCoords;
+layout(location = 4) in ivec4 aBoneID;
+layout(location = 5) in vec4 aBoneWeight;
+
+#include "common.glsl"
 
 #ifdef FEATURE_DEPTH_MAP_INSTANCED
 
 uniform int u_layerOffset;
-#define CASCADE_COUNT 4
-#include "common.glsl"
 
 #else
 uniform mat4 u_lightSpaceMatrix;
@@ -21,13 +23,23 @@ uniform mat4 u_modelMatrix;
 
 out vec2 fragTexCoords;
 
+#ifdef FEATURE_SKINNED
+uniform mat4 boneTransforms[MAX_BONES];
+#endif
+
 void main() {
+  vec4 vertexPos = vec4(aPos, 1.0);
+
+  #ifdef FEATURE_SKINNED
+  vertexPos = applyBoneTransform(boneTransforms, aBoneID, aBoneWeight, vertexPos);
+  #endif
+
   fragTexCoords = aTexCoords;
   #ifdef FEATURE_DEPTH_MAP_INSTANCED
   gl_Layer = gl_InstanceID;
-  gl_Position = u_lightSpaceMatrices[gl_InstanceID + u_layerOffset] * u_modelMatrix * vec4(aPos, 1.0);
+  gl_Position = u_lightSpaceMatrices[gl_InstanceID + u_layerOffset] * u_modelMatrix * vertexPos;
   #else
-  gl_Position = u_lightSpaceMatrix * u_modelMatrix * vec4(aPos, 1.0);
+  gl_Position = u_lightSpaceMatrix * u_modelMatrix * vertexPos;
   #endif
 }
 #endif

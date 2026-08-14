@@ -118,6 +118,81 @@ SYN::gfx::gl::Material loadMaterial(
     return material;
 }
 
+glm::vec3 SYN::gfx::gl::AABB::getPVertex(glm::vec3 normal) const {
+    AABB aabb = *this;
+
+    float x = normal.x >= 0 ? aabb.max.x : aabb.min.x;
+    float y = normal.y >= 0 ? aabb.max.y : aabb.min.y;
+    float z = normal.z >= 0 ? aabb.max.z : aabb.min.z;
+
+    return glm::vec3(x, y, z);
+}
+
+glm::vec3 SYN::gfx::gl::AABB::getNVertex(glm::vec3 normal) const {
+    AABB aabb = *this;
+
+    float x = normal.x >= 0 ? aabb.min.x : aabb.max.x;
+    float y = normal.y >= 0 ? aabb.min.y : aabb.max.y;
+    float z = normal.z >= 0 ? aabb.min.z : aabb.max.z;
+
+    return glm::vec3(x, y, z);
+}
+
+bool SYN::gfx::gl::AABB::collidesWithFrustum(
+    const std::vector<Plane> &frustum) const {
+    for (Plane plane : frustum) {
+        glm::vec3 planeNormal = glm::vec3(plane.a, plane.b, plane.c);
+        glm::vec3 pVertex = getPVertex(planeNormal);
+
+        if (glm::dot(planeNormal, pVertex) < -plane.d)
+            return false;
+    }
+    return true;
+}
+
+SYN::gfx::gl::AABB SYN::gfx::gl::AABB::transform(glm::mat4 transform) const {
+    AABB aabb = *this;
+
+    glm::vec3 min = aabb.min;
+    glm::vec3 max = aabb.max;
+
+    float lengthX = max.x - min.x;
+    float lengthY = max.y - min.y;
+    float lengthZ = max.z - min.z;
+
+    std::array<glm::vec3, 8> worldPoints = {
+        min,
+        min + glm::vec3(lengthX, 0, 0),
+        min + glm::vec3(lengthX, 0, lengthZ),
+        min + glm::vec3(0, 0, lengthZ),
+        min + glm::vec3(0, lengthY, 0),
+        min + glm::vec3(lengthX, lengthY, 0),
+        min + glm::vec3(0, lengthY, lengthZ),
+        max};
+
+    for (glm::vec3 &worldPoint : worldPoints) {
+        worldPoint = transform * glm::vec4(worldPoint, 1.0f);
+    }
+
+    float minFloat = std::numeric_limits<float>().lowest();
+    float maxFloat = std::numeric_limits<float>().max();
+
+    glm::vec3 newMin(maxFloat, maxFloat, maxFloat);
+    glm::vec3 newMax(minFloat, minFloat, minFloat);
+
+    for (glm::vec3 worldPoint : worldPoints) {
+        newMin.x = glm::min(newMin.x, worldPoint.x);
+        newMin.y = glm::min(newMin.y, worldPoint.y);
+        newMin.z = glm::min(newMin.z, worldPoint.z);
+
+        newMax.x = glm::max(newMax.x, worldPoint.x);
+        newMax.y = glm::max(newMax.y, worldPoint.y);
+        newMax.z = glm::max(newMax.z, worldPoint.z);
+    }
+
+    return {newMin, newMax};
+}
+
 SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
 createDefaultShader(SYN::gfx::gl::Context &context) {
     std::string defaultVertexSource = R"(
@@ -459,11 +534,15 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
         clearMask |= GL_COLOR_BUFFER_BIT;
     }
 
+    if (desc.clearDepth) {
+        clearMask |= GL_DEPTH_BUFFER_BIT;
+    }
+
     if (desc.enableDepthTest) {
         glEnable(GL_DEPTH_TEST);
-        clearMask |= GL_DEPTH_BUFFER_BIT;
-    } else
+    } else {
         glDisable(GL_DEPTH_TEST);
+    }
 
     if (desc.enableStencilTest) {
         glEnable(GL_STENCIL_TEST);
@@ -485,6 +564,9 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
             glm::vec4 clearColor = desc.clearColor.value();
             glClearColor(clearColor.r, clearColor.g, clearColor.b,
                          clearColor.a);
+        }
+        if (clearMask & GL_DEPTH_BUFFER_BIT) {
+            glDepthMask(GL_TRUE);
         }
         glClear(clearMask);
     }
@@ -1330,8 +1412,13 @@ SYN::gfx::gl::Context::createVertexArray(const VertexArrayDesc &desc) {
             break;
         };
 
-        glVertexArrayAttribFormat(vaoId, attribute.location, size, type,
-                                  attribute.normalized, attribute.offset);
+        if (type == GL_INT) {
+            glVertexArrayAttribIFormat(vaoId, attribute.location, size, type,
+                                       attribute.offset);
+        } else {
+            glVertexArrayAttribFormat(vaoId, attribute.location, size, type,
+                                      attribute.normalized, attribute.offset);
+        }
     }
 
     assert(vertexBuffer.value().type == BufferType::Vertex);
@@ -1769,6 +1856,370 @@ void SYN::gfx::gl::ShaderCache::reset(Context &context) {
     }
 }
 
+// AnimationPlayer
+// Supports playing single animation clips, or blending between 2 clips.
+// Create an AnimationPlayer per instance and update in the layer's update
+// function. Get the output bone matrices and submit as part of the draw command
+// to animate a model.
+
+SYN::gfx::gl::AnimationPlayer::AnimationPlayer(class Renderer *renderer) {
+    m_Renderer = renderer;
+}
+
+void SYN::gfx::gl::AnimationPlayer::setClip(const AnimationClip *clip) {
+    m_Clip = clip;
+    m_DefaultPose = true;
+}
+
+void SYN::gfx::gl::AnimationPlayer::setTargetClip(const AnimationClip *target) {
+    m_TargetClip = target;
+    m_TargetTime = 0.0f;
+}
+
+void SYN::gfx::gl::AnimationPlayer::setBlendWeight(float blendWeight) {
+    m_BlendWeight = glm::clamp(blendWeight, 0.0f, 1.0f);
+}
+
+void SYN::gfx::gl::AnimationPlayer::setLoop(bool loop) { m_IsLooping = loop; }
+
+const std::vector<glm::mat4> &SYN::gfx::gl::AnimationPlayer::getOutput() const {
+    return m_BoneMatrices;
+}
+
+void SYN::gfx::gl::AnimationPlayer::play(std::optional<float> time) {
+    if (m_Clip == nullptr) {
+        spdlog::error(
+            "Unable to begin playback because specified clip is NULL");
+        return;
+    }
+    m_IsPlaying = true;
+    float playTime = time.value_or(m_CurrentTime);
+    if (!time.has_value() && m_CurrentTime == m_Clip->duration) {
+        playTime = 0.0f;
+    }
+
+    m_CurrentTime = glm::clamp(playTime, 0.0f, m_Clip->duration);
+}
+void SYN::gfx::gl::AnimationPlayer::stop() { m_IsPlaying = false; }
+
+void SYN::gfx::gl::AnimationPlayer::crossfadeTo(const AnimationClip *target,
+                                                float duration) {
+    if (m_Clip == nullptr) {
+        spdlog::error("Cannot crossfade from NULL clip");
+        return;
+    }
+    if (target == nullptr) {
+        spdlog::error("Cannot crossfade to NULL clip");
+        return;
+    }
+
+    m_IsPlaying = true;
+    setTargetClip(target);
+    m_CrossfadeDuration = duration;
+    m_CrossfadeTime = 0.0f;
+    m_IsCrossfading = true;
+    m_BlendWeight = 0.0f;
+}
+
+void SYN::gfx::gl::AnimationPlayer::playOneShot(const AnimationClip *to,
+                                                const AnimationClip *returnTo,
+                                                float blendIn, float blendOut) {
+    if (returnTo == nullptr) {
+        spdlog::error("Cannot return to NULL clip");
+        return;
+    }
+
+    m_IsPlayingOneshot = true;
+    m_ReturnTo = returnTo;
+    m_BlendOut = blendOut;
+
+    crossfadeTo(to, blendIn);
+}
+
+void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
+                                           float dt) {
+    if (m_Renderer == nullptr) {
+        spdlog::error("Cannot update animation player because renderer "
+                      "reference is NULL. Please create through "
+                      "Renderer::createAnimationPlayer!");
+        return;
+    }
+
+    const Model *model =
+        m_Renderer->m_ModelRegistry.getResourceImmutableRef(modelHandle)
+            .value();
+
+    if (model->skeleton.boneInfo.empty()) {
+        spdlog::error("Model does not have valid skeleton.");
+        return;
+    }
+
+    if (m_Clip == nullptr)
+        return;
+
+    if (m_Clip->fps == 0.0f) {
+        spdlog::error("Current clip {} has fps of 0.0 which is invalid.",
+                      m_Clip->name);
+        return;
+    }
+
+    if (m_DefaultPose) {
+        m_BoneMatrices = std::vector<glm::mat4>(model->skeleton.boneInfo.size(),
+                                                model->skeleton.inverseRoot);
+        m_DefaultPose = false;
+    }
+
+    m_LastPlayedTime = m_CurrentTime;
+
+    auto advanceTime = [&](const AnimationClip *clip, float time) {
+        time += clip->fps * dt;
+        if (m_IsLooping && !m_IsPlayingOneshot) {
+            time = std::fmod(time, clip->duration);
+        } else {
+            time = glm::clamp(time, 0.0f, clip->duration);
+        }
+
+        return time;
+    };
+
+    if (m_IsPlaying) {
+        m_CurrentTime = advanceTime(m_Clip, m_CurrentTime);
+        if (m_TargetClip)
+            m_TargetTime = advanceTime(m_TargetClip, m_TargetTime);
+    } else {
+        return;
+    }
+
+    if (m_IsPlayingOneshot && !m_IsCrossfading) {
+        if (m_CurrentTime >= m_Clip->duration - m_BlendOut) {
+            crossfadeTo(m_ReturnTo, m_BlendOut);
+            m_BlendOut = 0.0f;
+            m_IsPlayingOneshot = false;
+        }
+    }
+
+    if (m_IsCrossfading) {
+        m_CrossfadeTime += dt;
+        float t = 1.0f;
+        if (m_CrossfadeDuration > 0.0f) {
+            t = glm::clamp(m_CrossfadeTime / m_CrossfadeDuration, 0.0f, 1.0f);
+        }
+        m_BlendWeight = glm::smoothstep(0.0f, 1.0f, t);
+        if (m_CrossfadeTime >= m_CrossfadeDuration) {
+            m_IsCrossfading = false;
+            m_Clip = m_TargetClip;
+            m_TargetClip = nullptr;
+            m_CurrentTime = m_TargetTime;
+            m_BlendWeight = 0.0f;
+            if (!m_IsPlayingOneshot && m_ReturnTo != nullptr) {
+                m_ReturnTo = nullptr;
+            }
+        }
+    }
+
+    if (!m_IsLooping) {
+        if (m_CurrentTime >= m_Clip->duration &&
+            m_LastPlayedTime == m_CurrentTime && !m_IsCrossfading) {
+            m_IsPlaying = false;
+            return;
+        }
+    }
+
+    struct Pose {
+        glm::vec3 position;
+        glm::quat rotation;
+        glm::vec3 scale;
+    };
+
+    auto sampleVectorKey = [](const std::vector<VectorKey> &keys, float time) {
+        if (keys.empty())
+            return glm::vec3(0.0f);
+        if (keys.size() == 1) {
+            return keys[0].value;
+        }
+        auto nextKey = std::upper_bound(keys.cbegin(), keys.cend(), time,
+                                        [](float time, const VectorKey &key) {
+                                            return time < key.timestamp;
+                                        });
+        if (nextKey == keys.cbegin())
+            return nextKey->value;
+        if (nextKey == keys.cend())
+            return keys.back().value;
+
+        auto lastKey = nextKey - 1;
+
+        float t = (time - lastKey->timestamp) /
+                  (nextKey->timestamp - lastKey->timestamp);
+        return glm::mix(lastKey->value, nextKey->value, t);
+    };
+
+    auto sampleQuatKey = [](const std::vector<QuatKey> &keys, float time) {
+        if (keys.empty()) {
+            return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        }
+
+        if (keys.size() == 1) {
+            return keys[0].value;
+        }
+        auto nextKey = std::upper_bound(keys.cbegin(), keys.cend(), time,
+                                        [](float time, const QuatKey &key) {
+                                            return time < key.timestamp;
+                                        });
+        if (nextKey == keys.cbegin())
+            return nextKey->value;
+        if (nextKey == keys.cend())
+            return keys.back().value;
+
+        auto lastKey = nextKey - 1;
+
+        float t = (time - lastKey->timestamp) /
+                  (nextKey->timestamp - lastKey->timestamp);
+        return glm::slerp(lastKey->value, nextKey->value, t);
+    };
+
+    auto samplePose = [&](const AnimationClip *target,
+                          const Skeleton::Node &node, float time) -> Pose {
+        auto channels = target->channels.find(node.name);
+        Pose output{node.position, node.rotation, node.scale};
+        if (channels != target->channels.cend()) {
+            glm::vec3 position =
+                sampleVectorKey(channels->second.translation, time);
+
+            glm::vec3 scale = sampleVectorKey(channels->second.scale, time);
+            if (channels->second.scale.empty())
+                scale = glm::vec3(1.0f);
+
+            glm::quat rotation = sampleQuatKey(channels->second.rotation, time);
+
+            output.position = position;
+            output.scale = scale;
+            output.rotation = rotation;
+        }
+        return output;
+    };
+
+    uint32_t nodeCount = model->skeleton.nodes.size();
+    std::vector<glm::mat4> globalTransforms(nodeCount, glm::mat4(1.0f));
+    for (uint32_t i = 0; i < nodeCount; ++i) {
+        const Skeleton::Node &node = model->skeleton.nodes.at(i);
+        Pose poseA = samplePose(m_Clip, node, m_CurrentTime);
+        Pose local = poseA;
+        if (m_TargetClip && m_BlendWeight > 0.0f) {
+            Pose poseB = samplePose(m_TargetClip, node, m_TargetTime);
+            local.position =
+                glm::mix(poseA.position, poseB.position, m_BlendWeight);
+            local.scale = glm::mix(poseA.scale, poseB.scale, m_BlendWeight);
+            local.rotation =
+                glm::slerp(poseA.rotation, poseB.rotation, m_BlendWeight);
+        }
+
+        glm::mat4 identity(1.0f);
+        glm::mat4 localTransform = glm::translate(identity, local.position) *
+                                   glm::mat4(glm::normalize(local.rotation)) *
+                                   glm::scale(identity, local.scale);
+
+        if (node.parentIndex.has_value()) {
+            uint32_t parentIndex = node.parentIndex.value();
+            globalTransforms[i] =
+                globalTransforms[parentIndex] * localTransform;
+        } else {
+            globalTransforms[i] = localTransform;
+        }
+    }
+
+    for (uint32_t i = 0; i < m_BoneMatrices.size(); ++i) {
+        const Skeleton::BoneInfo &info = model->skeleton.boneInfo.at(i);
+        m_BoneMatrices[i] = model->skeleton.inverseRoot *
+                            globalTransforms[info.nodeIndex] *
+                            info.inverseBindMatrix;
+    }
+}
+
+float SYN::gfx::gl::AnimationPlayer::getCurrentTime() const {
+    return m_CurrentTime;
+}
+bool SYN::gfx::gl::AnimationPlayer::isLooping() const { return m_IsLooping; }
+bool SYN::gfx::gl::AnimationPlayer::isPlaying() const { return m_IsPlaying; }
+float SYN::gfx::gl::AnimationPlayer::getDuration() const {
+    if (m_Clip == nullptr)
+        return 0.0f;
+    return m_Clip->duration;
+}
+
+// RenderTechnique
+// Higher level passes for the renderer. Describe which groups a pass cares
+// about, and how a pass should render each group.
+
+void SYN::gfx::gl::RenderTechnique::setPassDesc(const PassDesc &desc) {
+    m_PassDesc = desc;
+}
+
+SYN::gfx::gl::RenderTechnique &
+SYN::gfx::gl::RenderTechnique::addGroup(const GroupDesc &desc) {
+    m_Groups.emplace_back(desc);
+    return *this;
+}
+
+SYN::gfx::gl::PassDesc SYN::gfx::gl::RenderTechnique::getPassDesc() const {
+    return m_PassDesc;
+}
+
+const std::vector<SYN::gfx::gl::RenderTechnique::GroupDesc> &
+SYN::gfx::gl::RenderTechnique::getGroups() const {
+    return m_Groups;
+}
+
+SYN::gfx::gl::RenderTechnique &
+SYN::gfx::gl::RenderTechnique::setShader(const std::string &name) {
+    m_ShaderName = name;
+    return *this;
+}
+
+SYN::gfx::gl::RenderTechnique &
+SYN::gfx::gl::RenderTechnique::setBindUniformBase(const BindUniformFunc &func) {
+    m_BindUniformBase = func;
+    return *this;
+}
+
+SYN::gfx::gl::RenderTechnique &
+SYN::gfx::gl::RenderTechnique::addFeatureUniform(ShaderFeature feature,
+                                                 const BindUniformFunc &func) {
+    m_BindFeature[(uint32_t)feature] = func;
+    return *this;
+}
+
+void SYN::gfx::gl::RenderTechnique::bindUniforms(Pass &pass,
+                                                 const GroupDesc &group,
+                                                 const RenderItem &item) const {
+    m_BindUniformBase(pass, item);
+
+    uint32_t query = group.queryMask;
+    uint32_t counter = 0;
+    while ((query >> counter) > 0) {
+        uint32_t mask = 1 << counter;
+        uint32_t bit = query & mask;
+        if (bit) {
+            if (m_BindFeature.find(bit) != m_BindFeature.cend())
+                m_BindFeature.at(bit)(pass, item);
+        }
+        ++counter;
+    }
+}
+
+uint32_t SYN::gfx::gl::RenderTechnique::getDefaultShaderMask() const {
+    return m_DefaultShaderFeature;
+}
+
+const std::string &SYN::gfx::gl::RenderTechnique::getShaderName() const {
+    return m_ShaderName;
+}
+
+SYN::gfx::gl::RenderTechnique &
+SYN::gfx::gl::RenderTechnique::setShaderFeature(uint32_t defaultFeature) {
+    m_DefaultShaderFeature = defaultFeature;
+    return *this;
+}
+
 // Renderer
 // High level rendering API for users who want more out of the box with a simple
 // interface.
@@ -1818,6 +2269,17 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
         if (!mesh.material.albedo) {
             mesh.material.albedo = m_DefaultWhite;
         }
+        if (mesh.hasSkin) {
+            mesh.aabb = mesh.aabb.transform(data.skeleton.inverseRoot);
+
+            // Inflate the skinned mesh's aabb by generous margin to
+            // account for animations.
+            //
+            // TODO: Compute bound from all clips during load time
+            glm::vec3 padding = (mesh.aabb.max - mesh.aabb.min) * 0.25f;
+            mesh.aabb.min -= padding;
+            mesh.aabb.max += padding;
+        }
         mesh.sourceIndex = sourceIndex;
         if (mesh.material.alphaCutoff < 1.0f) {
             model.meshesMasked.push_back(mesh);
@@ -1826,6 +2288,7 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
         }
         ++sourceIndex;
     }
+    model.skeleton = data.skeleton;
     return m_ModelRegistry.createHandle(model);
 }
 
@@ -1899,7 +2362,7 @@ SYN::gfx::gl::Renderer::loadCubemapFromEquirectangularTexture(Context &context,
                                    i);
         Pass pass =
             context.beginPass({equirectangularProjection, glm::vec4(1.0f),
-                               false, false, Viewport{0, 0, 512, 512}});
+                               false, false, false, Viewport{0, 0, 512, 512}});
 
         pass.usePipeline(pipeline);
         pass.bindTexture(0, hdrTexture, mipSampler);
@@ -2050,6 +2513,238 @@ void SYN::gfx::gl::Renderer::createTextureDefaults(Context &context) {
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 }
 
+void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
+    PipelineState zPrepassPipeline;
+    zPrepassPipeline.depth.writeEnabled = true;
+    zPrepassPipeline.color = {false, false, false, false};
+    zPrepassPipeline.cullMode = CullMode::Back;
+
+    m_ZPrepass.setShader("z_prepass")
+        .setBindUniformBase([&](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
+            Handle<Sampler> sampler =
+                material.sampler.value_or(m_DefaultModelSampler);
+
+            pass.bindUniform("u_Model", item.transform);
+        })
+        .addFeatureUniform(ShaderFeature::Skinned,
+                           [&](Pass &pass, const RenderItem &item) {
+                               bindBoneMatrices(pass, item.boneMatrices);
+                           })
+        .addFeatureUniform(
+            ShaderFeature::AlphaTest,
+            [&](Pass &pass, const RenderItem &item) {
+                const Material &material = item.material;
+                Handle<Sampler> sampler =
+                    material.sampler.value_or(m_DefaultModelSampler);
+
+                if (material.albedo) {
+                    pass.bindTexture(0, material.albedo.value(), sampler);
+                }
+
+                pass.bindUniform("u_alphaCutoff", item.material.alphaCutoff);
+            })
+        .addGroup(
+            {0, (uint32_t)ShaderFeature::Skinned,
+             [zPrepassPipeline]() -> PipelineState { return zPrepassPipeline; },
+             true})
+        .addGroup(
+            {(uint32_t)ShaderFeature::Skinned, 0,
+             [zPrepassPipeline]() -> PipelineState { return zPrepassPipeline; },
+             true})
+        .addGroup({(uint32_t)ShaderFeature::AlphaTest,
+                   (uint32_t)ShaderFeature::Skinned,
+                   [zPrepassPipeline]() mutable -> PipelineState {
+                       zPrepassPipeline.cullMode = CullMode::None;
+                       return zPrepassPipeline;
+                   },
+                   true})
+        .addGroup({(uint32_t)ShaderFeature::AlphaTest |
+                       (uint32_t)ShaderFeature::Skinned,
+                   0,
+                   [zPrepassPipeline]() mutable -> PipelineState {
+                       zPrepassPipeline.cullMode = CullMode::None;
+                       return zPrepassPipeline;
+                   },
+                   true});
+}
+
+void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
+    PipelineState pipeline;
+    pipeline.depth.test = DepthFunc::Equal;
+    pipeline.depth.writeEnabled = false;
+    pipeline.color = {true, true, true, true};
+    pipeline.cullMode = CullMode::Back;
+
+    m_ForwardPass.setShader("forward")
+        .setBindUniformBase([&](Pass &pass, const RenderItem &item) {
+            if (m_Environment.has_value() &&
+                m_Environment.value().irradianceMap.has_value()) {
+                pass.bindTexture(3, m_Environment.value().irradianceMap.value(),
+                                 m_CubemapSampler.value());
+            } else {
+                pass.bindTexture(3, m_DefaultIrradianceMap,
+                                 m_CubemapSampler.value());
+            }
+
+            if (m_Environment.has_value() &&
+                m_Environment.value().prefilteredMap.has_value()) {
+                pass.bindTexture(4,
+                                 m_Environment.value().prefilteredMap.value(),
+                                 m_MipmapCubeSampler.value());
+            } else {
+                pass.bindTexture(4, m_DefaultPrefilterMap,
+                                 m_MipmapCubeSampler.value());
+            }
+
+            pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
+            pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
+                             m_CascadedShadowmap.shadowSampler);
+            pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
+                             m_CascadedShadowmap.shadowSampler);
+            const Material &material = item.material;
+            pass.bindUniform("u_tint", material.tint.r, material.tint.g,
+                             material.tint.b);
+            pass.bindUniform("u_metallic", material.metallic);
+            pass.bindUniform("u_roughness", material.roughness);
+
+            Handle<Sampler> sampler =
+                material.sampler.value_or(m_DefaultModelSampler);
+
+            if (material.albedo) {
+                pass.bindTexture(0, material.albedo.value(), sampler);
+            }
+
+            if (material.normalMap) {
+                pass.bindTexture(1, material.normalMap.value(), sampler);
+            }
+
+            if (material.metallicRoughnessMap) {
+                pass.bindTexture(2, material.metallicRoughnessMap.value(),
+                                 sampler);
+            }
+
+            pass.bindUniform("u_Model", item.transform);
+        })
+        .addFeatureUniform(ShaderFeature::Skinned,
+                           [&](Pass &pass, const RenderItem &item) {
+                               bindBoneMatrices(pass, item.boneMatrices);
+                           })
+        .addGroup({0, (uint32_t)ShaderFeature::Skinned,
+                   [pipeline]() -> PipelineState { return pipeline; }, true,
+                   true})
+        .addGroup({(uint32_t)ShaderFeature::Skinned, 0,
+                   [pipeline]() -> PipelineState { return pipeline; }, true,
+                   true})
+        .addGroup({(uint32_t)ShaderFeature::AlphaTest,
+                   (uint32_t)ShaderFeature::Skinned,
+                   [pipeline]() mutable -> PipelineState {
+                       pipeline.cullMode = CullMode::None;
+                       return pipeline;
+                   },
+                   true, true})
+        .addGroup({(uint32_t)ShaderFeature::AlphaTest |
+                       (uint32_t)ShaderFeature::Skinned,
+                   0,
+                   [pipeline]() mutable -> PipelineState {
+                       pipeline.cullMode = CullMode::None;
+                       return pipeline;
+                   },
+                   true, true});
+}
+
+void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
+    m_ShadowPass.setShader("depth_map")
+        .setShaderFeature(m_CascadedShadowmap.isInstanced
+                              ? (uint32_t)ShaderFeature::DepthMapInstanced
+                              : 0)
+        .addFeatureUniform(ShaderFeature::Skinned,
+                           [&](Pass &pass, const RenderItem &item) {
+                               bindBoneMatrices(pass, item.boneMatrices);
+                           })
+        .addFeatureUniform(
+            ShaderFeature::AlphaTest,
+            [&](Pass &pass, const RenderItem &item) {
+                Handle<Sampler> sampler =
+                    item.material.sampler.value_or(m_DefaultModelSampler);
+
+                Handle<Texture> albedo =
+                    item.material.albedo.value_or(m_DefaultWhite);
+
+                pass.bindTexture(0, albedo, sampler);
+                pass.bindUniform("u_alphaCutoff", item.material.alphaCutoff);
+            })
+        .addGroup({
+            0,
+            (uint32_t)ShaderFeature::Skinned,
+            [&]() -> PipelineState {
+                PipelineState pipeline;
+                pipeline.cullMode = CullMode::Back;
+                return pipeline;
+            },
+            false,
+            false,
+            m_CascadedShadowmap.isInstanced
+                ? std::optional{[](Pass &pass, const RenderItem &item) {
+                      pass.bindVertexArray(item.vao);
+                      pass.drawInstancedIndexed(item.indexCount, 2);
+                  }}
+                : std::nullopt,
+        })
+        .addGroup({
+            (uint32_t)ShaderFeature::Skinned,
+            0,
+            [&]() -> PipelineState {
+                PipelineState pipeline;
+                pipeline.cullMode = CullMode::Back;
+                return pipeline;
+            },
+            false,
+            false,
+            m_CascadedShadowmap.isInstanced
+                ? std::optional{[](Pass &pass, const RenderItem &item) {
+                      pass.bindVertexArray(item.vao);
+                      pass.drawInstancedIndexed(item.indexCount, 2);
+                  }}
+                : std::nullopt,
+        })
+        .addGroup({
+            (uint32_t)ShaderFeature::AlphaTest,
+            (uint32_t)ShaderFeature::Skinned,
+            [&]() -> PipelineState {
+                PipelineState pipeline;
+                pipeline.cullMode = CullMode::None;
+                return pipeline;
+            },
+            false,
+            false,
+            m_CascadedShadowmap.isInstanced
+                ? std::optional{[](Pass &pass, const RenderItem &item) {
+                      pass.bindVertexArray(item.vao);
+                      pass.drawInstancedIndexed(item.indexCount, 2);
+                  }}
+                : std::nullopt,
+        })
+        .addGroup({
+            (uint32_t)ShaderFeature::AlphaTest |
+                (uint32_t)ShaderFeature::Skinned,
+            0,
+            [&]() -> PipelineState {
+                PipelineState pipeline;
+                pipeline.cullMode = CullMode::None;
+                return pipeline;
+            },
+            false,
+            false,
+            m_CascadedShadowmap.isInstanced
+                ? std::optional{[](Pass &pass, const RenderItem &item) {
+                      pass.bindVertexArray(item.vao);
+                      pass.drawInstancedIndexed(item.indexCount, 2);
+                  }}
+                : std::nullopt,
+        });
+}
+
 void SYN::gfx::gl::Renderer::init(Context &context) {
     initShaderCache();
     initDefaultUBOs(context);
@@ -2063,6 +2758,10 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     createTextureDefaults(context);
 
     m_BRDFLut = createBRDFLut(context);
+
+    createZPrepassTechnique();
+    createForwardPassTechnique();
+    createShadowPassTechnique();
 }
 
 void SYN::gfx::gl::Renderer::setEnvironment(
@@ -2086,11 +2785,21 @@ void SYN::gfx::gl::Renderer::setDirectionalLight(
 
 void SYN::gfx::gl::Renderer::submit(
     Handle<Model> modelHandle, const glm::mat4 &transform,
-    std::span<const MaterialOverride> materialOverride) {
+    std::span<const MaterialOverride> materialOverride,
+    std::span<const glm::mat4> boneMatrices) {
+
+    std::vector<glm::mat4> boneMatrixCopy(MAX_BONES, glm::mat4(1.0f));
+    for (uint32_t i = 0; i < boneMatrices.size(); ++i) {
+        if (i >= MAX_BONES)
+            break;
+        boneMatrixCopy[i] = boneMatrices[i];
+    }
+
     m_DrawCommandList.emplace_back(
         modelHandle, transform,
         std::vector<MaterialOverride>(materialOverride.begin(),
-                                      materialOverride.end()));
+                                      materialOverride.end()),
+        boneMatrixCopy);
 }
 
 std::tuple<uint32_t, uint32_t> SYN::gfx::gl::Renderer::getRenderResolution() {
@@ -2330,9 +3039,9 @@ SYN::gfx::gl::Renderer::createIrradianceMap(Context &context,
         m_ShaderCache.getShaderHandle(context, "irradiance_map", 0);
     for (uint32_t i = 0; i < 6; ++i) {
         context.setColorAttachment(captureFramebuffer, 0, irradianceMap, 0, i);
-        Pass pass =
-            context.beginPass({captureFramebuffer, glm::vec4(1.0), false, false,
-                               Viewport{0, 0, mapResolution, mapResolution}});
+        Pass pass = context.beginPass(
+            {captureFramebuffer, glm::vec4(1.0), false, false, false,
+             Viewport{0, 0, mapResolution, mapResolution}});
         pass.usePipeline(pipeline);
         pass.bindTexture(0, hdrMap, mipSampler);
         pass.bindUniform("u_hdrMap", 0);
@@ -2399,9 +3108,9 @@ SYN::gfx::gl::Renderer::createPrefilteredEnvironmentMap(
         for (int j = 0; j < 6; ++j) {
             context.setColorAttachment(captureFramebuffer, 0, prefilteredMap, i,
                                        j);
-            Pass pass =
-                context.beginPass({captureFramebuffer, glm::vec4(1.0), false,
-                                   false, Viewport{0, 0, mipSize, mipSize}});
+            Pass pass = context.beginPass({captureFramebuffer, glm::vec4(1.0),
+                                           false, false, false,
+                                           Viewport{0, 0, mipSize, mipSize}});
 
             pass.usePipeline(pipeline);
             pass.bindTexture(0, hdrMap, mipSampler);
@@ -2433,8 +3142,8 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     PipelineState pipeline;
     pipeline.shader = m_ShaderCache.getShaderHandle(context, "brdf_lut", 0);
 
-    Pass pass = context.beginPass(
-        {captureFb, glm::vec4(1.0f), false, false, Viewport{0, 0, 512, 512}});
+    Pass pass = context.beginPass({captureFb, glm::vec4(1.0f), false, false,
+                                   false, Viewport{0, 0, 512, 512}});
     pass.usePipeline(pipeline);
     pass.bindVertexArray(m_ScreenQuad.value());
     pass.drawIndexed(6);
@@ -2442,6 +3151,87 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     context.deleteFramebuffer(captureFb);
 
     return brdfLUT;
+}
+
+void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
+                                             const RenderTechnique &technique) {
+    Pass pass = context.beginPass(technique.getPassDesc());
+    const std::vector<RenderTechnique::GroupDesc> &groups =
+        technique.getGroups();
+
+    for (const RenderTechnique::GroupDesc &groupDesc : groups) {
+        uint64_t maskKey =
+            (uint64_t)(groupDesc.queryMask) << 32 | groupDesc.exclusionMask;
+
+        auto groupIt = m_GroupCache.find(maskKey);
+        if (groupIt == m_GroupCache.cend()) {
+            auto [it, _] = m_GroupCache.emplace(
+                maskKey, getRenderItemsByShader(groupDesc.queryMask,
+                                                groupDesc.exclusionMask));
+            groupIt = it;
+        }
+
+        const std::vector<RenderItem> *items = &groupIt->second;
+        if (items->empty())
+            continue;
+
+        if (groupDesc.cull || groupDesc.sort) {
+            auto groupStateIt = m_GroupStateCache.find(groupDesc);
+            if (groupStateIt == m_GroupStateCache.cend()) {
+                std::vector<RenderItem> itemsCopy = *items;
+                if (groupDesc.cull)
+                    frustumCullRenderItems(itemsCopy, m_FrustumPlanes);
+                if (groupDesc.sort)
+                    sortRenderItems(itemsCopy);
+
+                auto [it, _] = m_GroupStateCache.emplace(groupDesc, itemsCopy);
+                groupStateIt = it;
+            }
+            items = &groupStateIt->second;
+        }
+        if (items->empty())
+            continue;
+
+        PipelineState pipeline = groupDesc.setupGroup();
+
+        std::optional<uint32_t> lastShaderMask = std::nullopt;
+        const std::string &shaderName = technique.getShaderName();
+        uint32_t defaultMask = technique.getDefaultShaderMask();
+
+        if (!groupDesc.sort) {
+            pipeline.shader = m_ShaderCache.getShaderHandle(
+                context, shaderName, groupDesc.queryMask | defaultMask);
+            pass.usePipeline(pipeline);
+            for (const RenderItem &item : *items) {
+                technique.bindUniforms(pass, groupDesc, item);
+                if (groupDesc.draw.has_value()) {
+                    const auto &drawFunc = groupDesc.draw.value();
+                    drawFunc(pass, item);
+                    continue;
+                }
+                pass.bindVertexArray(item.vao);
+                pass.drawIndexed(item.indexCount);
+            }
+        } else {
+            for (const RenderItem &item : *items) {
+                if (!lastShaderMask.has_value() ||
+                    item.shaderIndex != lastShaderMask.value()) {
+                    pipeline.shader = m_ShaderCache.getShaderHandle(
+                        context, shaderName, item.shaderIndex | defaultMask);
+                    pass.usePipeline(pipeline);
+                    lastShaderMask = item.shaderIndex;
+                }
+                technique.bindUniforms(pass, groupDesc, item);
+                if (groupDesc.draw.has_value()) {
+                    const auto &drawFunc = groupDesc.draw.value();
+                    drawFunc(pass, item);
+                    continue;
+                }
+                pass.bindVertexArray(item.vao);
+                pass.drawIndexed(item.indexCount);
+            }
+        }
+    }
 }
 
 void SYN::gfx::gl::Renderer::drawRenderItem(Pass &pass,
@@ -2554,6 +3344,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                              &lightConstants);
     }
 
+    m_FrustumPlanes = planesFromCameraFrustum(m_MainCamera);
+
     drawDirectionalCSM(context, m_DirectionalLight);
 
     {
@@ -2562,111 +3354,20 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
         // Main render pass
         {
-            Pass pass =
-                context.beginPass({m_MsaaFramebuffer.handle, m_ClearColor, true,
-                                   false, renderViewport});
-            if (m_Environment.has_value() &&
-                m_Environment.value().irradianceMap.has_value()) {
-                pass.bindTexture(3, m_Environment.value().irradianceMap.value(),
-                                 m_CubemapSampler.value());
-            } else {
-                pass.bindTexture(3, m_DefaultIrradianceMap,
-                                 m_CubemapSampler.value());
-            }
-
-            if (m_Environment.has_value() &&
-                m_Environment.value().prefilteredMap.has_value()) {
-                pass.bindTexture(4,
-                                 m_Environment.value().prefilteredMap.value(),
-                                 m_MipmapCubeSampler.value());
-            } else {
-                pass.bindTexture(4, m_DefaultPrefilterMap,
-                                 m_MipmapCubeSampler.value());
-            }
-
-            pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
-            pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
-                             m_CascadedShadowmap.shadowSampler);
-            pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
-                             m_CascadedShadowmap.shadowSampler);
-
-            std::vector<Plane> planes = planesFromCameraFrustum(m_MainCamera);
-
-            std::vector<RenderItem> opaqueItems =
-                getRenderItemsByShader(0, &planes, true);
-
-            std::vector<RenderItem> alphaMaskedItems = getRenderItemsByShader(
-                (uint32_t)ShaderFeature::AlphaTest, &planes, true);
-
-            PipelineState pipeline;
-            pipeline.depth.writeEnabled = true;
-            pipeline.color = {false, false, false, false};
-            pipeline.shader =
-                m_ShaderCache.getShaderHandle(context, "z_prepass", 0);
-            pipeline.cullMode = CullMode::Back;
-            pass.usePipeline(pipeline);
-
-            // Z Prepass
-            for (const RenderItem &renderItem : opaqueItems) {
-                const Material &material = renderItem.material;
-                Handle<Sampler> sampler =
-                    material.sampler.value_or(m_DefaultModelSampler);
-
-                pass.bindUniform("u_Model", renderItem.transform);
-                pass.bindVertexArray(renderItem.vao);
-                pass.drawIndexed(renderItem.indexCount);
-            }
-
-            pipeline.shader = m_ShaderCache.getShaderHandle(
-                context, "z_prepass", (uint32_t)ShaderFeature::AlphaTest);
-            pipeline.cullMode = CullMode::None;
-            pass.usePipeline(pipeline);
-            for (const RenderItem &renderItem : alphaMaskedItems) {
-                const Material &material = renderItem.material;
-                Handle<Sampler> sampler =
-                    material.sampler.value_or(m_DefaultModelSampler);
-
-                if (material.albedo) {
-                    pass.bindTexture(0, material.albedo.value(), sampler);
-                }
-
-                pass.bindUniform("u_Model", renderItem.transform);
-                pass.bindUniform("u_alphaCutoff",
-                                 renderItem.material.alphaCutoff);
-                pass.bindVertexArray(renderItem.vao);
-                pass.drawIndexed(renderItem.indexCount);
-            }
-
-            pipeline.depth.test = DepthFunc::Equal;
-            pipeline.depth.writeEnabled = false;
-            pipeline.color = {true, true, true, true};
-            pipeline.cullMode = CullMode::Back;
-            std::optional<uint32_t> currentShader = std::nullopt;
-            // Actual forward + PBR
-            for (const RenderItem &renderItem : opaqueItems) {
-                if (!currentShader.has_value() ||
-                    currentShader.value() != renderItem.shaderIndex) {
-                    currentShader = renderItem.shaderIndex;
-                    pipeline.shader = m_ShaderCache.getShaderHandle(
-                        context, "forward", renderItem.shaderIndex);
-                    pass.usePipeline(pipeline);
-                }
-                drawRenderItem(pass, renderItem);
-            }
-            currentShader = std::nullopt;
-            pipeline.cullMode = CullMode::None;
-            for (const RenderItem &renderItem : alphaMaskedItems) {
-                if (!currentShader.has_value() ||
-                    currentShader.value() != renderItem.shaderIndex) {
-                    pipeline.shader = m_ShaderCache.getShaderHandle(
-                        context, "forward", renderItem.shaderIndex);
-                    pass.usePipeline(pipeline);
-                }
-                drawRenderItem(pass, renderItem);
-            }
+            m_ZPrepass.setPassDesc({m_MsaaFramebuffer.handle, m_ClearColor,
+                                    true, true, false, renderViewport});
+            drawRenderItems(context, m_ZPrepass);
+            m_ForwardPass.setPassDesc({m_MsaaFramebuffer.handle, std::nullopt,
+                                       false, true, false, renderViewport});
+            drawRenderItems(context, m_ForwardPass);
 
             if (m_Environment.has_value()) {
+                Pass pass =
+                    context.beginPass({m_MsaaFramebuffer.handle, std::nullopt,
+                                       false, true, false, renderViewport});
                 Environment currentEnvironment = m_Environment.value();
+                PipelineState pipeline;
+                pipeline.depth.writeEnabled = false;
                 pipeline.shader =
                     m_ShaderCache.getShaderHandle(context, "skybox", 0);
                 pipeline.depth.test = DepthFunc::LessEqual;
@@ -2687,8 +3388,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                                 renderViewport);
 
         {
-            Pass hdrPass = context.beginPass(
-                {std::nullopt, m_ClearColor, false, false, m_ScreenViewport});
+            Pass hdrPass = context.beginPass({std::nullopt, m_ClearColor, false,
+                                              false, false, m_ScreenViewport});
             PipelineState hdrPipeline;
             hdrPipeline.shader =
                 m_ShaderCache.getShaderHandle(context, "hdr", 0);
@@ -2707,6 +3408,8 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     }
 
     m_DrawCommandList.clear();
+    m_GroupCache.clear();
+    m_GroupStateCache.clear();
 
     TracyGpuCollect;
 }
@@ -2795,76 +3498,6 @@ SYN::gfx::gl::Renderer::planesFromCameraFrustum(const Camera &camera) {
     };
 
     return planes;
-}
-
-glm::vec3 SYN::gfx::gl::Renderer::getPVertex(AABB aabb, glm::vec3 normal) {
-    float x = normal.x >= 0 ? aabb.max.x : aabb.min.x;
-    float y = normal.y >= 0 ? aabb.max.y : aabb.min.y;
-    float z = normal.z >= 0 ? aabb.max.z : aabb.min.z;
-
-    return glm::vec3(x, y, z);
-}
-
-glm::vec3 SYN::gfx::gl::Renderer::getNVertex(AABB aabb, glm::vec3 normal) {
-    float x = normal.x >= 0 ? aabb.min.x : aabb.max.x;
-    float y = normal.y >= 0 ? aabb.min.y : aabb.max.y;
-    float z = normal.z >= 0 ? aabb.min.z : aabb.max.z;
-
-    return glm::vec3(x, y, z);
-}
-
-bool SYN::gfx::gl::Renderer::aabbVsFrustum(AABB aabb,
-                                           const std::vector<Plane> &frustum) {
-    for (Plane plane : frustum) {
-        glm::vec3 planeNormal = glm::vec3(plane.a, plane.b, plane.c);
-        glm::vec3 pVertex = getPVertex(aabb, planeNormal);
-
-        if (glm::dot(planeNormal, pVertex) < -plane.d)
-            return false;
-    }
-    return true;
-}
-
-SYN::gfx::gl::AABB SYN::gfx::gl::Renderer::aabbToWorld(AABB aabb,
-                                                       glm::mat4 worldMatrix) {
-    glm::vec3 min = aabb.min;
-    glm::vec3 max = aabb.max;
-
-    float lengthX = max.x - min.x;
-    float lengthY = max.y - min.y;
-    float lengthZ = max.z - min.z;
-
-    std::array<glm::vec3, 8> worldPoints = {
-        min,
-        min + glm::vec3(lengthX, 0, 0),
-        min + glm::vec3(lengthX, 0, lengthZ),
-        min + glm::vec3(0, 0, lengthZ),
-        min + glm::vec3(0, lengthY, 0),
-        min + glm::vec3(lengthX, lengthY, 0),
-        min + glm::vec3(0, lengthY, lengthZ),
-        max};
-
-    for (glm::vec3 &worldPoint : worldPoints) {
-        worldPoint = worldMatrix * glm::vec4(worldPoint, 1.0f);
-    }
-
-    float minFloat = std::numeric_limits<float>().lowest();
-    float maxFloat = std::numeric_limits<float>().max();
-
-    glm::vec3 newMin(maxFloat, maxFloat, maxFloat);
-    glm::vec3 newMax(minFloat, minFloat, minFloat);
-
-    for (glm::vec3 worldPoint : worldPoints) {
-        newMin.x = glm::min(newMin.x, worldPoint.x);
-        newMin.y = glm::min(newMin.y, worldPoint.y);
-        newMin.z = glm::min(newMin.z, worldPoint.z);
-
-        newMax.x = glm::max(newMax.x, worldPoint.x);
-        newMax.y = glm::max(newMax.y, worldPoint.y);
-        newMax.z = glm::max(newMax.z, worldPoint.z);
-    }
-
-    return {newMin, newMax};
 }
 
 std::vector<glm::vec4>
@@ -2959,98 +3592,35 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
                                                    uint32_t resolution) {
     context.setDepthAttachment(fbo, depth);
 
-    Pass pass = context.beginPass({fbo, std::nullopt, true, false,
-                                   Viewport{0, 0, resolution, resolution}});
+    m_ShadowPass.setPassDesc({fbo, std::nullopt, true, true, false,
+                              Viewport{0, 0, resolution, resolution}});
 
-    PipelineState pipeline;
-
-    for (const DrawCommand &cmd : m_DrawCommandList) {
-        const Model *model =
-            m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle).value();
-
-        pipeline.shader = m_ShaderCache.getShaderHandle(
-            context, "depth_map", (uint32_t)ShaderFeature::DepthMapInstanced);
-        pipeline.cullMode = CullMode::Back;
-        pass.usePipeline(pipeline);
+    m_ShadowPass.setBindUniformBase([&](Pass &pass, const RenderItem &item) {
         pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
-        for (const Mesh &mesh : model->meshesOpaque) {
-            pass.bindUniform("u_modelMatrix",
-                             cmd.transform * mesh.localTransform);
-            pass.bindVertexArray(mesh.vao);
-            pass.drawInstancedIndexed(mesh.indexCount, 2);
-        }
+        pass.bindUniform("u_modelMatrix", item.transform);
+    });
 
-        pipeline.shader = m_ShaderCache.getShaderHandle(
-            context, "depth_map",
-            (uint32_t)ShaderFeature::DepthMapInstanced |
-                (uint32_t)ShaderFeature::AlphaTest);
-
-        pipeline.cullMode = CullMode::None;
-        pass.usePipeline(pipeline);
-        pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
-        for (const Mesh &mesh : model->meshesMasked) {
-            Handle<Sampler> sampler =
-                mesh.material.sampler.value_or(m_DefaultModelSampler);
-
-            Handle<Texture> albedo =
-                mesh.material.albedo.value_or(m_DefaultWhite);
-
-            pass.bindTexture(0, albedo, sampler);
-            pass.bindUniform("u_modelMatrix",
-                             cmd.transform * mesh.localTransform);
-            pass.bindUniform("u_alphaCutoff", mesh.material.alphaCutoff);
-            pass.bindVertexArray(mesh.vao);
-            pass.drawInstancedIndexed(mesh.indexCount, 2);
-        }
-    }
+    drawRenderItems(context, m_ShadowPass);
 }
 
 void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
                                           Handle<Framebuffer> fbo,
                                           Handle<Texture> depth, bool isNear,
                                           uint32_t resolution) {
-    PipelineState pipeline;
     for (uint32_t i = 0; i < 2; ++i) {
         context.setDepthAttachment(fbo, depth, 0, i);
-        Pass pass = context.beginPass({fbo, std::nullopt, true, false,
-                                       Viewport{0, 0, resolution, resolution}});
+        m_ShadowPass.setPassDesc({fbo, std::nullopt, true, true, false,
+                                  Viewport{0, 0, resolution, resolution}});
 
-        pass.bindUniform(
-            "u_lightSpaceMatrix",
-            m_CascadedShadowmap.lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
+        m_ShadowPass.setBindUniformBase([&](Pass &pass,
+                                            const RenderItem &item) {
+            pass.bindUniform("u_lightSpaceMatrix",
+                             m_CascadedShadowmap
+                                 .lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
+            pass.bindUniform("u_modelMatrix", item.transform);
+        });
 
-        for (const DrawCommand &cmd : m_DrawCommandList) {
-            const Model *model =
-                m_ModelRegistry.getResourceImmutableRef(cmd.modelHandle)
-                    .value();
-            pipeline.shader =
-                m_ShaderCache.getShaderHandle(context, "depth_map", 0);
-            pipeline.cullMode = CullMode::Back;
-            pass.usePipeline(pipeline);
-            for (const Mesh &mesh : model->meshesOpaque) {
-                pass.bindUniform("u_modelMatrix",
-                                 cmd.transform * mesh.localTransform);
-                pass.bindVertexArray(mesh.vao);
-                pass.drawIndexed(mesh.indexCount);
-            }
-            pipeline.shader = m_ShaderCache.getShaderHandle(
-                context, "depth_map", (uint32_t)ShaderFeature::AlphaTest);
-            pipeline.cullMode = CullMode::None;
-            pass.usePipeline(pipeline);
-            for (const Mesh &mesh : model->meshesMasked) {
-                Handle<Sampler> sampler =
-                    mesh.material.sampler.value_or(m_DefaultModelSampler);
-                Handle<Texture> albedo =
-                    mesh.material.albedo.value_or(m_DefaultWhite);
-
-                pass.bindTexture(0, albedo, sampler);
-                pass.bindUniform("u_modelMatrix",
-                                 cmd.transform * mesh.localTransform);
-                pass.bindUniform("u_alphaCutoff", mesh.material.alphaCutoff);
-                pass.bindVertexArray(mesh.vao);
-                pass.drawIndexed(mesh.indexCount);
-            }
-        }
+        drawRenderItems(context, m_ShadowPass);
     }
 }
 
@@ -3175,9 +3745,9 @@ void SYN::gfx::gl::Renderer::reloadInternalShaders(Context &context) {
     m_ShaderCache.reset(context);
 }
 
-std::vector<SYN::gfx::gl::Renderer::RenderItem>
-SYN::gfx::gl::Renderer::getRenderItemsByShader(
-    uint32_t shaderIndex, const std::vector<Plane> *frustumPlanes, bool sort) {
+std::vector<SYN::gfx::gl::RenderItem>
+SYN::gfx::gl::Renderer::getRenderItemsByShader(uint32_t shaderIndex,
+                                               uint32_t exclusionMask) {
     std::vector<RenderItem> renderItems;
 
     auto getMaterialOverride =
@@ -3203,18 +3773,18 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(
 
             uint32_t shaderFeatures = getShaderFeatures(mesh, material);
 
-            if (!(bool)(shaderFeatures & shaderIndex) && shaderIndex != 0)
+            if ((shaderFeatures & shaderIndex) != shaderIndex)
+                continue;
+
+            if ((shaderFeatures & exclusionMask) == exclusionMask &&
+                (exclusionMask != 0))
                 continue;
 
             glm::mat4 worldTransform = cmd.transform * mesh.localTransform;
-            if (frustumPlanes != nullptr &&
-                !aabbVsFrustum(aabbToWorld(mesh.aabb, worldTransform),
-                               *frustumPlanes)) {
-                continue;
-            }
 
             renderItems.push_back({worldTransform, material, mesh.vao,
-                                   mesh.indexCount, shaderFeatures});
+                                   mesh.indexCount, shaderFeatures, mesh.aabb,
+                                   cmd.boneMatrices});
         }
     };
 
@@ -3228,13 +3798,34 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(
         processMeshes(cmd, model, meshes);
     }
 
-    if (!sort)
-        return renderItems;
+    return renderItems;
+}
 
-    std::sort(renderItems.begin(), renderItems.end(),
-              [](const RenderItem &a, const RenderItem &b) {
+void SYN::gfx::gl::Renderer::frustumCullRenderItems(
+    std::vector<RenderItem> &items, const std::vector<Plane> &planes) {
+    items.erase(std::remove_if(items.begin(), items.end(),
+                               [&](const RenderItem &item) {
+                                   return !item.aabb.transform(item.transform)
+                                               .collidesWithFrustum(planes);
+                               }),
+                items.end());
+}
+
+void SYN::gfx::gl::Renderer::sortRenderItems(std::vector<RenderItem> &items) {
+    std::sort(items.begin(), items.end(),
+              [&](const RenderItem &a, const RenderItem &b) {
                   return a.shaderIndex < b.shaderIndex;
               });
+}
 
-    return renderItems;
+SYN::gfx::gl::AnimationPlayer SYN::gfx::gl::Renderer::createAnimationPlayer() {
+    return AnimationPlayer(this);
+}
+
+void SYN::gfx::gl::Renderer::bindBoneMatrices(
+    Pass &pass, const std::vector<glm::mat4> &boneMatrices) {
+    for (uint32_t i = 0; i < boneMatrices.size(); ++i) {
+        pass.bindUniform(std::format("boneTransforms[{}]", i),
+                         boneMatrices.at(i));
+    }
 }

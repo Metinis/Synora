@@ -47,6 +47,29 @@ class GraphicsScene : public SYN::ILayer {
             gl::loadModelData("resources/assets/Sphere.glb").value();
         m_Sphere = m_Renderer.createModel(*m_Context, sphereModelData).value();
 
+        gl::ModelData dancerModelData =
+            gl::loadModelData("resources/assets/dancer.glb").value();
+        m_Dancer = m_Renderer.createModel(*m_Context, dancerModelData).value();
+        m_DancerClips = gl::loadAnimationClips("resources/assets/dancer.glb");
+        m_DancerPlayer = m_Renderer.createAnimationPlayer();
+        assert(m_DancerClips.size() > 0 && "Unable to load dancer animations!");
+        m_DancerPlayer.setClip(&m_DancerClips[0]);
+
+        gl::ModelData parasiteModelData =
+            gl::loadModelData("resources/assets/parasite.glb").value();
+        m_Parasite =
+            m_Renderer.createModel(*m_Context, parasiteModelData).value();
+        m_ParasiteClips =
+            gl::loadAnimationClips("resources/assets/parasite.glb");
+        m_ParasitePlayer = m_Renderer.createAnimationPlayer();
+        assert(m_ParasiteClips.size() > 0 &&
+               "Unable to load parasite animations!");
+        m_ParasitePlayer.setClip(&m_ParasiteClips[0]);
+        m_ParasitePlayer.setTargetClip(&m_ParasiteClips[1]);
+        m_Weight = 0.0f;
+        m_ParasitePlayer.setLoop(true);
+        m_ParasitePlayer.play();
+
         m_Renderer.setDirectionalLight(m_Light);
 
         m_Camera.fovYDegrees = 90.0f;
@@ -148,6 +171,9 @@ class GraphicsScene : public SYN::ILayer {
         for (float history : m_FrameHistory)
             m_FrameAvg += history;
         m_FrameAvg /= 120.0f;
+
+        m_DancerPlayer.update(m_Dancer, dt);
+        m_ParasitePlayer.update(m_Parasite, dt);
     }
 
     void setCameraRotation() {
@@ -184,9 +210,22 @@ class GraphicsScene : public SYN::ILayer {
         m_Renderer.setClearColor({0.48, 0.68, 0.54, 1.0});
         m_Renderer.beginFrame(m_Camera);
         m_Renderer.submit(m_Cabin, glm::mat4(1.0));
+
         m_Renderer.submit(
             m_Waltuh,
             glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 0.0f)));
+
+        glm::mat4 dancerTransform =
+            glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 3.0f));
+
+        m_Renderer.submit(m_Dancer, dancerTransform, {},
+                          m_DancerPlayer.getOutput());
+
+        glm::mat4 parasiteTransform =
+            glm::translate(glm::mat4(1.0f), glm::vec3(-8.0f, 0.0f, 1.5f));
+
+        m_Renderer.submit(m_Parasite, parasiteTransform, {},
+                          m_ParasitePlayer.getOutput());
 
         m_Renderer.endFrame(*m_Context);
     }
@@ -330,6 +369,53 @@ class GraphicsScene : public SYN::ILayer {
         }
         ImGui::End();
 
+        if (ImGui::Begin("Animation Control")) {
+            bool isPlaying = m_DancerPlayer.isPlaying();
+            if (ImGui::Button(isPlaying ? "Pause" : "Play")) {
+                if (m_DancerPlayer.isPlaying()) {
+                    m_DancerPlayer.stop();
+                } else {
+                    m_DancerPlayer.play();
+                }
+            }
+            if (ImGui::Checkbox("Toggle loop", &m_IsLooping)) {
+                m_DancerPlayer.setLoop(m_IsLooping);
+            }
+
+            ImGui::Text("Blending (Parasite)");
+            ImGui::Separator();
+
+            if (ImGui::Button("Reset")) {
+                m_ParasitePlayer.setLoop(true);
+                m_ParasitePlayer.setClip(&m_ParasiteClips[0]);
+                m_ParasitePlayer.setTargetClip(&m_ParasiteClips[1]);
+                m_ParasitePlayer.play(0);
+            }
+
+            if (ImGui::SliderFloat("Blend weight", &m_Weight, 0.0f, 1.0f)) {
+                m_ParasitePlayer.setBlendWeight(m_Weight);
+            }
+
+            ImGui::SliderFloat("Crossfade Duration", &m_CrossfadeDuration, 0.0f,
+                               10.0f);
+
+            if (ImGui::Button("Crossfade Idle to Run")) {
+                m_ParasitePlayer.setClip(&m_ParasiteClips[0]);
+                m_ParasitePlayer.crossfadeTo(&m_ParasiteClips[1],
+                                             m_CrossfadeDuration);
+            }
+
+            ImGui::SliderFloat("Ease in", &m_EaseIn, 0.0f, 10.0f);
+            ImGui::SliderFloat("Ease out", &m_EaseOut, 0.0f, 10.0f);
+            if (ImGui::Button("Run to dance to idle")) {
+                m_ParasitePlayer.setClip(&m_ParasiteClips[1]);
+                m_ParasitePlayer.playOneShot(&m_DancerClips[0],
+                                             &m_ParasiteClips[0], m_EaseIn,
+                                             m_EaseOut);
+            }
+        }
+        ImGui::End();
+
         if (ImGui::Begin("CSM Debug")) {
             const float tileSize = 256.0f;
             const float spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -367,6 +453,20 @@ class GraphicsScene : public SYN::ILayer {
     int m_FrameIdx = 0;
 
     gl::Handle<gl::Model> m_Waltuh;
+
+    gl::Handle<gl::Model> m_Dancer;
+    std::vector<gl::AnimationClip> m_DancerClips;
+    gl::AnimationPlayer m_DancerPlayer;
+
+    gl::Handle<gl::Model> m_Parasite;
+    std::vector<gl::AnimationClip> m_ParasiteClips;
+    gl::AnimationPlayer m_ParasitePlayer;
+    float m_Weight = 0.0f;
+    float m_CrossfadeDuration = 0.0f;
+
+    float m_EaseIn = 0.0f;
+    float m_EaseOut = 0.0f;
+
     gl::Handle<gl::Model> m_Cabin;
     gl::Handle<gl::Model> m_Sphere;
     std::array<gl::Environment, 4> m_Environments;
@@ -384,6 +484,10 @@ class GraphicsScene : public SYN::ILayer {
     float m_Exposure = 1.0f;
     float m_Yaw = 0.0f, m_Pitch = 0.0f;
     float m_RenderScale = 0.7f;
+
+    // Animation controls
+    bool m_IsPlaying = false;
+    bool m_IsLooping = false;
 
     float m_Roughness;
     glm::vec3 m_Color;

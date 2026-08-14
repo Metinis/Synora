@@ -277,9 +277,11 @@ void normalizeBoneWeights(SYN::gfx::gl::Vertex &vertex) {
     vertex.boneWeights /= totalWeight;
 }
 
-void applyBonesToMesh(SYN::gfx::gl::MeshData &meshData, const aiMesh *mesh,
-                      std::unordered_map<std::string, uint32_t> &boneIndexMap,
-                      uint32_t &nextBoneIndex) {
+void applyBonesToMesh(
+    SYN::gfx::gl::MeshData &meshData, const aiMesh *mesh,
+    std::unordered_map<std::string, uint32_t> &boneIndexMap,
+    const std::unordered_map<std::string, uint32_t> &nodeNameToIndex,
+    uint32_t &nextBoneIndex, SYN::gfx::gl::Skeleton &skeleton) {
     if (!mesh->HasBones()) {
         meshData.hasSkin = false;
         return;
@@ -294,6 +296,8 @@ void applyBonesToMesh(SYN::gfx::gl::MeshData &meshData, const aiMesh *mesh,
         auto [it, inserted] = boneIndexMap.emplace(boneName, nextBoneIndex);
         if (inserted) {
             mappedBoneIndex = nextBoneIndex;
+            skeleton.boneInfo.emplace_back(nodeNameToIndex.at(boneName),
+                                           toGlmMatrix(bone->mOffsetMatrix));
             ++nextBoneIndex;
         } else {
             mappedBoneIndex = it->second;
@@ -506,7 +510,8 @@ processMesh(const aiMesh *mesh, const aiScene *scene,
             const std::filesystem::path &modelPath,
             const glm::mat4 &localTransform,
             std::unordered_map<std::string, uint32_t> &boneIndexMap,
-            uint32_t &nextBoneIndex) {
+            const std::unordered_map<std::string, uint32_t> &nodeNameToIndex,
+            uint32_t &nextBoneIndex, SYN::gfx::gl::Skeleton &skeleton) {
     SYN::gfx::gl::MeshData result{};
     result.localTransform = localTransform;
 
@@ -563,28 +568,41 @@ processMesh(const aiMesh *mesh, const aiScene *scene,
             scene->mMaterials[mesh->mMaterialIndex], scene, modelPath);
     }
 
-    applyBonesToMesh(result, mesh, boneIndexMap, nextBoneIndex);
+    applyBonesToMesh(result, mesh, boneIndexMap, nodeNameToIndex, nextBoneIndex,
+                     skeleton);
     return result;
 }
 
-void processNode(const aiNode *node, const aiScene *scene,
-                 const std::filesystem::path &modelPath,
-                 const glm::mat4 &parentTransform,
-                 std::vector<SYN::gfx::gl::MeshData> &meshes,
-                 std::unordered_map<std::string, uint32_t> &boneIndexMap,
-                 uint32_t &nextBoneIndex) {
-    glm::mat4 localTransform =
+void processNode(
+    const aiNode *node, const aiScene *scene, const glm::mat4 &parentTransform,
+    std::optional<uint32_t> parentIndex,
+    std::unordered_map<std::string, uint32_t> &nodeNameToIndex,
+    std::unordered_map<std::string, glm::mat4> &meshGlobalTransform,
+    SYN::gfx::gl::Skeleton &skeleton) {
+    glm::mat4 globalTransform =
         parentTransform * toGlmMatrix(node->mTransformation);
 
-    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+    for (uint32_t i = 0; i < node->mNumMeshes; ++i) {
         const aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
-        meshes.emplace_back(processMesh(mesh, scene, modelPath, localTransform,
-                                        boneIndexMap, nextBoneIndex));
+        meshGlobalTransform[mesh->mName.C_Str()] = globalTransform;
     }
 
+    aiVector3D position, scale;
+    aiQuaternion rotation;
+    node->mTransformation.Decompose(scale, rotation, position);
+    skeleton.nodes.emplace_back(
+        node->mName.C_Str(), parentIndex,
+        glm::vec3(position.x, position.y, position.z),
+        glm::quat(rotation.w, rotation.x, rotation.y, rotation.z),
+        glm::vec3(scale.x, scale.y, scale.z));
+
+    nodeNameToIndex[node->mName.C_Str()] = skeleton.nodes.size() - 1;
+
+    parentIndex = skeleton.nodes.size() - 1;
+
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
-        processNode(node->mChildren[i], scene, modelPath, localTransform,
-                    meshes, boneIndexMap, nextBoneIndex);
+        processNode(node->mChildren[i], scene, globalTransform, parentIndex,
+                    nodeNameToIndex, meshGlobalTransform, skeleton);
     }
 }
 
@@ -606,10 +624,92 @@ SYN::gfx::gl::loadModelData(const std::filesystem::path &path) {
 
     SYN::gfx::gl::ModelData modelData{};
     std::unordered_map<std::string, uint32_t> boneIndexMap{};
+    std::unordered_map<std::string, uint32_t> nodeNameToIndex{};
+    std::unordered_map<std::string, glm::mat4> meshGlobalTransform{};
     uint32_t nextBoneIndex = 0;
+    std::optional<uint32_t> parentIndex = std::nullopt;
 
-    processNode(scene->mRootNode, scene, path, glm::mat4(1.0f),
-                modelData.meshes, boneIndexMap, nextBoneIndex);
+    modelData.skeleton.inverseRoot =
+        glm::inverse(toGlmMatrix(scene->mRootNode->mTransformation));
+
+    processNode(scene->mRootNode, scene, glm::mat4(1.0f), parentIndex,
+                nodeNameToIndex, meshGlobalTransform, modelData.skeleton);
+
+    for (int i = 0; i < scene->mNumMeshes; ++i) {
+        const aiMesh *mesh = scene->mMeshes[i];
+        glm::mat4 globalTransform = meshGlobalTransform.at(mesh->mName.C_Str());
+        modelData.meshes.emplace_back(
+            processMesh(mesh, scene, path, globalTransform, boneIndexMap,
+                        nodeNameToIndex, nextBoneIndex, modelData.skeleton));
+    }
 
     return modelData;
+}
+
+std::vector<SYN::gfx::gl::AnimationClip>
+SYN::gfx::gl::loadAnimationClips(const std::filesystem::path &path) {
+    Assimp::Importer importer;
+    const aiScene *scene = importer.ReadFile(
+        path.string(), aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
+                           aiProcess_GenNormals | aiProcess_CalcTangentSpace |
+                           aiProcess_FlipUVs | aiProcess_LimitBoneWeights);
+
+    if (scene == nullptr || scene->mRootNode == nullptr) {
+        spdlog::warn("Could not load {}: {}", path.string(),
+                     importer.GetErrorString());
+        return {};
+    }
+
+    auto loadVectorKeys = [](aiVectorKey *keys, uint32_t count) {
+        std::vector<VectorKey> outputKeys;
+
+        for (uint32_t i = 0; i < count; ++i) {
+            aiVector3D value = keys[i].mValue;
+            outputKeys.emplace_back(glm::vec3(value.x, value.y, value.z),
+                                    keys[i].mTime);
+        }
+
+        return outputKeys;
+    };
+
+    auto loadQuatKeys = [](aiQuatKey *keys, uint32_t count) {
+        std::vector<QuatKey> outputKeys;
+
+        for (uint32_t i = 0; i < count; ++i) {
+            aiQuaternion value = keys[i].mValue;
+            outputKeys.emplace_back(
+                glm::quat(value.w, value.x, value.y, value.z), keys[i].mTime);
+        }
+
+        return outputKeys;
+    };
+
+    std::vector<SYN::gfx::gl::AnimationClip> clips;
+    for (uint32_t i = 0; i < scene->mNumAnimations; ++i) {
+        const aiAnimation *animation = scene->mAnimations[i];
+        double fps = animation->mTicksPerSecond;
+
+        // If ticks per second is unspecified in the loaded file format default
+        // to 24 fps.
+        if (fps == 0.0)
+            fps = 24.0;
+
+        AnimationClip &clip = clips.emplace_back(animation->mName.C_Str(),
+                                                 animation->mDuration, fps);
+
+        for (uint32_t j = 0; j < animation->mNumChannels; ++j) {
+            const aiNodeAnim *channel = animation->mChannels[j];
+            clip.channels[channel->mNodeName.C_Str()] =
+                SYN::gfx::gl::AnimationChannel{
+                    loadVectorKeys(channel->mPositionKeys,
+                                   channel->mNumPositionKeys),
+                    loadVectorKeys(channel->mScalingKeys,
+                                   channel->mNumScalingKeys),
+                    loadQuatKeys(channel->mRotationKeys,
+                                 channel->mNumRotationKeys),
+                };
+        }
+    }
+
+    return clips;
 }
