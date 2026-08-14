@@ -587,8 +587,14 @@ void processNode(
         meshGlobalTransform[mesh->mName.C_Str()] = globalTransform;
     }
 
-    skeleton.nodes.emplace_back(node->mName.C_Str(), parentIndex,
-                                toGlmMatrix(node->mTransformation));
+    aiVector3D position, scale;
+    aiQuaternion rotation;
+    node->mTransformation.Decompose(scale, rotation, position);
+    skeleton.nodes.emplace_back(
+        node->mName.C_Str(), parentIndex,
+        glm::vec3(position.x, position.y, position.z),
+        glm::quat(rotation.w, rotation.x, rotation.y, rotation.z),
+        glm::vec3(scale.x, scale.y, scale.z));
 
     nodeNameToIndex[node->mName.C_Str()] = skeleton.nodes.size() - 1;
 
@@ -625,6 +631,9 @@ SYN::gfx::gl::loadModelData(const std::filesystem::path &path) {
 
     processNode(scene->mRootNode, scene, glm::mat4(1.0f), parentIndex,
                 nodeNameToIndex, meshGlobalTransform, modelData.skeleton);
+
+    modelData.skeleton.inverseRoot =
+        glm::inverse(toGlmMatrix(scene->mRootNode->mTransformation));
 
     for (int i = 0; i < scene->mNumMeshes; ++i) {
         const aiMesh *mesh = scene->mMeshes[i];
