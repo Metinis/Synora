@@ -118,6 +118,81 @@ SYN::gfx::gl::Material loadMaterial(
     return material;
 }
 
+glm::vec3 SYN::gfx::gl::AABB::getPVertex(glm::vec3 normal) const {
+    AABB aabb = *this;
+
+    float x = normal.x >= 0 ? aabb.max.x : aabb.min.x;
+    float y = normal.y >= 0 ? aabb.max.y : aabb.min.y;
+    float z = normal.z >= 0 ? aabb.max.z : aabb.min.z;
+
+    return glm::vec3(x, y, z);
+}
+
+glm::vec3 SYN::gfx::gl::AABB::getNVertex(glm::vec3 normal) const {
+    AABB aabb = *this;
+
+    float x = normal.x >= 0 ? aabb.min.x : aabb.max.x;
+    float y = normal.y >= 0 ? aabb.min.y : aabb.max.y;
+    float z = normal.z >= 0 ? aabb.min.z : aabb.max.z;
+
+    return glm::vec3(x, y, z);
+}
+
+bool SYN::gfx::gl::AABB::collidesWithFrustum(
+    const std::vector<Plane> &frustum) const {
+    for (Plane plane : frustum) {
+        glm::vec3 planeNormal = glm::vec3(plane.a, plane.b, plane.c);
+        glm::vec3 pVertex = getPVertex(planeNormal);
+
+        if (glm::dot(planeNormal, pVertex) < -plane.d)
+            return false;
+    }
+    return true;
+}
+
+SYN::gfx::gl::AABB SYN::gfx::gl::AABB::transform(glm::mat4 transform) const {
+    AABB aabb = *this;
+
+    glm::vec3 min = aabb.min;
+    glm::vec3 max = aabb.max;
+
+    float lengthX = max.x - min.x;
+    float lengthY = max.y - min.y;
+    float lengthZ = max.z - min.z;
+
+    std::array<glm::vec3, 8> worldPoints = {
+        min,
+        min + glm::vec3(lengthX, 0, 0),
+        min + glm::vec3(lengthX, 0, lengthZ),
+        min + glm::vec3(0, 0, lengthZ),
+        min + glm::vec3(0, lengthY, 0),
+        min + glm::vec3(lengthX, lengthY, 0),
+        min + glm::vec3(0, lengthY, lengthZ),
+        max};
+
+    for (glm::vec3 &worldPoint : worldPoints) {
+        worldPoint = transform * glm::vec4(worldPoint, 1.0f);
+    }
+
+    float minFloat = std::numeric_limits<float>().lowest();
+    float maxFloat = std::numeric_limits<float>().max();
+
+    glm::vec3 newMin(maxFloat, maxFloat, maxFloat);
+    glm::vec3 newMax(minFloat, minFloat, minFloat);
+
+    for (glm::vec3 worldPoint : worldPoints) {
+        newMin.x = glm::min(newMin.x, worldPoint.x);
+        newMin.y = glm::min(newMin.y, worldPoint.y);
+        newMin.z = glm::min(newMin.z, worldPoint.z);
+
+        newMax.x = glm::max(newMax.x, worldPoint.x);
+        newMax.y = glm::max(newMax.y, worldPoint.y);
+        newMax.z = glm::max(newMax.z, worldPoint.z);
+    }
+
+    return {newMin, newMax};
+}
+
 SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
 createDefaultShader(SYN::gfx::gl::Context &context) {
     std::string defaultVertexSource = R"(
@@ -2194,6 +2269,17 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
         if (!mesh.material.albedo) {
             mesh.material.albedo = m_DefaultWhite;
         }
+        if (mesh.hasSkin) {
+            mesh.aabb = mesh.aabb.transform(data.skeleton.inverseRoot);
+
+            // Inflate the skinned mesh's aabb by generous margin to
+            // account for animations.
+            //
+            // TODO: Compute bound from all clips during load time
+            glm::vec3 padding = (mesh.aabb.max - mesh.aabb.min) * 0.25f;
+            mesh.aabb.min -= padding;
+            mesh.aabb.max += padding;
+        }
         mesh.sourceIndex = sourceIndex;
         if (mesh.material.alphaCutoff < 1.0f) {
             model.meshesMasked.push_back(mesh);
@@ -3414,76 +3500,6 @@ SYN::gfx::gl::Renderer::planesFromCameraFrustum(const Camera &camera) {
     return planes;
 }
 
-glm::vec3 SYN::gfx::gl::Renderer::getPVertex(AABB aabb, glm::vec3 normal) {
-    float x = normal.x >= 0 ? aabb.max.x : aabb.min.x;
-    float y = normal.y >= 0 ? aabb.max.y : aabb.min.y;
-    float z = normal.z >= 0 ? aabb.max.z : aabb.min.z;
-
-    return glm::vec3(x, y, z);
-}
-
-glm::vec3 SYN::gfx::gl::Renderer::getNVertex(AABB aabb, glm::vec3 normal) {
-    float x = normal.x >= 0 ? aabb.min.x : aabb.max.x;
-    float y = normal.y >= 0 ? aabb.min.y : aabb.max.y;
-    float z = normal.z >= 0 ? aabb.min.z : aabb.max.z;
-
-    return glm::vec3(x, y, z);
-}
-
-bool SYN::gfx::gl::Renderer::aabbVsFrustum(AABB aabb,
-                                           const std::vector<Plane> &frustum) {
-    for (Plane plane : frustum) {
-        glm::vec3 planeNormal = glm::vec3(plane.a, plane.b, plane.c);
-        glm::vec3 pVertex = getPVertex(aabb, planeNormal);
-
-        if (glm::dot(planeNormal, pVertex) < -plane.d)
-            return false;
-    }
-    return true;
-}
-
-SYN::gfx::gl::AABB SYN::gfx::gl::Renderer::aabbToWorld(AABB aabb,
-                                                       glm::mat4 worldMatrix) {
-    glm::vec3 min = aabb.min;
-    glm::vec3 max = aabb.max;
-
-    float lengthX = max.x - min.x;
-    float lengthY = max.y - min.y;
-    float lengthZ = max.z - min.z;
-
-    std::array<glm::vec3, 8> worldPoints = {
-        min,
-        min + glm::vec3(lengthX, 0, 0),
-        min + glm::vec3(lengthX, 0, lengthZ),
-        min + glm::vec3(0, 0, lengthZ),
-        min + glm::vec3(0, lengthY, 0),
-        min + glm::vec3(lengthX, lengthY, 0),
-        min + glm::vec3(0, lengthY, lengthZ),
-        max};
-
-    for (glm::vec3 &worldPoint : worldPoints) {
-        worldPoint = worldMatrix * glm::vec4(worldPoint, 1.0f);
-    }
-
-    float minFloat = std::numeric_limits<float>().lowest();
-    float maxFloat = std::numeric_limits<float>().max();
-
-    glm::vec3 newMin(maxFloat, maxFloat, maxFloat);
-    glm::vec3 newMax(minFloat, minFloat, minFloat);
-
-    for (glm::vec3 worldPoint : worldPoints) {
-        newMin.x = glm::min(newMin.x, worldPoint.x);
-        newMin.y = glm::min(newMin.y, worldPoint.y);
-        newMin.z = glm::min(newMin.z, worldPoint.z);
-
-        newMax.x = glm::max(newMax.x, worldPoint.x);
-        newMax.y = glm::max(newMax.y, worldPoint.y);
-        newMax.z = glm::max(newMax.z, worldPoint.z);
-    }
-
-    return {newMin, newMax};
-}
-
 std::vector<glm::vec4>
 SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
     glm::mat4 viewMatrix =
@@ -3789,9 +3805,8 @@ void SYN::gfx::gl::Renderer::frustumCullRenderItems(
     std::vector<RenderItem> &items, const std::vector<Plane> &planes) {
     items.erase(std::remove_if(items.begin(), items.end(),
                                [&](const RenderItem &item) {
-                                   return !aabbVsFrustum(
-                                       aabbToWorld(item.aabb, item.transform),
-                                       planes);
+                                   return !item.aabb.transform(item.transform)
+                                               .collidesWithFrustum(planes);
                                }),
                 items.end());
 }

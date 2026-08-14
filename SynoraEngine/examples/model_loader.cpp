@@ -629,11 +629,11 @@ SYN::gfx::gl::loadModelData(const std::filesystem::path &path) {
     uint32_t nextBoneIndex = 0;
     std::optional<uint32_t> parentIndex = std::nullopt;
 
-    processNode(scene->mRootNode, scene, glm::mat4(1.0f), parentIndex,
-                nodeNameToIndex, meshGlobalTransform, modelData.skeleton);
-
     modelData.skeleton.inverseRoot =
         glm::inverse(toGlmMatrix(scene->mRootNode->mTransformation));
+
+    processNode(scene->mRootNode, scene, glm::mat4(1.0f), parentIndex,
+                nodeNameToIndex, meshGlobalTransform, modelData.skeleton);
 
     for (int i = 0; i < scene->mNumMeshes; ++i) {
         const aiMesh *mesh = scene->mMeshes[i];

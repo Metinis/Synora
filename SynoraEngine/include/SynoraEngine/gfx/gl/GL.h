@@ -434,9 +434,21 @@ struct RendererConfig {
     float renderScale = 1.0f;
 };
 
+struct Plane {
+    float a;
+    float b;
+    float c;
+    float d;
+};
+
 struct AABB {
     glm::vec3 min;
     glm::vec3 max;
+
+    glm::vec3 getPVertex(glm::vec3 normal) const;
+    glm::vec3 getNVertex(glm::vec3 normal) const;
+    bool collidesWithFrustum(const std::vector<Plane> &frustum) const;
+    AABB transform(glm::mat4 transform) const;
 };
 
 struct MeshData {
@@ -530,13 +542,6 @@ struct Environment {
     Handle<Texture> cubemap;
     std::optional<Handle<Texture>> irradianceMap = std::nullopt;
     std::optional<Handle<Texture>> prefilteredMap = std::nullopt;
-};
-
-struct Plane {
-    float a;
-    float b;
-    float c;
-    float d;
 };
 
 struct RenderItem {
@@ -1070,13 +1075,6 @@ class Renderer {
                                          float &texelWorld);
 
     std::vector<Plane> planesFromCameraFrustum(const Camera &camera);
-
-    glm::vec3 getPVertex(AABB aabb, glm::vec3 normal);
-    glm::vec3 getNVertex(AABB aabb, glm::vec3 normal);
-
-    // True if aabb is inside or interesects frustum
-    bool aabbVsFrustum(AABB aabb, const std::vector<Plane> &frustum);
-    AABB aabbToWorld(AABB aabb, glm::mat4 worldMatrix);
 
   private:
     struct DrawCommand {
