@@ -454,7 +454,10 @@ struct Skeleton {
     struct Node {
         std::string name;
         std::optional<uint32_t> parentIndex;
-        glm::mat4 localBindTransform = glm::mat4(1.0f);
+
+        glm::vec3 position;
+        glm::quat rotation;
+        glm::vec3 scale;
     };
 
     struct BoneInfo {
@@ -465,6 +468,8 @@ struct Skeleton {
     std::vector<Node> nodes;
 
     std::vector<BoneInfo> boneInfo;
+
+    glm::mat4 inverseRoot = glm::mat4(1.0f);
 };
 
 struct ModelData {
@@ -772,24 +777,55 @@ class AnimationPlayer {
     AnimationPlayer() = default;
     AnimationPlayer(class Renderer *renderer);
 
-    void setClip(AnimationClip *clip);
-    void setTargetClip(AnimationClip *target);
+    void setClip(const AnimationClip *clip);
+    void setTargetClip(const AnimationClip *target);
     void setBlendWeight(float blendWeight);
     void setLoop(bool loop);
 
+    // If time is nullopt then resume from current internal time, otherwise,
+    // start playing at specified time
+    void play(std::optional<float> time = std::nullopt);
+
+    // Blends between current clip to target clip in time specified by duration
+    void crossfadeTo(const AnimationClip *target, float duration);
+
+    // Blends between current clip to 'to' clip (with blendIn time) and from
+    // 'to' to 'returnTo' (with blendOut time).
+    void playOneShot(const AnimationClip *to, const AnimationClip *returnTo,
+                     float blendIn, float blendOut);
+
+    // Pause playback
+    void stop();
+
     const std::vector<glm::mat4> &getOutput() const;
+    float getCurrentTime() const;
+    bool isLooping() const;
+    bool isPlaying() const;
+    float getDuration() const;
 
     void update(Handle<Model> modelHandle, float dt);
 
   private:
     const AnimationClip *m_Clip = nullptr;
     float m_CurrentTime = 0.0f;
+    float m_TargetTime = 0.0f;
     float m_LastPlayedTime = 0.0f;
 
     const AnimationClip *m_TargetClip = nullptr;
     float m_BlendWeight = 0.0f;
 
+    float m_CrossfadeDuration = 0.0f;
+    float m_CrossfadeTime = 0.0f;
+    bool m_IsCrossfading = false;
+
+    bool m_IsPlayingOneshot = false;
+    const AnimationClip *m_ReturnTo = nullptr;
+    float m_BlendOut = 0.0f;
+
     bool m_IsLooping = false;
+    bool m_IsPlaying = false;
+
+    bool m_DefaultPose = true;
 
     std::vector<glm::mat4> m_BoneMatrices;
 

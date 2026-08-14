@@ -1791,22 +1791,74 @@ SYN::gfx::gl::AnimationPlayer::AnimationPlayer(class Renderer *renderer) {
     m_Renderer = renderer;
 }
 
-void SYN::gfx::gl::AnimationPlayer::setClip(AnimationClip *clip) {
+void SYN::gfx::gl::AnimationPlayer::setClip(const AnimationClip *clip) {
     m_Clip = clip;
+    m_DefaultPose = true;
 }
 
-void SYN::gfx::gl::AnimationPlayer::setTargetClip(AnimationClip *target) {
+void SYN::gfx::gl::AnimationPlayer::setTargetClip(const AnimationClip *target) {
     m_TargetClip = target;
+    m_TargetTime = 0.0f;
 }
 
 void SYN::gfx::gl::AnimationPlayer::setBlendWeight(float blendWeight) {
-    m_BlendWeight = glm::max(0.0f, blendWeight);
+    m_BlendWeight = glm::clamp(blendWeight, 0.0f, 1.0f);
 }
 
 void SYN::gfx::gl::AnimationPlayer::setLoop(bool loop) { m_IsLooping = loop; }
 
 const std::vector<glm::mat4> &SYN::gfx::gl::AnimationPlayer::getOutput() const {
     return m_BoneMatrices;
+}
+
+void SYN::gfx::gl::AnimationPlayer::play(std::optional<float> time) {
+    if (m_Clip == nullptr) {
+        spdlog::error(
+            "Unable to begin playback because specified clip is NULL");
+        return;
+    }
+    m_IsPlaying = true;
+    float playTime = time.value_or(m_CurrentTime);
+    if (!time.has_value() && m_CurrentTime == m_Clip->duration) {
+        playTime = 0.0f;
+    }
+
+    m_CurrentTime = glm::clamp(playTime, 0.0f, m_Clip->duration);
+}
+void SYN::gfx::gl::AnimationPlayer::stop() { m_IsPlaying = false; }
+
+void SYN::gfx::gl::AnimationPlayer::crossfadeTo(const AnimationClip *target,
+                                                float duration) {
+    if (m_Clip == nullptr) {
+        spdlog::error("Cannot crossfade from NULL clip");
+        return;
+    }
+    if (target == nullptr) {
+        spdlog::error("Cannot crossfade to NULL clip");
+        return;
+    }
+
+    m_IsPlaying = true;
+    setTargetClip(target);
+    m_CrossfadeDuration = duration;
+    m_CrossfadeTime = 0.0f;
+    m_IsCrossfading = true;
+    m_BlendWeight = 0.0f;
+}
+
+void SYN::gfx::gl::AnimationPlayer::playOneShot(const AnimationClip *to,
+                                                const AnimationClip *returnTo,
+                                                float blendIn, float blendOut) {
+    if (returnTo == nullptr) {
+        spdlog::error("Cannot return to NULL clip");
+        return;
+    }
+
+    m_IsPlayingOneshot = true;
+    m_ReturnTo = returnTo;
+    m_BlendOut = blendOut;
+
+    crossfadeTo(to, blendIn);
 }
 
 void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
@@ -1827,35 +1879,93 @@ void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
         return;
     }
 
-    m_BoneMatrices = std::vector<glm::mat4>(model->skeleton.boneInfo.size(),
-                                            glm::mat4(1.0f));
-
     if (m_Clip == nullptr)
         return;
 
+    if (m_Clip->fps == 0.0f) {
+        spdlog::error("Current clip {} has fps of 0.0 which is invalid.",
+                      m_Clip->name);
+        return;
+    }
+
+    if (m_DefaultPose) {
+        m_BoneMatrices = std::vector<glm::mat4>(model->skeleton.boneInfo.size(),
+                                                model->skeleton.inverseRoot);
+        m_DefaultPose = false;
+    }
+
     m_LastPlayedTime = m_CurrentTime;
-    m_CurrentTime += m_Clip->fps * dt;
-    if (m_IsLooping) {
-        m_CurrentTime = std::fmod(m_CurrentTime, m_Clip->duration);
+
+    auto advanceTime = [&](const AnimationClip *clip, float time) {
+        time += clip->fps * dt;
+        if (m_IsLooping && !m_IsPlayingOneshot) {
+            time = std::fmod(time, clip->duration);
+        } else {
+            time = glm::clamp(time, 0.0f, clip->duration);
+        }
+
+        return time;
+    };
+
+    if (m_IsPlaying) {
+        m_CurrentTime = advanceTime(m_Clip, m_CurrentTime);
+        if (m_TargetClip)
+            m_TargetTime = advanceTime(m_TargetClip, m_TargetTime);
     } else {
-        m_CurrentTime = glm::clamp(m_CurrentTime, 0.0f, m_Clip->duration);
-        if (m_CurrentTime == m_Clip->duration &&
-            m_LastPlayedTime == m_CurrentTime) {
+        return;
+    }
+
+    if (m_IsPlayingOneshot && !m_IsCrossfading) {
+        if (m_CurrentTime >= m_Clip->duration - m_BlendOut) {
+            crossfadeTo(m_ReturnTo, m_BlendOut);
+            m_BlendOut = 0.0f;
+            m_IsPlayingOneshot = false;
+        }
+    }
+
+    if (m_IsCrossfading) {
+        m_CrossfadeTime += dt;
+        float t = 1.0f;
+        if (m_CrossfadeDuration > 0.0f) {
+            t = glm::clamp(m_CrossfadeTime / m_CrossfadeDuration, 0.0f, 1.0f);
+        }
+        m_BlendWeight = glm::smoothstep(0.0f, 1.0f, t);
+        if (m_CrossfadeTime >= m_CrossfadeDuration) {
+            m_IsCrossfading = false;
+            m_Clip = m_TargetClip;
+            m_TargetClip = nullptr;
+            m_CurrentTime = m_TargetTime;
+            m_BlendWeight = 0.0f;
+            if (!m_IsPlayingOneshot && m_ReturnTo != nullptr) {
+                m_ReturnTo = nullptr;
+            }
+        }
+    }
+
+    if (!m_IsLooping) {
+        if (m_CurrentTime >= m_Clip->duration &&
+            m_LastPlayedTime == m_CurrentTime && !m_IsCrossfading) {
+            m_IsPlaying = false;
             return;
         }
     }
 
-    auto sampleVectorKey = [&](const std::vector<VectorKey> &keys) {
+    struct Pose {
+        glm::vec3 position;
+        glm::quat rotation;
+        glm::vec3 scale;
+    };
+
+    auto sampleVectorKey = [](const std::vector<VectorKey> &keys, float time) {
         if (keys.empty())
             return glm::vec3(0.0f);
         if (keys.size() == 1) {
             return keys[0].value;
         }
-        auto nextKey =
-            std::upper_bound(keys.cbegin(), keys.cend(), m_CurrentTime,
-                             [](float time, const VectorKey &key) {
-                                 return time < key.timestamp;
-                             });
+        auto nextKey = std::upper_bound(keys.cbegin(), keys.cend(), time,
+                                        [](float time, const VectorKey &key) {
+                                            return time < key.timestamp;
+                                        });
         if (nextKey == keys.cbegin())
             return nextKey->value;
         if (nextKey == keys.cend())
@@ -1863,12 +1973,12 @@ void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
 
         auto lastKey = nextKey - 1;
 
-        float t = (m_CurrentTime - lastKey->timestamp) /
+        float t = (time - lastKey->timestamp) /
                   (nextKey->timestamp - lastKey->timestamp);
         return glm::mix(lastKey->value, nextKey->value, t);
     };
 
-    auto sampleQuatKey = [&](const std::vector<QuatKey> &keys) {
+    auto sampleQuatKey = [](const std::vector<QuatKey> &keys, float time) {
         if (keys.empty()) {
             return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         }
@@ -1876,11 +1986,10 @@ void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
         if (keys.size() == 1) {
             return keys[0].value;
         }
-        auto nextKey =
-            std::upper_bound(keys.cbegin(), keys.cend(), m_CurrentTime,
-                             [](float time, const QuatKey &key) {
-                                 return time < key.timestamp;
-                             });
+        auto nextKey = std::upper_bound(keys.cbegin(), keys.cend(), time,
+                                        [](float time, const QuatKey &key) {
+                                            return time < key.timestamp;
+                                        });
         if (nextKey == keys.cbegin())
             return nextKey->value;
         if (nextKey == keys.cend())
@@ -1888,30 +1997,51 @@ void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
 
         auto lastKey = nextKey - 1;
 
-        float t = (m_CurrentTime - lastKey->timestamp) /
+        float t = (time - lastKey->timestamp) /
                   (nextKey->timestamp - lastKey->timestamp);
         return glm::slerp(lastKey->value, nextKey->value, t);
+    };
+
+    auto samplePose = [&](const AnimationClip *target,
+                          const Skeleton::Node &node, float time) -> Pose {
+        auto channels = target->channels.find(node.name);
+        Pose output{node.position, node.rotation, node.scale};
+        if (channels != target->channels.cend()) {
+            glm::vec3 position =
+                sampleVectorKey(channels->second.translation, time);
+
+            glm::vec3 scale = sampleVectorKey(channels->second.scale, time);
+            if (channels->second.scale.empty())
+                scale = glm::vec3(1.0f);
+
+            glm::quat rotation = sampleQuatKey(channels->second.rotation, time);
+
+            output.position = position;
+            output.scale = scale;
+            output.rotation = rotation;
+        }
+        return output;
     };
 
     uint32_t nodeCount = model->skeleton.nodes.size();
     std::vector<glm::mat4> globalTransforms(nodeCount, glm::mat4(1.0f));
     for (uint32_t i = 0; i < nodeCount; ++i) {
         const Skeleton::Node &node = model->skeleton.nodes.at(i);
-        glm::mat4 localTransform = node.localBindTransform;
-        auto channels = m_Clip->channels.find(node.name);
-        if (channels != m_Clip->channels.cend()) {
-            glm::vec3 position = sampleVectorKey(channels->second.translation);
-
-            glm::vec3 scale = sampleVectorKey(channels->second.scale);
-            if (channels->second.scale.empty())
-                scale = glm::vec3(1.0f);
-
-            glm::quat rotation = sampleQuatKey(channels->second.rotation);
-
-            localTransform = glm::translate(glm::mat4(1.0f), position) *
-                             glm::mat4(rotation) *
-                             glm::scale(glm::mat4(1.0f), scale);
+        Pose poseA = samplePose(m_Clip, node, m_CurrentTime);
+        Pose local = poseA;
+        if (m_TargetClip && m_BlendWeight > 0.0f) {
+            Pose poseB = samplePose(m_TargetClip, node, m_TargetTime);
+            local.position =
+                glm::mix(poseA.position, poseB.position, m_BlendWeight);
+            local.scale = glm::mix(poseA.scale, poseB.scale, m_BlendWeight);
+            local.rotation =
+                glm::slerp(poseA.rotation, poseB.rotation, m_BlendWeight);
         }
+
+        glm::mat4 identity(1.0f);
+        glm::mat4 localTransform = glm::translate(identity, local.position) *
+                                   glm::mat4(glm::normalize(local.rotation)) *
+                                   glm::scale(identity, local.scale);
 
         if (node.parentIndex.has_value()) {
             uint32_t parentIndex = node.parentIndex.value();
@@ -1924,9 +2054,21 @@ void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
 
     for (uint32_t i = 0; i < m_BoneMatrices.size(); ++i) {
         const Skeleton::BoneInfo &info = model->skeleton.boneInfo.at(i);
-        m_BoneMatrices[i] =
-            globalTransforms[info.nodeIndex] * info.inverseBindMatrix;
+        m_BoneMatrices[i] = model->skeleton.inverseRoot *
+                            globalTransforms[info.nodeIndex] *
+                            info.inverseBindMatrix;
     }
+}
+
+float SYN::gfx::gl::AnimationPlayer::getCurrentTime() const {
+    return m_CurrentTime;
+}
+bool SYN::gfx::gl::AnimationPlayer::isLooping() const { return m_IsLooping; }
+bool SYN::gfx::gl::AnimationPlayer::isPlaying() const { return m_IsPlaying; }
+float SYN::gfx::gl::AnimationPlayer::getDuration() const {
+    if (m_Clip == nullptr)
+        return 0.0f;
+    return m_Clip->duration;
 }
 
 // RenderTechnique
