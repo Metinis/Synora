@@ -3346,7 +3346,9 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
     m_FrustumPlanes = planesFromCameraFrustum(m_MainCamera);
 
-    drawDirectionalCSM(context, m_DirectionalLight);
+    if (m_DirectionalLight.castsShadows) {
+        drawDirectionalCSM(context, m_DirectionalLight);
+    }
 
     {
         TracyGpuZone("Forward");

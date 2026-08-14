@@ -272,7 +272,12 @@ vec3 applyDirectionalLight(DirectionalLight light, vec3 objectColor, vec3 normal
   float denominator = 4.0 * max(dot(normal, viewDir), 0.0) * max(dot(normal, lightDir), 0.0) + 0.0001;
   vec3 specular = numerator / denominator;
 
-  return (kD * objectColor / PI + specular) * radiance * NdotL * (1.0f - getShadow(lightDir));
+  float shadow = 1.0f;
+  if (light.castShadow) {
+    shadow -= getShadow(lightDir);
+  }
+
+  return (kD * objectColor / PI + specular) * radiance * NdotL * shadow;
 }
 
 vec3 getAmbientColor(vec3 objectColor, vec3 normal, vec2 metallicRoughness) {
