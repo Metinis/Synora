@@ -21,3 +21,14 @@ struct DirectionalLight {
 layout(std140, binding = 2) uniform LightConstants {
   DirectionalLight u_light;
 };
+
+#define MAX_BONES 128
+vec4 applyBoneTransform(mat4 boneTransforms[MAX_BONES], ivec4 boneIds, vec4 boneWeights, vec4 p) {
+  vec4 outputVec = vec4(0.0f);
+
+  for (int i = 0; i < 4; ++i) {
+    outputVec += boneWeights[i] * (boneTransforms[boneIds[i]] * p);
+  }
+
+  return outputVec;
+}
