@@ -407,8 +407,8 @@ struct MaterialOverride {
 };
 
 struct Camera {
-    glm::vec3 position;
-    glm::vec3 target;
+    glm::vec3 position = glm::vec3(0.0f);
+    glm::vec3 target = glm::vec3(0.0f, 0.0f, -1.0f);
     glm::vec3 up = {0, 1, 0};
     float fovYDegrees = 60.0f;
     float nearPlane = 0.1f;
