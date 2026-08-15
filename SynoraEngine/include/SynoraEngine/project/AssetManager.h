@@ -10,6 +10,7 @@
 #include "assimp/material.h"
 #include <assimp/Importer.hpp>
 
+#define SYN_LOG_ASSETS
 #ifdef SYN_LOG_ASSETS
     #define SYN_LOG_ASSET(...) spdlog::debug(__VA_ARGS__)
 #else
@@ -24,7 +25,7 @@ namespace SYN {
 class Entity;
 struct AssetCounted {
     AssetType data{};
-    uint64_t ref{};
+    int64_t ref{};
 };
 class AssetManager {
   public:
@@ -34,6 +35,7 @@ class AssetManager {
 
     void loadModel(Scene *scene, const std::filesystem::path &path);
     UUID loadTexture(const std::string &path);
+    void flushRefCount();
 
     void addRef(UUID id);
     void removeRef(UUID id);
@@ -126,6 +128,7 @@ class AssetManager {
 
     std::unordered_map<UUID, AssetCounted> m_AssetMap{};
     std::unordered_map<std::string, UUID> m_LoadedUUIDMap{};
+    std::unordered_map<UUID, int32_t> m_PendingRefChanges{};
     Renderer *m_Renderer{};
     Assimp::Importer m_Importer;
 

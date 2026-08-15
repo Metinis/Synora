@@ -11,6 +11,7 @@
 #include <stb_image.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
+#include <functional>
 
 struct MeshData;
 struct MeshComp;
@@ -63,7 +64,7 @@ class VulkanBackend : public IBackend {
     uint32_t getShaderSamplerIndexCmd(TextureHandle texture) override;
     uint32_t getShaderSamplerIndexCmd(AttachmentHandle attachment) override;
 
-    uint64_t getBufferAddressCmd(BufferHandle buffer) override;
+    std::optional<uint64_t> getBufferAddressCmd(BufferHandle handle) override;
 
     void shutdown() override;
 
@@ -88,6 +89,8 @@ class VulkanBackend : public IBackend {
         std::vector<Buffer> buffersToFree;
         std::vector<uint32_t> bindlessTexturesToFree;
         std::vector<VkPipeline> pipelinesToFree;
+
+        std::vector<std::function<void()>> pendingUploadFuncs;
 
         uint32_t swapchainImageIndex{};
     };

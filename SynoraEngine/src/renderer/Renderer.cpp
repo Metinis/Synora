@@ -107,7 +107,7 @@ void Renderer::addMesh(UUID modelID, const MeshData &meshData) {
 }
 void Renderer::addMaterial(UUID materialID, const MaterialData &materialData) {
     if (m_UploadedMaterials.contains(materialID)) {
-        spdlog::warn("Trying to add model (uuid = {}) that was already added",
+        spdlog::warn("Trying to add material (uuid = {}) that was already added",
                      materialID);
         return;
     }
@@ -146,10 +146,10 @@ void Renderer::removeMaterial(UUID materialID) {
         m_Backend->destroyTexture(mat.albedo);
         m_Backend->destroyTexture(mat.metallicRoughness);
         m_Backend->destroyTexture(mat.normalMap);
-        m_UploadedMeshes.erase(materialID);
-        spdlog::debug("Removed model from renderer {}", materialID);
+        m_UploadedMaterials.erase(materialID);
+        //spdlog::debug("Removed material from renderer {}", materialID);
     } else {
-        spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models",
+        spdlog::warn("Material (uuid = {}) does not exist in Uploaded Models",
                      materialID);
     }
 }
@@ -161,7 +161,7 @@ void Renderer::removeMesh(UUID meshID) {
         m_Backend->destroyBuffer(mesh.vertexBuffer);
         m_Backend->destroyBuffer(mesh.indexBuffer);
         m_UploadedMeshes.erase(meshID);
-        spdlog::debug("Removed model from renderer {}", meshID);
+        //spdlog::debug("Removed model from renderer {}", meshID);
     } else {
         spdlog::warn("Model (uuid = {}) does not exist in Uploaded Models",
                      meshID);
@@ -187,9 +187,9 @@ void Renderer::drawMesh(UUID meshID, UUID materialID, const glm::mat4 &worldMatr
         return;
     }
     if (itMesh == m_UploadedMeshes.end()) {
-        spdlog::warn(
-            "Trying to draw model (uuid = {}) that was not added to renderer",
-            meshID);
+        //spdlog::warn(
+        //    "Trying to draw model (uuid = {}) that was not added to renderer",
+        //    meshID);
         return;
     }
 
@@ -199,9 +199,9 @@ void Renderer::drawMesh(UUID meshID, UUID materialID, const glm::mat4 &worldMatr
         return;
     }
     if (itMat == m_UploadedMaterials.end()) {
-        spdlog::warn(
-            "Trying to draw with material (uuid = {}) that was not added to renderer",
-            materialID);
+        //spdlog::warn(
+        //    "Trying to draw with material (uuid = {}) that was not added to renderer",
+        //    materialID);
         return;
     }
 

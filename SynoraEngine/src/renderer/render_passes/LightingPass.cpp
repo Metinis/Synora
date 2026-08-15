@@ -10,7 +10,7 @@
 using namespace SYN;
 
 namespace {
-struct alignas(16) PushConstants {
+  struct alignas(16) PushConstants {
     glm::mat4 modelMat;
 
     uint64_t vertexBuffer;
@@ -19,112 +19,129 @@ struct alignas(16) PushConstants {
     uint32_t albedoIndex;
     uint32_t metallicRoughnessIndex;
     uint32_t normalMapIndex;
-};
+  };
 
-struct LightCaster {
+  struct LightCaster {
     glm::vec3 pos;
     float padding0;
     glm::vec3 color;
     float padding1;
     glm::vec3 dir;
     float padding2;
-};
+  };
 
-struct Uniforms {
+  struct Uniforms {
     glm::mat4 projectionMat;
     glm::mat4 viewMat;
     glm::vec3 cameraPos;
     uint32_t nLights;
     std::array<LightCaster, 16> lights;
-};
+  };
 } // namespace
 
 SYN::LightingPass::LightingPass(uint32_t msaaSampleCount,
-                                std::span<Renderer::DrawCall> drawCalls,
-                                const glm::mat4 &cameraProjection,
-                                const glm::mat4 &cameraView,
-                                AttachmentHandle msaaColorAttachment,
-                                AttachmentHandle msaaDepthAttachment,
-                                AttachmentHandle colorAttachment)
-    : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
-      m_CameraProjection(cameraProjection), m_CameraView(cameraView) {
+    std::span<Renderer::DrawCall> drawCalls,
+    const glm::mat4 &cameraProjection,
+    const glm::mat4 &cameraView,
+    AttachmentHandle msaaColorAttachment,
+    AttachmentHandle msaaDepthAttachment,
+    AttachmentHandle colorAttachment)
+  : m_MSAASampleCount(msaaSampleCount), m_DrawCalls(drawCalls),
+  m_CameraProjection(cameraProjection), m_CameraView(cameraView) {
     m_ColorAttachment = WriteAttachmentInfo{.handle = msaaColorAttachment,
-                                            .resolveHandle = colorAttachment,
-                                            .clearColor = {0.f, 0.f, 0.f, 1.f}};
+      .resolveHandle = colorAttachment,
+      .clearColor = {0.f, 0.f, 0.f, 1.f}};
     m_DepthAttachment = WriteAttachmentInfo{
-        .handle = msaaDepthAttachment,
+      .handle = msaaDepthAttachment,
         .clearDepth = 1.f,
     };
-}
+  }
 
 void SYN::LightingPass::execute(IBackend &backend, PipelineHandle pipeline) {
-    LightCaster sun{.pos = glm::vec3(0.f, 1.f, -1.f),
-                    .color = glm::vec3(1.f, 1.f, 1.f),
-                    .dir = glm::vec3(1.f, -1.f, 0.f)};
-    sun.color *= 10.f;
-    LightCaster lamp{.pos = glm::vec3(1.f, 1.f, -1.f),
-                     .color = glm::vec3(1.f, 0.f, 1.f),
-                     .dir = glm::vec3(1.f, -1.f, 0.f)};
-    lamp.color *= 5.f;
+  LightCaster sun{.pos = glm::vec3(0.f, 1.f, -1.f),
+    .color = glm::vec3(1.f, 1.f, 1.f),
+    .dir = glm::vec3(1.f, -1.f, 0.f)};
+  sun.color *= 10.f;
+  LightCaster lamp{.pos = glm::vec3(1.f, 1.f, -1.f),
+    .color = glm::vec3(1.f, 0.f, 1.f),
+    .dir = glm::vec3(1.f, -1.f, 0.f)};
+  lamp.color *= 5.f;
 
-    std::array<LightCaster, 16> lights{sun, lamp};
+  std::array<LightCaster, 16> lights{sun, lamp};
 
-    glm::vec3 cameraPos{glm::transpose(glm::mat3(m_CameraView)) *
-                        -m_CameraView[3]};
+  glm::vec3 cameraPos{glm::transpose(glm::mat3(m_CameraView)) *
+    -m_CameraView[3]};
 
-    Uniforms uniform{
-        .projectionMat = m_CameraProjection,
-        .viewMat = m_CameraView,
-        .cameraPos = cameraPos,
-        .nLights = 2,
-    };
-    uniform.lights = lights;
+  Uniforms uniform{
+    .projectionMat = m_CameraProjection,
+      .viewMat = m_CameraView,
+      .cameraPos = cameraPos,
+      .nLights = 2,
+  };
+  uniform.lights = lights;
 
-    backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
+  backend.beginRenderPassCmd(getPassDesc(), pipeline, uniform);
 
-    for (const auto &drawCall : m_DrawCalls) {
-        if (drawCall.mesh.numIndices == 0) {
-            continue;
-        }
-
-        PushConstants pushConstants{
-            .modelMat = drawCall.modelMatrix,
-            .vertexBuffer =
-                backend.getBufferAddressCmd(drawCall.mesh.vertexBuffer),
-            .indexBuffer =
-                backend.getBufferAddressCmd(drawCall.mesh.indexBuffer),
-            .albedoIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.material.albedo),
-            .metallicRoughnessIndex = backend.getShaderSamplerIndexCmd(
-                drawCall.material.metallicRoughness),
-            .normalMapIndex =
-                backend.getShaderSamplerIndexCmd(drawCall.material.normalMap),
-        };
-
-        backend.setPushConstantsCmd(pushConstants);
-
-        backend.drawCmd(drawCall.mesh.numIndices);
+  for (const auto &drawCall : m_DrawCalls) {
+    if (drawCall.mesh.numIndices == 0) {
+      continue;
     }
-    backend.endRenderPassCmd();
+
+    auto vertexBuffer =
+      backend.getBufferAddressCmd(drawCall.mesh.vertexBuffer);
+
+    auto indexBuffer =
+      backend.getBufferAddressCmd(drawCall.mesh.indexBuffer);
+
+    auto albedoIndex =
+      backend.getShaderSamplerIndexCmd(drawCall.material.albedo);
+
+    auto metallicRoughnessIndex =
+      backend.getShaderSamplerIndexCmd(
+          drawCall.material.metallicRoughness);
+
+    auto normalMapIndex =
+      backend.getShaderSamplerIndexCmd(
+          drawCall.material.normalMap);
+
+    if (!vertexBuffer ||
+        !indexBuffer) {
+      //spdlog::warn("Skipping draw call: missing GPU resource");
+      return;
+    }
+
+    PushConstants pushConstants{
+      .modelMat = drawCall.modelMatrix,
+        .vertexBuffer = *vertexBuffer,
+        .indexBuffer = *indexBuffer,
+        .albedoIndex = albedoIndex,
+        .metallicRoughnessIndex = metallicRoughnessIndex,
+        .normalMapIndex = normalMapIndex,
+    };
+    backend.setPushConstantsCmd(pushConstants);
+
+    backend.drawCmd(drawCall.mesh.numIndices);
+  }
+  backend.endRenderPassCmd();
 }
 
 RenderPassDesc SYN::LightingPass::getPassDesc() {
-    return RenderPassDesc{
-        .debugName = "First Pass",
-        .colorAttachments = std::span(&m_ColorAttachment, 1),
-        .depthAttachment = m_DepthAttachment,
-    };
+  return RenderPassDesc{
+    .debugName = "First Pass",
+      .colorAttachments = std::span(&m_ColorAttachment, 1),
+      .depthAttachment = m_DepthAttachment,
+  };
 }
 
 GraphicsPipelineDesc SYN::LightingPass::getPipelineDesc() const {
-    GraphicsPipelineDesc c_PipelineDesc{
-        .cullMode = CullMode::disabled,
-        .nColorAttachments = 1,
-        .hasDepthTesting = true,
-        .hasDepthWriting = true,
-        .msaaSamples = m_MSAASampleCount,
-        .vertexShaderPath = "generated/shaders/lighting.vert.spv",
-        .fragmentShaderPath = "generated/shaders/lighting.frag.spv",
-    };
-    return c_PipelineDesc;
+  GraphicsPipelineDesc c_PipelineDesc{
+    .cullMode = CullMode::disabled,
+      .nColorAttachments = 1,
+      .hasDepthTesting = true,
+      .hasDepthWriting = true,
+      .msaaSamples = m_MSAASampleCount,
+      .vertexShaderPath = "generated/shaders/lighting.vert.spv",
+      .fragmentShaderPath = "generated/shaders/lighting.frag.spv",
+  };
+  return c_PipelineDesc;
 }

@@ -70,6 +70,10 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
     for (auto &pipeline : frame.pipelinesToFree) {
         vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
     }
+    //todo possibly follow the way above but this is simple
+    for (auto &func : frame.pendingUploadFuncs) {
+      func();
+    }
 
     Image swapchainImage{
         .handle = m_Swapchain.images[frame.swapchainImageIndex],
@@ -395,8 +399,11 @@ SYN::VK::VulkanBackend::getShaderSamplerIndexCmd(AttachmentHandle handle) {
     return attachment.bindlessSamplerIndices[m_CurrentFrameIndex];
 }
 
-uint64_t SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
+std::optional<uint64_t> SYN::VK::VulkanBackend::getBufferAddressCmd(BufferHandle handle) {
+  if(m_Buffers.contains(handle)) {
     return m_Buffers[handle].deviceAddress;
+  }
+  return std::nullopt;
 }
 
 namespace {

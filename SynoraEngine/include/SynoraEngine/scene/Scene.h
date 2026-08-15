@@ -35,10 +35,13 @@ class Scene : public ILayer {
     void onMaterialRemoved(entt::registry& reg, entt::entity e);
     void onParentAdded(entt::registry& reg, entt::entity e);
     void onParentRemoved(entt::registry& reg, entt::entity e);
+    bool& entityCacheDirtyFlag() {return m_EntityCacheDirty;}
 
     void init(EngineContext *ctx);
     Entity createEntity(const std::string &tag = "Unnamed Entity");
+    Entity createEmptyEntity();
     void removeEntity(Entity entity);
+    void clear();
 
     template <typename T> std::vector<Entity> getEntities() {
         std::vector<Entity> ret;
@@ -58,6 +61,7 @@ class Scene : public ILayer {
     std::vector<std::function<void()>> m_OnUpdate;
     std::unordered_map<UUID, Entity> m_EntityUUIDCache;
     std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update
+    bool m_EntityCacheDirty{ true };
 
     friend class Entity;
 };

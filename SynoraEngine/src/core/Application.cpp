@@ -99,6 +99,7 @@ void Application::run() {
     for (auto &l : m_Layers) {
       l->onUpdate(dt);
     }
+    m_EngineContext.projectConfig.assetManager->flushRefCount();
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();

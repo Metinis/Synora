@@ -14,6 +14,8 @@ namespace SYE {
           if (ImGui::MenuItem("New")) {
           }
           if (ImGui::MenuItem("Open")) {
+            auto* scene = m_Ctx->scene.get();
+            SYN::SceneSerializer::deserialize(scene, m_Ctx->projectConfig.resourceRoot + "/scene.yaml"); 
           }
           if (ImGui::MenuItem("Save")) {
             auto* scene = m_Ctx->scene.get();

@@ -21,6 +21,7 @@ using namespace SYN;
 using namespace SYN::VK;
 
 BufferHandle SYN::VK::VulkanBackend::createBuffer(const BufferDesc &desc) {
+
     Buffer buffer{
         VK::createBuffer(m_Device, m_Allocator, desc.size,
                          VK_BUFFER_USAGE_2_TRANSFER_DST_BIT |
@@ -35,11 +36,13 @@ BufferHandle SYN::VK::VulkanBackend::createBuffer(const BufferDesc &desc) {
 
 void SYN::VK::VulkanBackend::uploadToBuffer(BufferHandle handle, size_t size,
                                             const void *data) {
+  //todo use a per frame queue
     const Buffer &buffer{m_Buffers[handle]};
     m_StagingBuffer.uploadToBuffer(m_Device, data, size, buffer);
 }
 
 void SYN::VK::VulkanBackend::destroyBuffer(BufferHandle handle) {
+
     Buffer buffer{m_Buffers[handle]};
 
     // the frame where all references to this texture will have completed
@@ -157,10 +160,12 @@ void SYN::VK::VulkanBackend::uploadToTexture(TextureHandle handle,
 }
 
 void SYN::VK::VulkanBackend::destroyTexture(TextureHandle handle) {
+
     if (!m_Textures.contains(handle)) {
-        return;
+      spdlog::error("Attempting to delete invalid texture");
+      return;
     }
-    Texture texture{m_Textures[handle]};
+    Texture &texture{m_Textures[handle]};
 
     // the frame where all references to this texture will have completed
     size_t lastFrameInFlightIndex{

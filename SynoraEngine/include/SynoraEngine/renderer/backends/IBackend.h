@@ -93,8 +93,8 @@ class IBackend {
 
     // only for attachments that are sampleable
     virtual uint32_t getShaderSamplerIndexCmd(AttachmentHandle attachment) = 0;
-    virtual uint64_t getBufferAddressCmd(BufferHandle buffer) = 0;
 
+    virtual std::optional<uint64_t> getBufferAddressCmd(BufferHandle buffer) = 0;
     virtual void shutdown() = 0;
 };
 
