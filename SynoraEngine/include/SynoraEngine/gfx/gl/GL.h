@@ -592,6 +592,8 @@ class Pass {
     // Matrix uniforms
     void bindUniform(std::string_view name, const glm::mat4 &v);
 
+    void bindUniform(std::string_view name, const std::vector<glm::mat4> &v);
+
     void bindTexture(uint32_t binding, Handle<Texture> textureHandle,
                      Handle<Sampler> samplerHandle);
 

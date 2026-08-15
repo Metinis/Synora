@@ -709,6 +709,16 @@ void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
     glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(v));
 }
 
+void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
+                                     const std::vector<glm::mat4> &v) {
+    int loc = getShaderUniformLocation(name);
+    if (loc == -1) {
+        spdlog::warn("Shader uniform: {} does not exist!", name);
+        return;
+    }
+    glUniformMatrix4fv(loc, v.size(), GL_FALSE, glm::value_ptr(v[0]));
+}
+
 void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
                                      Handle<Texture> textureHandle,
                                      Handle<Sampler> samplerHandle) {
@@ -3155,6 +3165,8 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
 
 void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
                                              const RenderTechnique &technique) {
+    TracyGpuZone("DrawRenderItems");
+    ZoneScopedN("DrawRenderItems");
     Pass pass = context.beginPass(technique.getPassDesc());
     const std::vector<RenderTechnique::GroupDesc> &groups =
         technique.getGroups();
@@ -3750,6 +3762,7 @@ void SYN::gfx::gl::Renderer::reloadInternalShaders(Context &context) {
 std::vector<SYN::gfx::gl::RenderItem>
 SYN::gfx::gl::Renderer::getRenderItemsByShader(uint32_t shaderIndex,
                                                uint32_t exclusionMask) {
+    ZoneScopedN("GetRenderItemsByShader");
     std::vector<RenderItem> renderItems;
 
     auto getMaterialOverride =
@@ -3805,6 +3818,7 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(uint32_t shaderIndex,
 
 void SYN::gfx::gl::Renderer::frustumCullRenderItems(
     std::vector<RenderItem> &items, const std::vector<Plane> &planes) {
+    ZoneScopedN("Frustum Cull");
     items.erase(std::remove_if(items.begin(), items.end(),
                                [&](const RenderItem &item) {
                                    return !item.aabb.transform(item.transform)
@@ -3814,6 +3828,7 @@ void SYN::gfx::gl::Renderer::frustumCullRenderItems(
 }
 
 void SYN::gfx::gl::Renderer::sortRenderItems(std::vector<RenderItem> &items) {
+    ZoneScopedN("Sort items");
     std::sort(items.begin(), items.end(),
               [&](const RenderItem &a, const RenderItem &b) {
                   return a.shaderIndex < b.shaderIndex;
@@ -3826,8 +3841,7 @@ SYN::gfx::gl::AnimationPlayer SYN::gfx::gl::Renderer::createAnimationPlayer() {
 
 void SYN::gfx::gl::Renderer::bindBoneMatrices(
     Pass &pass, const std::vector<glm::mat4> &boneMatrices) {
-    for (uint32_t i = 0; i < boneMatrices.size(); ++i) {
-        pass.bindUniform(std::format("boneTransforms[{}]", i),
-                         boneMatrices.at(i));
-    }
+    TracyGpuZone("BindBoneMatrices");
+    ZoneScopedN("BindBoneMatrices");
+    pass.bindUniform("boneTransforms[0]", boneMatrices);
 }
