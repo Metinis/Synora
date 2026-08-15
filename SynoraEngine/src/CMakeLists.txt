@@ -44,6 +44,9 @@ target_include_directories(
 target_link_libraries(
   SynoraEngine
   PUBLIC
+  glm::glm
+  imgui
+  PRIVATE
   glfw
   spdlog
   miniaudio
@@ -51,9 +54,7 @@ target_link_libraries(
   Jolt
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
-  glm::glm
   assimp
-  imgui
   tinyfiledialogs
   glad
   TracyClient
