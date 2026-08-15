@@ -73,7 +73,7 @@ void EditorPanel::onScenePanelRender() {
             const char *path =
                 tinyfd_openFileDialog("Choose a model", "", filters.size(),
                                       filters.data(), "3D Model Files", 1);
-            auto* assetManager = m_Ctx->projectConfig.assetManager.get();
+            auto* assetManager = m_Ctx->assetManager.get();
             if (path) {
                 assetManager->loadModel(scene, path);
             }

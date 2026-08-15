@@ -72,11 +72,11 @@ void TestSystem::onLoad() {
         20,21,22, 22,23,20
     };
     auto meshHandle =
-        m_Ctx->projectConfig.assetManager->addAsset<SYN::MeshData>(mesh);
+        m_Ctx->assetManager->addAsset<SYN::MeshData>(mesh);
 
     SYN::MaterialData material{};
     auto materialHandle =
-        m_Ctx->projectConfig.assetManager->addAsset<SYN::MaterialData>(material);
+        m_Ctx->assetManager->addAsset<SYN::MaterialData>(material);
 
     en.addComponent<MeshComp>(meshHandle);
     en.addComponent<MaterialComp>(materialHandle);

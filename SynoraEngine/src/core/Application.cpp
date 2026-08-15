@@ -29,11 +29,11 @@ Application::Application() {
   m_EngineContext.scriptManager = std::make_unique<ScriptManager>();
   m_EngineContext.fileWatcher = std::make_unique<efsw::FileWatcher>();
   m_EngineContext.compManager = std::make_unique<RuntimeCompManager>();
+  m_EngineContext.assetManager = std::make_unique<AssetManager>();
 
   ProjectConfig projectConfig{
     .projectRoot = "",
     .resourceRoot = "",
-    .assetManager = std::make_unique<AssetManager>(),
   };
   m_EngineContext.projectConfig = std::move(projectConfig);
 }
@@ -75,7 +75,7 @@ void Application::init(const std::filesystem::path& projectPath) {
 
   m_EngineContext.inputManager->init(&m_EngineContext);
   m_EngineContext.renderer->init(&m_EngineContext);
-  m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
+  m_EngineContext.assetManager->init(&m_EngineContext);
   m_EngineContext.scene->init(&m_EngineContext);
   m_EngineContext.scriptManager->init(&m_EngineContext);
   m_EngineContext.cameraSystem->init(&m_EngineContext);
@@ -99,7 +99,7 @@ void Application::run() {
     for (auto &l : m_Layers) {
       l->onUpdate(dt);
     }
-    m_EngineContext.projectConfig.assetManager->flushRefCount();
+    m_EngineContext.assetManager->flushRefCount();
 
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();

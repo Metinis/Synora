@@ -70,10 +70,6 @@ void SYN::VK::VulkanBackend::beginFrame(Window &window) {
     for (auto &pipeline : frame.pipelinesToFree) {
         vkDestroyPipeline(m_Device.logical, pipeline, nullptr);
     }
-    //todo possibly follow the way above but this is simple
-    for (auto &func : frame.pendingUploadFuncs) {
-      func();
-    }
 
     Image swapchainImage{
         .handle = m_Swapchain.images[frame.swapchainImageIndex],

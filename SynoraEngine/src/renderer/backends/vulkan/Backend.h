@@ -1,5 +1,5 @@
-#include "../../../../include/SynoraEngine/renderer/RenderTypes.h"
-#include "../../../../include/SynoraEngine/renderer/backends/IBackend.h"
+#include "SynoraEngine/renderer/RenderTypes.h"
+#include "SynoraEngine/renderer/backends/IBackend.h"
 #include "core/Buffer.h"
 #include "core/Device.h"
 #include "core/DynamicUBO.h"
@@ -11,7 +11,6 @@
 #include <stb_image.h>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
-#include <functional>
 
 struct MeshData;
 struct MeshComp;
@@ -89,8 +88,6 @@ class VulkanBackend : public IBackend {
         std::vector<Buffer> buffersToFree;
         std::vector<uint32_t> bindlessTexturesToFree;
         std::vector<VkPipeline> pipelinesToFree;
-
-        std::vector<std::function<void()>> pendingUploadFuncs;
 
         uint32_t swapchainImageIndex{};
     };

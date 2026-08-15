@@ -182,7 +182,7 @@ void Scene::onUUIDRemoved(entt::registry &reg, entt::entity e) {
 void Scene::init(EngineContext *ctx) {
   m_Renderer = ctx->renderer.get();
   m_Window = ctx->window.get();
-  m_AssetManager = ctx->projectConfig.assetManager.get();
+  m_AssetManager = ctx->assetManager.get();
   m_SceneState.m_RuntimeCompManager = ctx->compManager.get();
 
   // initialize callbacks

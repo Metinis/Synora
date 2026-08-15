@@ -13,10 +13,12 @@ class Renderer;
 class Scene;
 class CameraSystem;
 class ScriptManager;
+class AssetManager;
 
 struct EngineContext {
     std::unique_ptr<Window> window;
     std::unique_ptr<Input> inputManager;
+    std::unique_ptr<AssetManager> assetManager;
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<Scene> scene;
     std::unique_ptr<CameraSystem> cameraSystem;
