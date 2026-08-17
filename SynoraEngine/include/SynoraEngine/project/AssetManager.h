@@ -3,6 +3,7 @@
 #include <typeindex>
 
 #include "AssetPool.h"
+#include "AssetRef.h"
 
 namespace SYN {
 class AssetManager {
@@ -37,14 +38,18 @@ class AssetManager {
         return pool->getRefMut(id);
     }
 
-    void addRef(UUID id);
-    void removeRef(UUID id);
+    AssetRef acquire(UUID id);
 
     void registerCleanup(CleanupFn fn);
 
     // Notify observers (e.g. render backends) that asset UUID is no longer
     // used.
     void resolvePendingDeletions();
+
+  private:
+    friend class AssetRef;
+    void addRef(UUID id);
+    void removeRef(UUID id);
 
   private:
     template <typename PoolT> AssetPool<PoolT> &getPool() {

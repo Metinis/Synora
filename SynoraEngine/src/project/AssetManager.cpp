@@ -1,6 +1,13 @@
 #include "SynoraEngine/project/AssetManager.h"
 
 namespace SYN {
+
+AssetRef AssetManager::acquire(UUID id) {
+    if (m_Owner.find(id) == m_Owner.cend())
+        return {};
+    return AssetRef(this, id);
+}
+
 void AssetManager::addRef(UUID id) { ++m_AssetRefs[id]; }
 void AssetManager::removeRef(UUID id) {
     if (m_AssetRefs[id] > 0 && --m_AssetRefs[id] == 0) {
