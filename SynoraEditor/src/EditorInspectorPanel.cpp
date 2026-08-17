@@ -1,7 +1,6 @@
 #include "EditorPanel.h"
 #include "glm/gtc/type_ptr.hpp"
 #include "imgui.h"
-#include <SynoraEngine/project/Assets.h>
 
 using namespace SYE;
 
