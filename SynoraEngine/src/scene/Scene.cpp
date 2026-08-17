@@ -51,7 +51,7 @@ void Scene::onRender() {
         auto &modelComp = e.getComponent<MeshComp>();
         auto &tc = e.getComponent<TransformComp>();
 
-        m_Renderer->drawMesh(modelComp.id, tc.worldMatrix);
+        // m_Renderer->drawMesh(modelComp.id, tc.worldMatrix);
     }
 }
 
@@ -59,14 +59,14 @@ void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
     UUID id = comp.id;
 
-    m_OnUpdate.emplace_back([this, id]() { m_AssetManager->addRef(id); });
+    // m_OnUpdate.emplace_back([this, id]() { m_AssetManager->addRef(id); });
 }
 
 void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
     UUID id = comp.id;
 
-    m_OnUpdate.emplace_back([this, id]() { m_AssetManager->removeRef(id); });
+    // m_OnUpdate.emplace_back([this, id]() { m_AssetManager->removeRef(id); });
 }
 
 bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {

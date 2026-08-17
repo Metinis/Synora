@@ -1,12 +1,16 @@
 #include "../../include/SynoraEngine/renderer/Renderer.h"
 #include "../../include/SynoraEngine/renderer/RenderTypes.h"
+
 #include "RenderGraph.h"
+
 #include "SynoraEngine/core/Window.h"
+
 #include "backends/vulkan/Backend.h"
-#include "glm/ext/quaternion_common.hpp"
 #include "render_passes/ImGUIPass.h"
 #include "render_passes/LightingPass.h"
 #include "render_passes/SkyBoxPass.h"
+
+#include <glm/ext/quaternion_common.hpp>
 
 using namespace SYN;
 
@@ -153,7 +157,7 @@ void Renderer::setCamera(const Camera &camera) {
 void Renderer::drawMesh(UUID modelID, const glm::mat4 &worldMatrix) {
     auto it{m_UploadedMeshes.find(modelID)};
     if (modelID == 0) {
-        //empty mesh comp
+        // empty mesh comp
         return;
     }
     if (it == m_UploadedMeshes.end()) {

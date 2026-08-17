@@ -6,6 +6,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 
+#include "SynoraEngine/project/Assets.h"
 #include "SynoraEngine/scene/Components.h"
 
 namespace SYN {
