@@ -1,5 +1,4 @@
 #include "EditorPanel.h"
-#include "glm/gtc/type_ptr.hpp"
 #include "imgui_internal.h"
 #include <SynoraEngine/core/Application.h>
 #include <SynoraEngine/project/AssetManager.h>
@@ -9,7 +8,7 @@
 
 using namespace SYE;
 
-static constexpr const char* ENTITY_DRAG_PAYLOAD = "SYN_ENTITY";
+static constexpr const char *ENTITY_DRAG_PAYLOAD = "SYN_ENTITY";
 
 void EditorPanel::onScenePanelRender() {
     ImGui::Begin("Scene UI");
@@ -25,27 +24,25 @@ void EditorPanel::onScenePanelRender() {
     for (const auto e : deleteQueue) {
         m_Scene->removeEntity(e);
     }
-    if (ImGui::BeginDragDropTargetCustom(  ImGui::GetCurrentWindow()->Rect(),
-            ImGui::GetID("SceneRootDrop"))) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_DRAG_PAYLOAD)) {
+    if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->Rect(),
+                                         ImGui::GetID("SceneRootDrop"))) {
+        if (const ImGuiPayload *payload =
+                ImGui::AcceptDragDropPayload(ENTITY_DRAG_PAYLOAD)) {
 
-            SYN::UUID droppedID = *(const SYN::UUID*)payload->Data;
-            m_PendingReparent = { droppedID, 0 };
-
+            SYN::UUID droppedID = *(const SYN::UUID *)payload->Data;
+            m_PendingReparent = {droppedID, 0};
         }
 
         ImGui::EndDragDropTarget();
-
     }
     if (m_PendingReparent) {
-        auto& [childID, parentID] = *m_PendingReparent;
+        auto &[childID, parentID] = *m_PendingReparent;
 
-        auto child  = m_Scene->getEntity(childID);
+        auto child = m_Scene->getEntity(childID);
         auto parent = m_Scene->getEntity(parentID);
 
         if (child.isValid() && parent.isValid() &&
-            !m_Scene->isDescendantOf(parent, child))
-        {
+            !m_Scene->isDescendantOf(parent, child)) {
             if (!child.hasComponent<ParentComp>()) {
                 child.addParent(ParentComp{.id = parentID});
             } else {
@@ -73,7 +70,7 @@ void EditorPanel::onScenePanelRender() {
                 tinyfd_openFileDialog("Choose a model", "", filters.size(),
                                       filters.data(), "3D Model Files", 1);
             if (path) {
-                m_AssetManager->loadModel(m_Scene, path);
+                // m_AssetManager->loadModel(m_Scene, path);
             }
         }
 
@@ -114,24 +111,25 @@ void EditorPanel::drawEntityNode(SYN::Entity entity,
 
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
         SYN::Entity dragged = entity;
-        ImGui::SetDragDropPayload(ENTITY_DRAG_PAYLOAD, &dragged.getComponent<UUIDComp>().id,
-                sizeof(dragged.getComponent<UUIDComp>().id));
-        //ImGui::Text("Move %s", name.tag.c_str());
+        ImGui::SetDragDropPayload(ENTITY_DRAG_PAYLOAD,
+                                  &dragged.getComponent<UUIDComp>().id,
+                                  sizeof(dragged.getComponent<UUIDComp>().id));
+        // ImGui::Text("Move %s", name.tag.c_str());
         ImGui::EndDragDropSource();
     }
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(ENTITY_DRAG_PAYLOAD)) {
+        if (const ImGuiPayload *payload =
+                ImGui::AcceptDragDropPayload(ENTITY_DRAG_PAYLOAD)) {
 
-            SYN::UUID droppedID = *(const SYN::UUID*)payload->Data;
-            SYN::UUID targetID  = entity.getComponent<UUIDComp>().id;
+            SYN::UUID droppedID = *(const SYN::UUID *)payload->Data;
+            SYN::UUID targetID = entity.getComponent<UUIDComp>().id;
 
             if (droppedID != targetID) {
-                m_PendingReparent = { droppedID, targetID };
+                m_PendingReparent = {droppedID, targetID};
             }
         }
 
         ImGui::EndDragDropTarget();
-
     }
 
     if (ImGui::IsItemClicked()) {
@@ -156,7 +154,6 @@ void EditorPanel::drawEntityNode(SYN::Entity entity,
     }
 
     ImGui::PopID();
-
 }
 
 SYE::EditorPanel::~EditorPanel() {}

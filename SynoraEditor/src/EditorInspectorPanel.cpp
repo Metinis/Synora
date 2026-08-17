@@ -29,13 +29,13 @@ void EditorPanel::onInspectorPanelRender() {
             }
         } else {
             if (ImGui::BeginCombo("Mesh", "TestMesh")) {
-                for (auto &meshID :
-                     m_AssetManager->getAssets<SYN::MeshData>()) {
-                    if (ImGui::Selectable(std::to_string(meshID).c_str())) {
-                        e.removeComponent<MeshComp>();
-                        e.addComponent<MeshComp>(MeshComp{.id = meshID});
-                    }
-                }
+                // for (auto &meshID :
+                //      m_AssetManager->getAssets<SYN::MeshData>()) {
+                //     if (ImGui::Selectable(std::to_string(meshID).c_str())) {
+                //         e.removeComponent<MeshComp>();
+                //         e.addComponent<MeshComp>(MeshComp{.id = meshID});
+                //     }
+                // }
                 ImGui::EndCombo();
             }
             if (ImGui::Button("Remove")) {
