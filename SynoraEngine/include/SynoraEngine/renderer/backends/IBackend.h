@@ -1,8 +1,6 @@
 #pragma once
 #include "../RenderTypes.h"
 #include "SynoraEngine/core/Application.h"
-#include "SynoraEngine/project/Assets.h"
-#include "SynoraEngine/project/UUID.h"
 
 struct MeshData;
 

@@ -1,9 +1,7 @@
 #pragma once
 
-#include "SynoraEngine/renderer/Renderer.h"
 #include "Assets.h"
-#include "SynoraEngine/core/InputTypes.h"
-#include "SynoraEngine/scene/Components.h"
+#include "SynoraEngine/renderer/Renderer.h"
 #include "UUID.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
@@ -68,10 +66,10 @@ class AssetManager {
     }
 
     template <typename T>
-    requires isAsset<T>
+        requires isAsset<T>
     std::vector<UUID> getAssets() {
         std::vector<UUID> assets{};
-        for (auto& a : m_AssetMap) {
+        for (auto &a : m_AssetMap) {
             if (std::holds_alternative<T>(m_AssetMap[a.first].data)) {
                 assets.push_back(a.first);
             }

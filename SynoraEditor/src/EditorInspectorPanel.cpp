@@ -5,30 +5,32 @@
 
 using namespace SYE;
 
-auto inspectTransform = [](TransformComp* tc) {
+auto inspectTransform = [](TransformComp *tc) {
     if (!tc) {
         return;
     }
     ImGui::DragFloat3("Position", glm::value_ptr(tc->position), 0.1f);
-    if (ImGui::DragFloat3("Rotation", glm::value_ptr(tc->eulerAngles), 0.1f)) {
-        tc->rotation = glm::quat(glm::radians(tc->eulerAngles));
+
+    glm::vec3 eulerAngles = glm::eulerAngles(tc->rotation);
+    if (ImGui::DragFloat3("Rotation", glm::value_ptr(eulerAngles), 0.1f)) {
+        tc->rotation = glm::quat(glm::radians(eulerAngles));
     }
     ImGui::DragFloat3("Scale", glm::value_ptr(tc->scale), 0.1f);
 };
 
-
 void EditorPanel::onInspectorPanelRender() {
-    auto inspectMesh = [&](SYN::Entity e, MeshComp* mc) {
+    auto inspectMesh = [&](SYN::Entity e, MeshComp *mc) {
         if (!mc) {
             ImGui::Text("Mesh");
             ImGui::SameLine();
             if (ImGui::Button("Add")) {
-                //TODO
+                // TODO
                 e.addComponent<MeshComp>();
             }
         } else {
             if (ImGui::BeginCombo("Mesh", "TestMesh")) {
-                for (auto& meshID : m_AssetManager->getAssets<SYN::MeshData>()) {
+                for (auto &meshID :
+                     m_AssetManager->getAssets<SYN::MeshData>()) {
                     if (ImGui::Selectable(std::to_string(meshID).c_str())) {
                         e.removeComponent<MeshComp>();
                         e.addComponent<MeshComp>(MeshComp{.id = meshID});
@@ -42,12 +44,12 @@ void EditorPanel::onInspectorPanelRender() {
         }
     };
 
-    auto inspectMaterial = [&](SYN::Entity e, MeshComp* mc) {
+    auto inspectMaterial = [&](SYN::Entity e, MeshComp *mc) {
         ImGui::Text("Material");
         ImGui::SameLine();
         if (!mc) {
             if (ImGui::Button("Add")) {
-                //TODO
+                // TODO
             }
         } else {
             if (ImGui::Button("Remove")) {
@@ -61,11 +63,11 @@ void EditorPanel::onInspectorPanelRender() {
 
     if (m_SelectedEntity.isValid()) {
         if (ImGui::CollapsingHeader("Transform")) {
-            auto* tc = m_SelectedEntity.tryGetComponent<TransformComp>();
+            auto *tc = m_SelectedEntity.tryGetComponent<TransformComp>();
             inspectTransform(tc);
         }
         if (ImGui::CollapsingHeader("Model")) {
-            auto* mc = m_SelectedEntity.tryGetComponent<MeshComp>();
+            auto *mc = m_SelectedEntity.tryGetComponent<MeshComp>();
             inspectMesh(m_SelectedEntity, mc);
         }
         if (auto *mc = m_SelectedEntity.tryGetComponent<MeshComp>()) {

@@ -1,7 +1,6 @@
 #pragma once
 #include <entt/entt.hpp>
 
-#include "../renderer/Renderer.h"
 #include "SceneState.h"
 #include "SynoraEngine/core/Application.h"
 #include "SynoraEngine/core/Layer.h"
@@ -26,11 +25,12 @@ class Scene : public ILayer {
     bool isDescendantOf(Entity parent, Entity possibleChild);
 
     bool isValidEntity(Entity entity);
-    void onUUIDRemoved(entt::registry& reg, entt::entity e); //same as removing entity
-    void onMeshAdded(entt::registry& reg, entt::entity e);
-    void onMeshRemoved(entt::registry& reg, entt::entity e);
-    void onParentAdded(entt::registry& reg, entt::entity e);
-    void onParentRemoved(entt::registry& reg, entt::entity e);
+    void onUUIDRemoved(entt::registry &reg,
+                       entt::entity e); // same as removing entity
+    void onMeshAdded(entt::registry &reg, entt::entity e);
+    void onMeshRemoved(entt::registry &reg, entt::entity e);
+    void onParentAdded(entt::registry &reg, entt::entity e);
+    void onParentRemoved(entt::registry &reg, entt::entity e);
 
     void init(EngineContext *ctx);
     Entity createEntity(const std::string &tag = "Unnamed Entity");
@@ -51,7 +51,8 @@ class Scene : public ILayer {
     SceneState m_SceneState;
     std::vector<std::function<void()>> m_OnUpdate;
     std::unordered_map<UUID, Entity> m_EntityUUIDCache;
-    std::vector<Entity> m_EntityCache; //used for updating world matrices, create entity will update
+    std::vector<Entity> m_EntityCache; // used for updating world matrices,
+                                       // create entity will update
 
     friend class Entity;
 };
