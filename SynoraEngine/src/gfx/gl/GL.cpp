@@ -2302,6 +2302,30 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
     return m_ModelRegistry.createHandle(model);
 }
 
+// TODO: (Implement this!)
+void SYN::gfx::gl::Renderer::destroyModel(Context &context,
+                                          Handle<Model> modelHandle) {
+    if (!m_ModelRegistry.isValidHandle(modelHandle)) {
+        return;
+    }
+    Model model = m_ModelRegistry.getResource(modelHandle).value();
+    m_ModelRegistry.releaseHandle(modelHandle);
+
+    auto deleteMesh = [&](const Mesh &mesh) {
+        context.deleteVertexArray(mesh.vao);
+        context.deleteBuffer(mesh.vbo);
+        context.deleteBuffer(mesh.ebo);
+
+        if (mesh.material.sampler.has_value()) {
+            context.deleteSampler(mesh.material.sampler.value());
+        }
+    };
+
+    for (const Mesh &mesh : model.meshesOpaque) {
+        deleteMesh(mesh);
+    }
+}
+
 // TODO: Clean up environment function!
 // Order of faces: Right, Left, Top, Bottom, Back, Front
 SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
@@ -2778,10 +2802,6 @@ void SYN::gfx::gl::Renderer::setEnvironment(
     std::optional<Environment> environment) {
     m_Environment = environment;
 }
-
-// TODO: (Implement this!)
-void SYN::gfx::gl::Renderer::destroyModel(Context &context,
-                                          Handle<Model> meshHandle) {}
 
 void SYN::gfx::gl::Renderer::beginFrame(const Camera &camera) {
     m_MainCamera = camera;

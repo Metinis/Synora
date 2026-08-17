@@ -922,6 +922,8 @@ class Renderer {
     std::optional<Handle<Model>> createModel(Context &context,
                                              const ModelData &data);
 
+    void destroyModel(Context &context, Handle<Model> modelHandle);
+
     AnimationPlayer createAnimationPlayer();
 
     // Cubemap faces must be RGBA8!
@@ -947,8 +949,6 @@ class Renderer {
 
     // If no environment is set just use the renderer clear color
     void setEnvironment(std::optional<Environment> environment);
-
-    void destroyModel(Context &context, Handle<Model> meshHandle);
 
     void setClearColor(const glm::vec4 &clearColor);
 
