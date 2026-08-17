@@ -46,11 +46,11 @@ target_link_libraries(
   PUBLIC
   glm::glm
   imgui
+  EnTT::EnTT
+  spdlog
   PRIVATE
   glfw
-  spdlog
   miniaudio
-  EnTT::EnTT
   Jolt
   Vulkan::Vulkan
   GPUOpen::VulkanMemoryAllocator
