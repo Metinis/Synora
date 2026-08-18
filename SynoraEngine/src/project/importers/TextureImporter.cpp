@@ -8,7 +8,7 @@ bool TextureImporter::load(std::filesystem::path filepath, TextureData &asset,
                            class AssetManager *assetManager) {
     int32_t width, height, channelCount;
     stbi_uc *data =
-        stbi_load(filepath.c_str(), &width, &height, &channelCount, 0);
+        stbi_load(filepath.string().c_str(), &width, &height, &channelCount, 0);
     if (data == nullptr) {
         spdlog::error("{}", stbi_failure_reason());
         return false;
