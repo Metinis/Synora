@@ -20,7 +20,8 @@ class ModelImporter : public AssetImporter<ModelData> {
                          const std::filesystem::path &path, Skeleton &skeleton);
 
     AssetRef processMaterial(const class aiMaterial *material,
-                             const std::filesystem::path &path);
+                             const std::filesystem::path &path,
+                             uint32_t materialIndex);
 
     AssetRef loadTextureForMaterial(std::filesystem::path path,
                                     const class aiMaterial *material,
@@ -32,10 +33,9 @@ class ModelImporter : public AssetImporter<ModelData> {
   private:
     std::unordered_map<std::string, uint32_t> m_BoneIndexMap{};
     std::unordered_map<std::string, uint32_t> m_NodeNameToIndex{};
-    std::unordered_map<std::string, glm::mat4> m_MeshGlobalTransform{};
+    std::unordered_map<uint32_t, glm::mat4> m_MeshGlobalTransform{};
 
     uint32_t m_NextBoneIndex = 0;
-    uint32_t m_DefaultMaterialIndex = 0;
 
     const class aiScene *m_Scene;
     class AssetManager *m_AssetManager;

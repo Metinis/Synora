@@ -52,12 +52,12 @@ std::string makeTextureCacheKey(const std::filesystem::path &modelPath,
     return resolvedPath.string();
 }
 
-int8_t sampleChannelNearest(const TextureData *tex, uint32_t tx, uint32_t ty,
-                            uint32_t tw, uint32_t th) {
+uint8_t sampleChannelNearest(const TextureData *tex, uint32_t tx, uint32_t ty,
+                             uint32_t tw, uint32_t th) {
     int channels = tex->channelCount;
     uint32_t sx = tw > 1 ? (tx * (tex->width - 1)) / (tw - 1) : 0;
     uint32_t sy = th > 1 ? (ty * (tex->height - 1)) / (th - 1) : 0;
-    int ch = std::min(0, channels - 1);
+    uint8_t ch = std::max(0, channels - 1);
     return tex
         ->data[(static_cast<size_t>(sy) * tex->width + sx) * channels + ch];
 }
@@ -150,6 +150,7 @@ AssetRef packMetallicRoughness(const TextureData *metalTex,
 
     TextureData metallicRoughnessTex = {
         .width = width, .height = height, .sourcePath = cacheKey};
+    metallicRoughnessTex.channelCount = 4;
 
     auto &storage = metallicRoughnessTex.data;
     storage.resize(static_cast<size_t>(width) * height * 4);
@@ -177,32 +178,12 @@ AssetRef packMetallicRoughness(const TextureData *metalTex,
 AssetRef loadExternalTexture(const std::filesystem::path &texturePath,
                              const std::string &cacheKey,
                              AssetManager *manager) {
-
-    std::optional<UUID> uuid = manager->uuidFromKey(cacheKey);
-    if (uuid.has_value())
-        return manager->acquire(uuid.value());
-
-    int width{};
-    int height{};
-    int channels{};
-    stbi_uc *pixels =
-        stbi_load(texturePath.string().c_str(), &width, &height, &channels, 0);
-    if (pixels == nullptr) {
-        spdlog::warn("Could not load texture {}", texturePath.string());
+    std::optional<UUID> uuid =
+        manager->loadWithKey<TextureData>(texturePath, cacheKey);
+    if (!uuid.has_value()) {
         return {};
     }
-
-    TextureData textureData;
-    textureData.width = width;
-    textureData.height = height;
-    textureData.channelCount = channels;
-    textureData.sourcePath = cacheKey;
-
-    auto &storage = textureData.data;
-    storage.assign(pixels, pixels + (width * height * channels));
-    stbi_image_free(pixels);
-
-    return manager->acquire(manager->add(cacheKey));
+    return manager->acquire(uuid.value());
 }
 
 void addBoneData(Vertex &vertex, int boneIndex, float weight) {
@@ -263,10 +244,9 @@ bool ModelImporter::load(std::filesystem::path filepath, ModelData &asset,
 
     processNode(m_Scene->mRootNode, -1, glm::mat4(1.0f), asset.skeleton);
 
-    for (int i = 0; i < m_Scene->mNumMeshes; ++i) {
+    for (uint32_t i = 0; i < m_Scene->mNumMeshes; ++i) {
         const aiMesh *mesh = m_Scene->mMeshes[i];
-        glm::mat4 globalTransform =
-            m_MeshGlobalTransform.at(mesh->mName.C_Str());
+        glm::mat4 globalTransform = m_MeshGlobalTransform.at(i);
         asset.meshes.emplace_back(
             processMesh(mesh, globalTransform, filepath, asset.skeleton));
     }
@@ -278,7 +258,6 @@ bool ModelImporter::load(std::filesystem::path filepath, ModelData &asset,
     m_NodeNameToIndex.clear();
     m_MeshGlobalTransform.clear();
     m_NextBoneIndex = 0;
-    m_DefaultMaterialIndex = 0;
 
     return true;
 }
@@ -290,8 +269,7 @@ void ModelImporter::processNode(const aiNode *current, int32_t parentIndex,
         parentTransform * toGlmMatrix(current->mTransformation);
 
     for (uint32_t i = 0; i < current->mNumMeshes; ++i) {
-        const aiMesh *mesh = m_Scene->mMeshes[current->mMeshes[i]];
-        m_MeshGlobalTransform[mesh->mName.C_Str()] = globalTransform;
+        m_MeshGlobalTransform[current->mMeshes[i]] = globalTransform;
     }
 
     aiVector3D position, scale;
@@ -341,14 +319,13 @@ AssetRef ModelImporter::loadTextureForMaterial(std::filesystem::path path,
 }
 
 AssetRef ModelImporter::processMaterial(const aiMaterial *material,
-                                        const std::filesystem::path &path) {
+                                        const std::filesystem::path &path,
+                                        uint32_t materialIndex) {
     std::string name;
 
     aiString aiMatName;
     if (material->Get(AI_MATKEY_NAME, aiMatName) != AI_SUCCESS) {
-        name = path.stem().string() +
-               std::format(".Default{}", m_DefaultMaterialIndex);
-        ++m_DefaultMaterialIndex;
+        name = path.stem().string() + std::format(".Default{}", materialIndex);
     } else {
         name = path.stem().string() + "." + aiMatName.C_Str();
     }
@@ -533,7 +510,8 @@ MeshData ModelImporter::processMesh(const aiMesh *mesh,
 
     if (mesh->mMaterialIndex < m_Scene->mNumMaterials) {
         result.material =
-            processMaterial(m_Scene->mMaterials[mesh->mMaterialIndex], path);
+            processMaterial(m_Scene->mMaterials[mesh->mMaterialIndex], path,
+                            mesh->mMaterialIndex);
     }
 
     applyBonesToMesh(result, mesh, skeleton);
