@@ -21,7 +21,6 @@ void AssetManager::registerCleanup(CleanupFn fn) {
 
 void AssetManager::resolvePendingDeletions() {
     for (UUID id : m_PendingDelete) {
-
         auto it = m_AssetRefs.find(id);
 
         if (it == m_AssetRefs.cend() || it->second > 0)
@@ -35,8 +34,22 @@ void AssetManager::resolvePendingDeletions() {
 
         m_AssetRefs.erase(id);
         m_Owner.erase(id);
+
+        if (auto pathIt = m_UUIDToKey.find(id);
+            pathIt != m_UUIDToKey.cend()) {
+            m_KeyToUUID.erase(pathIt->second);
+            m_UUIDToKey.erase(pathIt);
+        }
     }
     m_PendingDelete.clear();
+}
+
+std::optional<UUID> AssetManager::uuidFromKey(std::string_view key) {
+    if (auto it = m_KeyToUUID.find(std::string(key));
+        it != m_KeyToUUID.cend()) {
+        return it->second;
+    }
+    return std::nullopt;
 }
 
 } // namespace SYN

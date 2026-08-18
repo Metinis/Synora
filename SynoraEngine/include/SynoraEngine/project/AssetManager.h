@@ -1,7 +1,10 @@
 #pragma once
 
+#include <spdlog/spdlog.h>
+
 #include <typeindex>
 
+#include "AssetImporter.h"
 #include "AssetPool.h"
 #include "AssetRef.h"
 
@@ -18,24 +21,121 @@ class AssetManager {
         getPool<PoolT>().registerName(poolName);
     }
 
-    template <typename AssetT> UUID add(AssetT asset) {
-        UUID id = generateUUID();
-        getPool<AssetT>().add(id, std::move(asset));
-        m_Owner[id] = std::type_index(typeid(AssetT));
-        return id;
-    }
-
     template <typename AssetT> const AssetT *get(UUID id) const {
         const AssetPool<AssetT> *pool = findPool<AssetT>();
         if (pool == nullptr)
             return nullptr;
         return pool->getRef(id);
     }
+
     template <typename AssetT> AssetT *getMut(UUID id) {
         AssetPool<AssetT> *pool = findPool<AssetT>();
         if (pool == nullptr)
             return nullptr;
         return pool->getRefMut(id);
+    }
+
+    std::optional<UUID> uuidFromKey(std::string_view key);
+
+    template <typename AssetT, typename ImporterT> void registerImporter() {
+        static_assert(std::derived_from<ImporterT, AssetImporter<AssetT>>);
+        m_Importers[std::type_index(typeid(AssetT))] =
+            std::make_unique<ImporterT>();
+    }
+
+    // Why would I add an asset without a key?
+    //
+    // The use case could be rare, but you might want
+    // some assets to live without a key (i.e. you store a UUID directly
+    // into a single named variable for its entire usage).
+    template <typename AssetT>
+    UUID add(AssetT asset, std::string_view customKey = "") {
+        UUID id = generateUUID();
+        getPool<AssetT>().add(id, std::move(asset));
+        m_Owner.insert_or_assign(id, typeid(AssetT));
+        std::string customKeyString = std::string(customKey);
+
+        bool keyLoaded =
+            !customKey.empty() && m_KeyToUUID.contains(customKeyString);
+        if (!keyLoaded) {
+            m_KeyToUUID[customKeyString] = id;
+            m_UUIDToKey[id] = customKeyString;
+        } else {
+            // The asset is intentionally added to the pool even if it's not
+            // successfully keyed.
+            //
+            // Getting here is somewhat rare since you would normally
+            // key an asset with `loadWithKey` and that returns an invalid UUID
+            // if the key is already linked.
+            //
+            // If you do get here, then there's no reason to block the program
+            // just because you couldn't key it (during development). This would
+            // be a bug if you released it which is why you get a warning to fix
+            // it.
+            spdlog::warn(
+                "Cannot link asset to key [{}] because it is already taken.",
+                customKeyString);
+        }
+
+        return id;
+    }
+
+    // Does not cache results.
+    template <typename AssetT>
+    std::optional<AssetT> loadAsset(std::filesystem::path path) {
+        std::string pathString = path.string();
+
+        auto it = m_Importers.find(std::type_index(typeid(AssetT)));
+        if (it == m_Importers.cend()) {
+            spdlog::error("Unable to find importer for [{}]!", pathString);
+            return std::nullopt;
+        }
+
+        AssetImporter<AssetT> *importer =
+            static_cast<AssetImporter<AssetT> *>(it->second.get());
+
+        AssetT loadedAsset;
+        if (!importer->load(path, loadedAsset, this)) {
+            spdlog::error("Failed to load [{}]!", pathString);
+            return std::nullopt;
+        }
+
+        return std::move(loadedAsset);
+    }
+
+    template <typename AssetT>
+    std::optional<UUID> loadWithKey(std::filesystem::path path,
+                                    std::string_view key) {
+        std::string keyString(key);
+
+        if (auto it = m_KeyToUUID.find(keyString); it != m_KeyToUUID.cend()) {
+            UUID uuid = it->second;
+
+            auto ownerIt = m_Owner.find(uuid);
+
+            if (ownerIt == m_Owner.cend()) {
+                m_KeyToUUID.erase(it);
+            } else if (ownerIt->second != std::type_index(typeid(AssetT))) {
+                spdlog::error(
+                    "[{}] has a UUID associated with it, but the actual asset "
+                    "type differs from the intended type!",
+                    keyString);
+                return std::nullopt;
+            } else {
+                return uuid;
+            }
+        }
+
+        std::optional<AssetT> asset = loadAsset<AssetT>(path);
+        if (!asset.has_value())
+            return std::nullopt;
+
+        return add(std::move(asset.value()), key);
+    }
+
+    template <typename AssetT>
+    std::optional<UUID> load(std::filesystem::path path) {
+        return loadWithKey<AssetT>(path, path.string());
     }
 
     AssetRef acquire(UUID id);
@@ -85,6 +185,10 @@ class AssetManager {
 
     std::unordered_map<std::type_index, std::unique_ptr<IAssetPool>> m_Pools;
 
-    std::unordered_map<std::string, UUID> m_LoadedUUIDMap{};
+    std::unordered_map<std::type_index, std::unique_ptr<IAssetImporter>>
+        m_Importers;
+
+    std::unordered_map<std::string, UUID> m_KeyToUUID;
+    std::unordered_map<UUID, std::string> m_UUIDToKey;
 };
 } // namespace SYN
