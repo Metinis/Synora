@@ -1,17 +1,22 @@
-#include "../../include/SynoraEngine/renderer/Renderer.h"
-#include "SynoraEngine/project/AssetManager.h"
-#include "SynoraEngine/project/Project.h"
-#include "SynoraEngine/scene/Scene.h"
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include "imgui_impl_vulkan.h"
-#include "scene/CameraSystem.h"
 #include <GLFW/glfw3.h>
+
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+#include <imgui_impl_vulkan.h>
+
+#include <spdlog/spdlog.h>
+
 #include <SynoraEngine/core/Application.h>
 #include <SynoraEngine/core/Input.h>
 #include <SynoraEngine/core/InputContext.h>
 #include <SynoraEngine/core/Window.h>
+#include <SynoraEngine/project/AssetManager.h>
+#include <SynoraEngine/project/Project.h>
+#include <SynoraEngine/renderer/Renderer.h>
+#include <SynoraEngine/scene/Scene.h>
+
+#include "scene/CameraSystem.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -52,7 +57,8 @@ void Application::init() {
     m_EngineContext.inputManager->init(&m_EngineContext);
     if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
         m_EngineContext.renderer->init(&m_EngineContext);
-        m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
+        m_EngineContext.projectConfig.assetManager->init();
+
         m_EngineContext.scene->init(&m_EngineContext);
         m_EngineContext.cameraSystem->init(&m_EngineContext);
         m_Layers.push_back(m_EngineContext.scene.get());

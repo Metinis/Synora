@@ -1,15 +1,5 @@
 #include "SynoraEngine/scene/Scene.h"
-
-#include "../../include/SynoraEngine/renderer/Renderer.h"
-#include "SynoraEngine/core/Input.h"
-#include "SynoraEngine/core/InputContext.h"
-#include "SynoraEngine/core/InputTypes.h"
-#include "SynoraEngine/core/Window.h"
 #include "SynoraEngine/project/AssetManager.h"
-#include "SynoraEngine/scene/Components.h"
-#include "glm/ext.hpp"
-#include "imgui.h"
-#include "renderer/backends/vulkan/Backend.h"
 #include "spdlog/spdlog.h"
 
 using namespace SYN;
@@ -61,7 +51,7 @@ void Scene::onRender() {
         auto &modelComp = e.getComponent<MeshComp>();
         auto &tc = e.getComponent<TransformComp>();
 
-        m_Renderer->drawMesh(modelComp.id, tc.worldMatrix);
+        // m_Renderer->drawMesh(modelComp.id, tc.worldMatrix);
     }
 }
 
@@ -69,18 +59,14 @@ void Scene::onMeshAdded(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
     UUID id = comp.id;
 
-    m_OnUpdate.emplace_back([this, id]() {
-        m_AssetManager->addRef(id);
-    });
+    // m_OnUpdate.emplace_back([this, id]() { m_AssetManager->addRef(id); });
 }
 
 void Scene::onMeshRemoved(entt::registry &reg, entt::entity e) {
     auto &comp = reg.get<MeshComp>(e);
     UUID id = comp.id;
 
-    m_OnUpdate.emplace_back([this, id]() {
-        m_AssetManager->removeRef(id);
-    });
+    // m_OnUpdate.emplace_back([this, id]() { m_AssetManager->removeRef(id); });
 }
 
 bool Scene::isDescendantOf(Entity parent, Entity possibleChild) {
@@ -120,7 +106,7 @@ void Scene::onParentAdded(entt::registry &reg, entt::entity e) {
 void Scene::onParentRemoved(entt::registry &reg, entt::entity e) {
     Entity ent(&m_SceneState.registry, e);
     if (ent.hasComponent<TransformComp>()) {
-        auto& tc = m_SceneState.registry.get<TransformComp>(e);
+        auto &tc = m_SceneState.registry.get<TransformComp>(e);
         tc.depth = 0;
         tc.setLocalMatrix(tc.worldMatrix);
         std::ranges::sort(m_EntityCache, [&](Entity a, Entity b) {
@@ -157,13 +143,11 @@ void Scene::init(EngineContext *ctx) {
     m_SceneState.registry.on_destroy<ParentComp>()
         .connect<&Scene::onParentRemoved>(this);
 
-    m_AssetManager->loadModel(this, "resources/assets/Cabin/scene.gltf");
-
     auto cam = createEntity("Primary Camera");
     auto &tc = cam.getComponent<TransformComp>();
     tc.position = glm::vec3(0.f, 0.f, -2.f);
-    tc.rotation = glm::quat(0.f, 0.f, 0.f, 0.f);
-    tc.scale = glm::vec3(1.f, 1.f, 1.f);
+    tc.rotation = glm::quat(1.f, 0.f, 0.f, 0.f);
+    tc.scale = glm::vec3(1.0f);
 
     auto &c = cam.addComponent<CameraComp>();
     c.fovDegrees = 90.f;
@@ -171,12 +155,6 @@ void Scene::init(EngineContext *ctx) {
     c.nearPlane = 0.1;
     c.farPlane = 100.f;
     c.isPrimary = true;
-
-    auto e1 = createEntity("Parent Entity");
-    auto e2 = createEntity("Parent Child Entity");
-    auto e3 = createEntity("Child Entity");
-    e2.addComponent<ParentComp>(e1.getUUID());
-    e3.addComponent<ParentComp>(e2.getUUID());
 
     for (auto e : getEntities<TransformComp>()) {
         if (e.isValid()) {
