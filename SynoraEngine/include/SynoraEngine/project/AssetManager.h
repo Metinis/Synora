@@ -17,6 +17,9 @@ class AssetManager {
     AssetManager() = default;
     ~AssetManager() = default;
 
+    // Register default importers to use here
+    void init();
+
     template <typename PoolT> void registerPoolName(std::string_view poolName) {
         getPool<PoolT>().registerName(poolName);
     }

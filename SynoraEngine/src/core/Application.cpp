@@ -57,8 +57,8 @@ void Application::init() {
     m_EngineContext.inputManager->init(&m_EngineContext);
     if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
         m_EngineContext.renderer->init(&m_EngineContext);
-        // TODO: Initialize asset manager here
-        // m_EngineContext.projectConfig.assetManager->init(&m_EngineContext);
+        m_EngineContext.projectConfig.assetManager->init();
+
         m_EngineContext.scene->init(&m_EngineContext);
         m_EngineContext.cameraSystem->init(&m_EngineContext);
         m_Layers.push_back(m_EngineContext.scene.get());

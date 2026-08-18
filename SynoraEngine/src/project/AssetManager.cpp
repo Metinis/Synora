@@ -1,6 +1,16 @@
-#include "SynoraEngine/project/AssetManager.h"
+#include <SynoraEngine/project/AssetManager.h>
+
+#include <SynoraEngine/project/importers/AnimationImporter.h>
+#include <SynoraEngine/project/importers/ModelImporter.h>
+#include <SynoraEngine/project/importers/TextureImporter.h>
 
 namespace SYN {
+
+void AssetManager::init() {
+    registerImporter<TextureData, TextureImporter>();
+    registerImporter<ModelData, ModelImporter>();
+    registerImporter<AnimationClipData, AnimationImporter>();
+}
 
 AssetRef AssetManager::acquire(UUID id) {
     if (m_Owner.find(id) == m_Owner.cend())
@@ -35,8 +45,7 @@ void AssetManager::resolvePendingDeletions() {
         m_AssetRefs.erase(id);
         m_Owner.erase(id);
 
-        if (auto pathIt = m_UUIDToKey.find(id);
-            pathIt != m_UUIDToKey.cend()) {
+        if (auto pathIt = m_UUIDToKey.find(id); pathIt != m_UUIDToKey.cend()) {
             m_KeyToUUID.erase(pathIt->second);
             m_UUIDToKey.erase(pathIt);
         }
