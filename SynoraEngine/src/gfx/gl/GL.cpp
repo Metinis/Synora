@@ -1,3 +1,8 @@
+#include <SynoraEngine/project/AssetManager.h>
+#include <SynoraEngine/project/assets/MaterialData.h>
+#include <SynoraEngine/project/assets/ModelData.h>
+#include <SynoraEngine/project/assets/TextureData.h>
+
 #include <SynoraEngine/gfx/gl/GL.h>
 
 // clang-format off
@@ -46,70 +51,71 @@ createDefaultColoredTexture(SYN::gfx::gl::Context &context,
     return context.createTexture(desc, &color[0]).value();
 }
 
-SYN::gfx::gl::Material loadMaterial(
-    SYN::gfx::gl::Context &context,
-    const SYN::gfx::gl::MaterialData &materialData,
-    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
-        &textureCache) {
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+SYN::gfx::gl::Renderer::loadTexture(Context &context, const AssetRef &texture,
+                                    bool srgb) {
+    if (!texture.valid())
+        return std::nullopt;
+
+    if (auto it = m_UUIDToHandle.find(texture.uuid());
+        it != m_UUIDToHandle.cend()) {
+        return std::get<Handle<Texture>>(m_UUIDToHandle.at(it->first).handle);
+    }
+
+    const TextureData *textureData =
+        m_AssetManager->get<TextureData>(texture.uuid());
 
     auto getMipLevel = [](int width, int height) {
         return 1 +
                static_cast<int>(std::floor(std::log2(std::max(width, height))));
     };
 
+    auto textureFormatFromChannelCount = [](int channels, bool srgb = false) {
+        switch (channels) {
+        case 1:
+            return SYN::gfx::gl::TextureFormat::R8;
+        case 2:
+            return SYN::gfx::gl::TextureFormat::RG8;
+        case 3:
+            return srgb ? SYN::gfx::gl::TextureFormat::SRGB
+                        : SYN::gfx::gl::TextureFormat::RGB8;
+        case 4:
+        default:
+            return srgb ? SYN::gfx::gl::TextureFormat::SRGBA
+                        : SYN::gfx::gl::TextureFormat::RGBA8;
+        }
+    };
+
+    auto dataToDesc = [&](const TextureData *data, bool srgb) -> TextureDesc {
+        TextureDesc desc{};
+        desc.width = data->width;
+        desc.height = data->height;
+        desc.format = textureFormatFromChannelCount(data->channelCount, srgb);
+        desc.mipLevel = getMipLevel(data->width, data->height);
+
+        return desc;
+    };
+
+    TextureDesc desc = dataToDesc(textureData, srgb);
+
+    Handle<Texture> textureHandle =
+        context.createTexture(desc, &textureData->data[0]).value();
+    m_UUIDToHandle[texture.uuid()] = {textureHandle};
+
+    return textureHandle;
+}
+
+SYN::gfx::gl::Material
+SYN::gfx::gl::Renderer::loadMaterial(Context &context,
+                                     const MaterialData &materialData) {
+
     SYN::gfx::gl::Material material;
-    if (materialData.albedoData) {
-        SYN::gfx::gl::TextureData albedoTexture =
-            materialData.albedoData.value();
-        if (textureCache.find(albedoTexture.sourcePath) !=
-            textureCache.cend()) {
-            material.albedo = textureCache.at(albedoTexture.sourcePath);
-        } else {
-            albedoTexture.info.mipLevel = getMipLevel(
-                albedoTexture.info.width, albedoTexture.info.height);
-            material.albedo =
-                context
-                    .createTexture(albedoTexture.info, &albedoTexture.data[0])
-                    .value();
-            textureCache[albedoTexture.sourcePath] = material.albedo.value();
-        }
-    }
-    if (materialData.normalData) {
-        SYN::gfx::gl::TextureData normalTexture =
-            materialData.normalData.value();
-        if (textureCache.find(normalTexture.sourcePath) !=
-            textureCache.cend()) {
-            material.normalMap = textureCache.at(normalTexture.sourcePath);
-        } else {
-            normalTexture.info.mipLevel = getMipLevel(
-                normalTexture.info.width, normalTexture.info.height);
-            material.normalMap =
-                context
-                    .createTexture(normalTexture.info, &normalTexture.data[0])
-                    .value();
-            textureCache[normalTexture.sourcePath] = material.normalMap.value();
-        }
-    }
-    if (materialData.metallicRoughnessData) {
-        SYN::gfx::gl::TextureData metallicRoughnessTexture =
-            materialData.metallicRoughnessData.value();
-        if (textureCache.find(metallicRoughnessTexture.sourcePath) !=
-            textureCache.cend()) {
-            material.metallicRoughnessMap =
-                textureCache.at(metallicRoughnessTexture.sourcePath);
-        } else {
-            metallicRoughnessTexture.info.mipLevel =
-                getMipLevel(metallicRoughnessTexture.info.width,
-                            metallicRoughnessTexture.info.height);
-            material.metallicRoughnessMap =
-                context
-                    .createTexture(metallicRoughnessTexture.info,
-                                   &metallicRoughnessTexture.data[0])
-                    .value();
-            textureCache[metallicRoughnessTexture.sourcePath] =
-                material.metallicRoughnessMap.value();
-        }
-    }
+
+    material.albedo = loadTexture(context, materialData.albedoData, true);
+    material.normalMap = loadTexture(context, materialData.normalData, false);
+    material.metallicRoughnessMap =
+        loadTexture(context, materialData.normalData, false);
+
     material.metallic = materialData.metallic;
     material.roughness = materialData.roughness;
     material.tint = materialData.tint;
@@ -214,11 +220,9 @@ createDefaultShader(SYN::gfx::gl::Context &context) {
         .value();
 }
 
-SYN::gfx::gl::Mesh createMesh(
-    SYN::gfx::gl::Context &context, const SYN::gfx::gl::MeshData &meshData,
-    std::unordered_map<std::string, SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
-        &textureCache,
-    SYN::gfx::gl::ShaderCache &shaderCache) {
+SYN::gfx::gl::Mesh
+SYN::gfx::gl::Renderer::createMesh(SYN::gfx::gl::Context &context,
+                                   const MeshData &meshData) {
     SYN::gfx::gl::Mesh mesh;
 
     mesh.vbo = context
@@ -268,9 +272,11 @@ SYN::gfx::gl::Mesh createMesh(
     mesh.localTransform = meshData.localTransform;
     mesh.hasSkin = meshData.hasSkin;
 
-    mesh.material = loadMaterial(context, meshData.material, textureCache);
+    const MaterialData *material =
+        m_AssetManager->get<MaterialData>(meshData.material.uuid());
+    mesh.material = loadMaterial(context, *material);
 
-    mesh.aabb = meshData.aabb;
+    mesh.aabb = {meshData.aabb.min, meshData.aabb.max};
 
     return mesh;
 }
@@ -502,8 +508,10 @@ GLenum getTextureDataTypeFromFormat(SYN::gfx::gl::TextureFormat format) {
         break;
     case SYN::gfx::gl::TextureFormat::RG16F:
         dataType = GL_FLOAT;
+        break;
     case SYN::gfx::gl::TextureFormat::RG32F:
         dataType = GL_FLOAT;
+        break;
     default:
         break;
     }
@@ -710,13 +718,16 @@ void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
 }
 
 void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
-                                     const std::vector<glm::mat4> &v) {
+                                     const std::vector<glm::mat4> &v,
+                                     std::optional<uint32_t> offset,
+                                     std::optional<uint32_t> size) {
     int loc = getShaderUniformLocation(name);
     if (loc == -1) {
         spdlog::warn("Shader uniform: {} does not exist!", name);
         return;
     }
-    glUniformMatrix4fv(loc, v.size(), GL_FALSE, glm::value_ptr(v[0]));
+    glUniformMatrix4fv(loc, size.value_or(v.size()), GL_FALSE,
+                       glm::value_ptr(v[offset.value_or(0)]));
 }
 
 void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
@@ -1866,296 +1877,6 @@ void SYN::gfx::gl::ShaderCache::reset(Context &context) {
     }
 }
 
-// AnimationPlayer
-// Supports playing single animation clips, or blending between 2 clips.
-// Create an AnimationPlayer per instance and update in the layer's update
-// function. Get the output bone matrices and submit as part of the draw command
-// to animate a model.
-
-SYN::gfx::gl::AnimationPlayer::AnimationPlayer(class Renderer *renderer) {
-    m_Renderer = renderer;
-}
-
-void SYN::gfx::gl::AnimationPlayer::setClip(const AnimationClip *clip) {
-    m_Clip = clip;
-    m_DefaultPose = true;
-}
-
-void SYN::gfx::gl::AnimationPlayer::setTargetClip(const AnimationClip *target) {
-    m_TargetClip = target;
-    m_TargetTime = 0.0f;
-}
-
-void SYN::gfx::gl::AnimationPlayer::setBlendWeight(float blendWeight) {
-    m_BlendWeight = glm::clamp(blendWeight, 0.0f, 1.0f);
-}
-
-void SYN::gfx::gl::AnimationPlayer::setLoop(bool loop) { m_IsLooping = loop; }
-
-const std::vector<glm::mat4> &SYN::gfx::gl::AnimationPlayer::getOutput() const {
-    return m_BoneMatrices;
-}
-
-void SYN::gfx::gl::AnimationPlayer::play(std::optional<float> time) {
-    if (m_Clip == nullptr) {
-        spdlog::error(
-            "Unable to begin playback because specified clip is NULL");
-        return;
-    }
-    m_IsPlaying = true;
-    float playTime = time.value_or(m_CurrentTime);
-    if (!time.has_value() && m_CurrentTime == m_Clip->duration) {
-        playTime = 0.0f;
-    }
-
-    m_CurrentTime = glm::clamp(playTime, 0.0f, m_Clip->duration);
-}
-void SYN::gfx::gl::AnimationPlayer::stop() { m_IsPlaying = false; }
-
-void SYN::gfx::gl::AnimationPlayer::crossfadeTo(const AnimationClip *target,
-                                                float duration) {
-    if (m_Clip == nullptr) {
-        spdlog::error("Cannot crossfade from NULL clip");
-        return;
-    }
-    if (target == nullptr) {
-        spdlog::error("Cannot crossfade to NULL clip");
-        return;
-    }
-
-    m_IsPlaying = true;
-    setTargetClip(target);
-    m_CrossfadeDuration = duration;
-    m_CrossfadeTime = 0.0f;
-    m_IsCrossfading = true;
-    m_BlendWeight = 0.0f;
-}
-
-void SYN::gfx::gl::AnimationPlayer::playOneShot(const AnimationClip *to,
-                                                const AnimationClip *returnTo,
-                                                float blendIn, float blendOut) {
-    if (returnTo == nullptr) {
-        spdlog::error("Cannot return to NULL clip");
-        return;
-    }
-
-    m_IsPlayingOneshot = true;
-    m_ReturnTo = returnTo;
-    m_BlendOut = blendOut;
-
-    crossfadeTo(to, blendIn);
-}
-
-void SYN::gfx::gl::AnimationPlayer::update(Handle<Model> modelHandle,
-                                           float dt) {
-    if (m_Renderer == nullptr) {
-        spdlog::error("Cannot update animation player because renderer "
-                      "reference is NULL. Please create through "
-                      "Renderer::createAnimationPlayer!");
-        return;
-    }
-
-    const Model *model =
-        m_Renderer->m_ModelRegistry.getResourceImmutableRef(modelHandle)
-            .value();
-
-    if (model->skeleton.boneInfo.empty()) {
-        spdlog::error("Model does not have valid skeleton.");
-        return;
-    }
-
-    if (m_Clip == nullptr)
-        return;
-
-    if (m_Clip->fps == 0.0f) {
-        spdlog::error("Current clip {} has fps of 0.0 which is invalid.",
-                      m_Clip->name);
-        return;
-    }
-
-    if (m_DefaultPose) {
-        m_BoneMatrices = std::vector<glm::mat4>(model->skeleton.boneInfo.size(),
-                                                model->skeleton.inverseRoot);
-        m_DefaultPose = false;
-    }
-
-    m_LastPlayedTime = m_CurrentTime;
-
-    auto advanceTime = [&](const AnimationClip *clip, float time) {
-        time += clip->fps * dt;
-        if (m_IsLooping && !m_IsPlayingOneshot) {
-            time = std::fmod(time, clip->duration);
-        } else {
-            time = glm::clamp(time, 0.0f, clip->duration);
-        }
-
-        return time;
-    };
-
-    if (m_IsPlaying) {
-        m_CurrentTime = advanceTime(m_Clip, m_CurrentTime);
-        if (m_TargetClip)
-            m_TargetTime = advanceTime(m_TargetClip, m_TargetTime);
-    } else {
-        return;
-    }
-
-    if (m_IsPlayingOneshot && !m_IsCrossfading) {
-        if (m_CurrentTime >= m_Clip->duration - m_BlendOut) {
-            crossfadeTo(m_ReturnTo, m_BlendOut);
-            m_BlendOut = 0.0f;
-            m_IsPlayingOneshot = false;
-        }
-    }
-
-    if (m_IsCrossfading) {
-        m_CrossfadeTime += dt;
-        float t = 1.0f;
-        if (m_CrossfadeDuration > 0.0f) {
-            t = glm::clamp(m_CrossfadeTime / m_CrossfadeDuration, 0.0f, 1.0f);
-        }
-        m_BlendWeight = glm::smoothstep(0.0f, 1.0f, t);
-        if (m_CrossfadeTime >= m_CrossfadeDuration) {
-            m_IsCrossfading = false;
-            m_Clip = m_TargetClip;
-            m_TargetClip = nullptr;
-            m_CurrentTime = m_TargetTime;
-            m_BlendWeight = 0.0f;
-            if (!m_IsPlayingOneshot && m_ReturnTo != nullptr) {
-                m_ReturnTo = nullptr;
-            }
-        }
-    }
-
-    if (!m_IsLooping) {
-        if (m_CurrentTime >= m_Clip->duration &&
-            m_LastPlayedTime == m_CurrentTime && !m_IsCrossfading) {
-            m_IsPlaying = false;
-            return;
-        }
-    }
-
-    struct Pose {
-        glm::vec3 position;
-        glm::quat rotation;
-        glm::vec3 scale;
-    };
-
-    auto sampleVectorKey = [](const std::vector<VectorKey> &keys, float time) {
-        if (keys.empty())
-            return glm::vec3(0.0f);
-        if (keys.size() == 1) {
-            return keys[0].value;
-        }
-        auto nextKey = std::upper_bound(keys.cbegin(), keys.cend(), time,
-                                        [](float time, const VectorKey &key) {
-                                            return time < key.timestamp;
-                                        });
-        if (nextKey == keys.cbegin())
-            return nextKey->value;
-        if (nextKey == keys.cend())
-            return keys.back().value;
-
-        auto lastKey = nextKey - 1;
-
-        float t = (time - lastKey->timestamp) /
-                  (nextKey->timestamp - lastKey->timestamp);
-        return glm::mix(lastKey->value, nextKey->value, t);
-    };
-
-    auto sampleQuatKey = [](const std::vector<QuatKey> &keys, float time) {
-        if (keys.empty()) {
-            return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-        }
-
-        if (keys.size() == 1) {
-            return keys[0].value;
-        }
-        auto nextKey = std::upper_bound(keys.cbegin(), keys.cend(), time,
-                                        [](float time, const QuatKey &key) {
-                                            return time < key.timestamp;
-                                        });
-        if (nextKey == keys.cbegin())
-            return nextKey->value;
-        if (nextKey == keys.cend())
-            return keys.back().value;
-
-        auto lastKey = nextKey - 1;
-
-        float t = (time - lastKey->timestamp) /
-                  (nextKey->timestamp - lastKey->timestamp);
-        return glm::slerp(lastKey->value, nextKey->value, t);
-    };
-
-    auto samplePose = [&](const AnimationClip *target,
-                          const Skeleton::Node &node, float time) -> Pose {
-        auto channels = target->channels.find(node.name);
-        Pose output{node.position, node.rotation, node.scale};
-        if (channels != target->channels.cend()) {
-            glm::vec3 position =
-                sampleVectorKey(channels->second.translation, time);
-
-            glm::vec3 scale = sampleVectorKey(channels->second.scale, time);
-            if (channels->second.scale.empty())
-                scale = glm::vec3(1.0f);
-
-            glm::quat rotation = sampleQuatKey(channels->second.rotation, time);
-
-            output.position = position;
-            output.scale = scale;
-            output.rotation = rotation;
-        }
-        return output;
-    };
-
-    uint32_t nodeCount = model->skeleton.nodes.size();
-    std::vector<glm::mat4> globalTransforms(nodeCount, glm::mat4(1.0f));
-    for (uint32_t i = 0; i < nodeCount; ++i) {
-        const Skeleton::Node &node = model->skeleton.nodes.at(i);
-        Pose poseA = samplePose(m_Clip, node, m_CurrentTime);
-        Pose local = poseA;
-        if (m_TargetClip && m_BlendWeight > 0.0f) {
-            Pose poseB = samplePose(m_TargetClip, node, m_TargetTime);
-            local.position =
-                glm::mix(poseA.position, poseB.position, m_BlendWeight);
-            local.scale = glm::mix(poseA.scale, poseB.scale, m_BlendWeight);
-            local.rotation =
-                glm::slerp(poseA.rotation, poseB.rotation, m_BlendWeight);
-        }
-
-        glm::mat4 identity(1.0f);
-        glm::mat4 localTransform = glm::translate(identity, local.position) *
-                                   glm::mat4(glm::normalize(local.rotation)) *
-                                   glm::scale(identity, local.scale);
-
-        if (node.parentIndex.has_value()) {
-            uint32_t parentIndex = node.parentIndex.value();
-            globalTransforms[i] =
-                globalTransforms[parentIndex] * localTransform;
-        } else {
-            globalTransforms[i] = localTransform;
-        }
-    }
-
-    for (uint32_t i = 0; i < m_BoneMatrices.size(); ++i) {
-        const Skeleton::BoneInfo &info = model->skeleton.boneInfo.at(i);
-        m_BoneMatrices[i] = model->skeleton.inverseRoot *
-                            globalTransforms[info.nodeIndex] *
-                            info.inverseBindMatrix;
-    }
-}
-
-float SYN::gfx::gl::AnimationPlayer::getCurrentTime() const {
-    return m_CurrentTime;
-}
-bool SYN::gfx::gl::AnimationPlayer::isLooping() const { return m_IsLooping; }
-bool SYN::gfx::gl::AnimationPlayer::isPlaying() const { return m_IsPlaying; }
-float SYN::gfx::gl::AnimationPlayer::getDuration() const {
-    if (m_Clip == nullptr)
-        return 0.0f;
-    return m_Clip->duration;
-}
-
 // RenderTechnique
 // Higher level passes for the renderer. Describe which groups a pass cares
 // about, and how a pass should render each group.
@@ -2269,18 +1990,19 @@ SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
 
 SYN::gfx::gl::Renderer::~Renderer() {}
 
-std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Model>>
-SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
-    Model model;
+void SYN::gfx::gl::Renderer::createModel(Context &context, UUID model) {
+    const ModelData *modelData = m_AssetManager->get<ModelData>(model);
+
+    Model loadedModel;
     uint32_t sourceIndex = 0;
-    for (const MeshData &meshData : data.meshes) {
-        Mesh mesh =
-            createMesh(context, meshData, m_TextureCache, m_ShaderCache);
+    for (const MeshData &meshData : modelData->meshes) {
+        Mesh mesh = createMesh(context, meshData);
+
         if (!mesh.material.albedo) {
             mesh.material.albedo = m_DefaultWhite;
         }
         if (mesh.hasSkin) {
-            mesh.aabb = mesh.aabb.transform(data.skeleton.inverseRoot);
+            mesh.aabb = mesh.aabb.transform(modelData->skeleton.inverseRoot);
 
             // Inflate the skinned mesh's aabb by generous margin to
             // account for animations.
@@ -2292,23 +2014,36 @@ SYN::gfx::gl::Renderer::createModel(Context &context, const ModelData &data) {
         }
         mesh.sourceIndex = sourceIndex;
         if (mesh.material.alphaCutoff < 1.0f) {
-            model.meshesMasked.push_back(mesh);
+            loadedModel.meshesMasked.push_back(mesh);
         } else {
-            model.meshesOpaque.push_back(mesh);
+            loadedModel.meshesOpaque.push_back(mesh);
         }
         ++sourceIndex;
     }
-    model.skeleton = data.skeleton;
-    return m_ModelRegistry.createHandle(model);
+    loadedModel.skeleton = &modelData->skeleton;
+    auto handle = m_ModelRegistry.createHandle(loadedModel);
+    if (!handle.has_value()) {
+        spdlog::error("Unable to create OpenGL model handle");
+        handle.value();
+    }
+    m_UUIDToHandle[model] = {handle.value()};
 }
 
-// TODO: (Implement this!)
-void SYN::gfx::gl::Renderer::destroyModel(Context &context,
-                                          Handle<Model> modelHandle) {
+// Material data is destroyed independently of mesh data.
+void SYN::gfx::gl::Renderer::destroyModel(Context &context, UUID model) {
+    auto it = m_UUIDToHandle.find(model);
+    if (it == m_UUIDToHandle.cend()) {
+        spdlog::warn("Unable to destroy model for unmapped UUID");
+        return;
+    }
+
+    Handle<Model> modelHandle = std::get<Handle<Model>>(it->second.handle);
+
     if (!m_ModelRegistry.isValidHandle(modelHandle)) {
         return;
     }
-    Model model = m_ModelRegistry.getResource(modelHandle).value();
+
+    Model modelResource = m_ModelRegistry.getResource(modelHandle).value();
     m_ModelRegistry.releaseHandle(modelHandle);
 
     auto deleteMesh = [&](const Mesh &mesh) {
@@ -2321,99 +2056,15 @@ void SYN::gfx::gl::Renderer::destroyModel(Context &context,
         }
     };
 
-    for (const Mesh &mesh : model.meshesOpaque) {
+    for (const Mesh &mesh : modelResource.meshesOpaque) {
         deleteMesh(mesh);
     }
-}
 
-// TODO: Clean up environment function!
-// Order of faces: Right, Left, Top, Bottom, Back, Front
-SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
-SYN::gfx::gl::Renderer::loadCubemap(Context &context,
-                                    const std::array<uint8_t *, 6> &faces,
-                                    uint32_t width, uint32_t height) {
-    Handle<Texture> cubemap =
-        context
-            .createTexture({width, height, TextureFormat::SRGBA, 1, 1,
-                            TextureType::Cubemap})
-            .value();
-    for (uint32_t i = 0; i < faces.size(); ++i) {
-        context.updateTexture(cubemap, 0, 0, 0, width, height, i,
-                              TextureFormat::SRGBA, faces.at(i));
+    for (const Mesh &mesh : modelResource.meshesMasked) {
+        deleteMesh(mesh);
     }
 
-    return cubemap;
-}
-
-SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
-SYN::gfx::gl::Renderer::loadCubemapFromEquirectangularTexture(Context &context,
-                                                              float *data,
-                                                              uint32_t width,
-                                                              uint32_t height) {
-    Handle<Texture> envCubemap =
-        context
-            .createTexture(
-                {512, 512, TextureFormat::RGBA16F, 10, 1, TextureType::Cubemap})
-            .value();
-
-    Handle<Texture> hdrTexture =
-        context.createTexture({width, height, TextureFormat::RGBA16F}, data)
-            .value();
-
-    Handle<Framebuffer> equirectangularProjection =
-        context.createFramebuffer({std::array{AttachmentDesc{envCubemap}}})
-            .value();
-
-    Handle<Sampler> mipSampler =
-        context
-            .createSampler({SampleFilter::Linear_Mipmap_Linear,
-                            SampleFilter::Linear, WrapMode::ClampToEdge,
-                            WrapMode::ClampToEdge, WrapMode::ClampToEdge})
-            .value();
-
-    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
-    glm::mat4 captureProjection =
-        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-    glm::mat4 captureViews[] = {
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
-                      glm::vec3(0.0f, 0.0f, 1.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
-                      glm::vec3(0.0f, 0.0f, -1.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f))};
-
-    PipelineState pipeline;
-    pipeline.shader =
-        m_ShaderCache.getShaderHandle(context, "equirectangularToCubemap", 0);
-    for (uint32_t i = 0; i < 6; ++i) {
-        context.setColorAttachment(equirectangularProjection, 0, envCubemap, 0,
-                                   i);
-        Pass pass =
-            context.beginPass({equirectangularProjection, glm::vec4(1.0f),
-                               false, false, false, Viewport{0, 0, 512, 512}});
-
-        pass.usePipeline(pipeline);
-        pass.bindTexture(0, hdrTexture, mipSampler);
-        pass.bindUniform("u_ViewProjection",
-                         captureProjection * captureViews[i]);
-        pass.bindUniform("u_equirectangularMap", 0);
-        pass.bindVertexArray(m_SkyboxCube.value());
-        pass.draw(36);
-    }
-
-    context.generateMipmap(envCubemap);
-
-    context.deleteTexture(hdrTexture);
-    context.deleteFramebuffer(equirectangularProjection);
-    context.deleteSampler(mipSampler);
-
-    return envCubemap;
+    m_UUIDToHandle.erase(it);
 }
 
 void SYN::gfx::gl::Renderer::createDefaultIrradianceMap(Context &context) {
@@ -2563,7 +2214,7 @@ void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
         })
         .addFeatureUniform(ShaderFeature::Skinned,
                            [&](Pass &pass, const RenderItem &item) {
-                               bindBoneMatrices(pass, item.boneMatrices);
+                               bindBoneMatrices(pass, item.boneOffset.value());
                            })
         .addFeatureUniform(
             ShaderFeature::AlphaTest,
@@ -2612,30 +2263,22 @@ void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
 
     m_ForwardPass.setShader("forward")
         .setBindUniformBase([&](Pass &pass, const RenderItem &item) {
-            if (m_Environment.has_value() &&
-                m_Environment.value().irradianceMap.has_value()) {
-                pass.bindTexture(3, m_Environment.value().irradianceMap.value(),
-                                 m_CubemapSampler.value());
-            } else {
-                pass.bindTexture(3, m_DefaultIrradianceMap,
-                                 m_CubemapSampler.value());
-            }
+            auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
 
-            if (m_Environment.has_value() &&
-                m_Environment.value().prefilteredMap.has_value()) {
-                pass.bindTexture(4,
-                                 m_Environment.value().prefilteredMap.value(),
-                                 m_MipmapCubeSampler.value());
-            } else {
-                pass.bindTexture(4, m_DefaultPrefilterMap,
-                                 m_MipmapCubeSampler.value());
-            }
+            pass.bindTexture(3, it->second.irradianceMap,
+                             m_CubemapSampler.value());
+
+            pass.bindTexture(4, it->second.prefilterMap,
+                             m_MipmapCubeSampler.value());
 
             pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
+
             pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
                              m_CascadedShadowmap.shadowSampler);
+
             pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
                              m_CascadedShadowmap.shadowSampler);
+
             const Material &material = item.material;
             pass.bindUniform("u_tint", material.tint.r, material.tint.g,
                              material.tint.b);
@@ -2662,7 +2305,7 @@ void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
         })
         .addFeatureUniform(ShaderFeature::Skinned,
                            [&](Pass &pass, const RenderItem &item) {
-                               bindBoneMatrices(pass, item.boneMatrices);
+                               bindBoneMatrices(pass, item.boneOffset.value());
                            })
         .addGroup({0, (uint32_t)ShaderFeature::Skinned,
                    [pipeline]() -> PipelineState { return pipeline; }, true,
@@ -2694,7 +2337,7 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
                               : 0)
         .addFeatureUniform(ShaderFeature::Skinned,
                            [&](Pass &pass, const RenderItem &item) {
-                               bindBoneMatrices(pass, item.boneMatrices);
+                               bindBoneMatrices(pass, item.boneOffset.value());
                            })
         .addFeatureUniform(
             ShaderFeature::AlphaTest,
@@ -2779,10 +2422,15 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
         });
 }
 
-void SYN::gfx::gl::Renderer::init(Context &context) {
+void SYN::gfx::gl::Renderer::init(Context &context,
+                                  AssetManager *assetManager) {
+    if (assetManager == nullptr) {
+        spdlog::critical("Cannot pass NULL asset manager to renderer.");
+        return;
+    }
+    m_AssetManager = assetManager;
     initShaderCache();
     initDefaultUBOs(context);
-
     createScreenQuad(context);
     createHdrShader(context);
     createDefaultPrefilterMap(context);
@@ -2796,11 +2444,286 @@ void SYN::gfx::gl::Renderer::init(Context &context) {
     createZPrepassTechnique();
     createForwardPassTechnique();
     createShadowPassTechnique();
+
+    EnvironmentResource defaultEnvironment{};
+    defaultEnvironment.prefilterMap = m_DefaultPrefilterMap;
+    defaultEnvironment.irradianceMap = m_DefaultIrradianceMap;
+    m_NameToEnvironment[DEFAULT_ENVIRONMENT_NAME] = defaultEnvironment;
+}
+
+void SYN::gfx::gl::Renderer::createEnvironment(Context &context,
+                                               std::string_view name,
+                                               const Environment &environment) {
+    std::string key(name);
+    if (m_NameToEnvironment.contains(key)) {
+        spdlog::error("Cannot create new environment under name [{}] as it is "
+                      "already taken.",
+                      key);
+        return;
+    }
+
+    if (environment.cubemap.size() != 1 && environment.cubemap.size() != 6) {
+        spdlog::error("You must add either one image, or 6 images to the "
+                      "environment cubemap. One image is for HDR maps, 6 "
+                      "images is for a normal skybox.");
+        return;
+    }
+
+    auto createCubemap = [&](const std::vector<UUID> &textures) {
+        const TextureData *face1 =
+            m_AssetManager->get<TextureData>(textures[0]);
+
+        uint32_t width = face1->width, height = face1->height;
+
+        TextureFormat cubeFormat = TextureFormat::SRGBA;
+        if (face1->channelCount == 3) {
+            cubeFormat = TextureFormat::SRGB;
+        }
+
+        Handle<Texture> cubemap =
+            context
+                .createTexture(
+                    {width, height, cubeFormat, 1, 1, TextureType::Cubemap})
+                .value();
+
+        for (uint32_t i = 0; i < textures.size(); ++i) {
+            const TextureData *face =
+                m_AssetManager->get<TextureData>(textures[i]);
+            context.updateTexture(cubemap, 0, 0, 0, width, height, i,
+                                  cubeFormat, &face->data[0]);
+        }
+
+        return cubemap;
+    };
+
+    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
+    glm::mat4 captureProjection =
+        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+    glm::mat4 captureViews[] = {
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, 1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
+                      glm::vec3(0.0f, 0.0f, -1.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f)),
+        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                      glm::vec3(0.0f, -1.0f, 0.0f))};
+
+    auto createHdrmap = [&](UUID texture) {
+        const TextureData *face = m_AssetManager->get<TextureData>(texture);
+
+        uint32_t width = face->width, height = face->height;
+
+        Handle<Texture> envCubemap =
+            context
+                .createTexture({512, 512, TextureFormat::RGBA16F, 10, 1,
+                                TextureType::Cubemap})
+                .value();
+
+        Handle<Texture> hdrTexture =
+            context
+                .createTexture({width, height, TextureFormat::RGBA16F},
+                               &face->dataFloat[0])
+                .value();
+
+        Handle<Framebuffer> equirectangularProjection =
+            context.createFramebuffer({std::array{AttachmentDesc{envCubemap}}})
+                .value();
+
+        Handle<Sampler> mipSampler =
+            context
+                .createSampler({SampleFilter::Linear_Mipmap_Linear,
+                                SampleFilter::Linear, WrapMode::ClampToEdge,
+                                WrapMode::ClampToEdge, WrapMode::ClampToEdge})
+                .value();
+
+        PipelineState pipeline;
+        pipeline.shader = m_ShaderCache.getShaderHandle(
+            context, "equirectangularToCubemap", 0);
+        for (uint32_t i = 0; i < 6; ++i) {
+            context.setColorAttachment(equirectangularProjection, 0, envCubemap,
+                                       0, i);
+            Pass pass = context.beginPass({equirectangularProjection,
+                                           glm::vec4(1.0f), false, false, false,
+                                           Viewport{0, 0, 512, 512}});
+
+            pass.usePipeline(pipeline);
+            pass.bindTexture(0, hdrTexture, mipSampler);
+            pass.bindUniform("u_ViewProjection",
+                             captureProjection * captureViews[i]);
+            pass.bindUniform("u_equirectangularMap", 0);
+            pass.bindVertexArray(m_SkyboxCube.value());
+            pass.draw(36);
+        }
+
+        context.generateMipmap(envCubemap);
+
+        context.deleteTexture(hdrTexture);
+        context.deleteFramebuffer(equirectangularProjection);
+        context.deleteSampler(mipSampler);
+
+        return envCubemap;
+    };
+
+    auto createIrradianceMap = [&](Handle<Texture> hdrMap) {
+        constexpr uint32_t mapResolution = 32;
+        Handle<Texture> irradianceMap =
+            context
+                .createTexture({mapResolution, mapResolution,
+                                TextureFormat::RGBA16F, 1, 1,
+                                TextureType::Cubemap})
+                .value();
+        Handle<Framebuffer> captureFramebuffer =
+            context
+                .createFramebuffer({std::array{AttachmentDesc{irradianceMap}}})
+                .value();
+
+        Handle<Sampler> mipSampler =
+            context
+                .createSampler({SampleFilter::Linear_Mipmap_Linear,
+                                SampleFilter::Linear, WrapMode::ClampToEdge,
+                                WrapMode::ClampToEdge, WrapMode::ClampToEdge})
+                .value();
+
+        PipelineState pipeline;
+        pipeline.shader =
+            m_ShaderCache.getShaderHandle(context, "irradiance_map", 0);
+        for (uint32_t i = 0; i < 6; ++i) {
+            context.setColorAttachment(captureFramebuffer, 0, irradianceMap, 0,
+                                       i);
+            Pass pass = context.beginPass(
+                {captureFramebuffer, glm::vec4(1.0), false, false, false,
+                 Viewport{0, 0, mapResolution, mapResolution}});
+            pass.usePipeline(pipeline);
+            pass.bindTexture(0, hdrMap, mipSampler);
+            pass.bindUniform("u_hdrMap", 0);
+            pass.bindUniform("u_ViewProjection",
+                             captureProjection * captureViews[i]);
+            pass.bindVertexArray(m_SkyboxCube.value());
+            pass.draw(36);
+        }
+
+        context.deleteFramebuffer(captureFramebuffer);
+        context.deleteSampler(mipSampler);
+
+        return irradianceMap;
+    };
+
+    auto createPrefilteredEnvironmentMap = [&](Handle<Texture> hdrMap) {
+        uint32_t maxMipCount = 8;
+
+        constexpr uint32_t mapResolution = 128;
+        Handle<Texture> prefilteredMap =
+            context
+                .createTexture({mapResolution, mapResolution,
+                                TextureFormat::RGBA16F, maxMipCount, 1,
+                                TextureType::Cubemap})
+                .value();
+
+        Handle<Framebuffer> captureFramebuffer =
+            context
+                .createFramebuffer({std::array{AttachmentDesc{prefilteredMap}}})
+                .value();
+
+        Handle<Sampler> mipSampler =
+            context
+                .createSampler({SampleFilter::Linear_Mipmap_Linear,
+                                SampleFilter::Linear, WrapMode::ClampToEdge,
+                                WrapMode::ClampToEdge, WrapMode::ClampToEdge})
+                .value();
+
+        PipelineState pipeline;
+        pipeline.shader =
+            m_ShaderCache.getShaderHandle(context, "prefiltered_env", 0);
+
+        for (uint32_t i = 0; i < maxMipCount; ++i) {
+            uint32_t mipSize =
+                (uint32_t)((float)mapResolution * std::pow(0.5f, (float)i));
+            for (int j = 0; j < 6; ++j) {
+                context.setColorAttachment(captureFramebuffer, 0,
+                                           prefilteredMap, i, j);
+                Pass pass = context.beginPass(
+                    {captureFramebuffer, glm::vec4(1.0), false, false, false,
+                     Viewport{0, 0, mipSize, mipSize}});
+
+                pass.usePipeline(pipeline);
+                pass.bindTexture(0, hdrMap, mipSampler);
+                pass.bindUniform("u_hdrMap", 0);
+                pass.bindUniform("u_ViewProjection",
+                                 captureProjection * captureViews[j]);
+                float roughness = (float)i / (float)(maxMipCount - 1);
+                pass.bindUniform("u_roughness", roughness);
+                pass.bindVertexArray(m_SkyboxCube.value());
+                pass.draw(36);
+            }
+        }
+
+        context.deleteFramebuffer(captureFramebuffer);
+        context.deleteSampler(mipSampler);
+
+        return prefilteredMap;
+    };
+
+    EnvironmentResource resource;
+    resource.type = environment.type;
+    resource.clearColor = environment.clearColor;
+    resource.exposure = environment.exposure;
+    resource.gamma = environment.gamma;
+    resource.bloomEnabled = environment.bloomEnabled;
+
+    if (resource.type == Environment::Type::ClearColor) {
+        m_NameToEnvironment[key] = resource;
+        return;
+    }
+
+    for (UUID uuid : environment.cubemap) {
+        resource.textures.emplace_back(m_AssetManager->acquire(uuid));
+    }
+    if (environment.cubemap.size() == 6) {
+        resource.cubemap = createCubemap(environment.cubemap);
+        resource.irradianceMap = m_DefaultIrradianceMap;
+        resource.prefilterMap = m_DefaultPrefilterMap;
+    } else {
+        resource.cubemap = createHdrmap(environment.cubemap[0]);
+        resource.irradianceMap = createIrradianceMap(resource.cubemap);
+        resource.prefilterMap =
+            createPrefilteredEnvironmentMap(resource.cubemap);
+    }
+
+    m_NameToEnvironment[key] = resource;
 }
 
 void SYN::gfx::gl::Renderer::setEnvironment(
-    std::optional<Environment> environment) {
-    m_Environment = environment;
+    std::optional<std::string_view> name) {
+    if (!name.has_value()) {
+        m_CurrentEnvironment = DEFAULT_ENVIRONMENT_NAME;
+        return;
+    }
+    std::string nameValue = std::string(name.value());
+    if (!m_NameToEnvironment.contains(nameValue)) {
+        spdlog::error("[{}] not found in renderer's environment cache. Please "
+                      "add it first.",
+                      nameValue);
+        m_CurrentEnvironment = DEFAULT_ENVIRONMENT_NAME;
+        return;
+    }
+    m_CurrentEnvironment = nameValue;
+}
+
+void SYN::gfx::gl::Renderer::destroyEnvironment(Context &context,
+                                                std::string_view name) {
+    auto it = m_NameToEnvironment.find(std::string(name));
+    if (it == m_NameToEnvironment.cend())
+        return;
+    EnvironmentResource *resource = &it->second;
+    context.deleteTexture(resource->irradianceMap);
+    context.deleteTexture(resource->prefilterMap);
+    context.deleteTexture(resource->cubemap);
+    m_NameToEnvironment.erase(it);
 }
 
 void SYN::gfx::gl::Renderer::beginFrame(const Camera &camera) {
@@ -2814,22 +2737,31 @@ void SYN::gfx::gl::Renderer::setDirectionalLight(
 }
 
 void SYN::gfx::gl::Renderer::submit(
-    Handle<Model> modelHandle, const glm::mat4 &transform,
+    Context &context, UUID model, const glm::mat4 &transform,
     std::span<const MaterialOverride> materialOverride,
     std::span<const glm::mat4> boneMatrices) {
 
-    std::vector<glm::mat4> boneMatrixCopy(MAX_BONES, glm::mat4(1.0f));
-    for (uint32_t i = 0; i < boneMatrices.size(); ++i) {
-        if (i >= MAX_BONES)
-            break;
-        boneMatrixCopy[i] = boneMatrices[i];
+    std::optional<uint32_t> boneIndex = std::nullopt;
+    if (!boneMatrices.empty()) {
+        boneIndex = m_FrameBoneMatrices.size();
+        m_FrameBoneMatrices.resize(m_FrameBoneMatrices.size() + MAX_BONES,
+                                   glm::mat4(1.0f));
+        for (uint32_t i = 0; i < boneMatrices.size() && i < MAX_BONES; ++i) {
+            m_FrameBoneMatrices[boneIndex.value() + i] = boneMatrices[i];
+        }
     }
 
+    auto it = m_UUIDToHandle.find(model);
+    if (it == m_UUIDToHandle.cend()) {
+        createModel(context, model);
+    }
+    it = m_UUIDToHandle.find(model);
+
     m_DrawCommandList.emplace_back(
-        modelHandle, transform,
+        std::get<Handle<Model>>(it->second.handle), transform,
         std::vector<MaterialOverride>(materialOverride.begin(),
                                       materialOverride.end()),
-        boneMatrixCopy);
+        boneIndex);
 }
 
 std::tuple<uint32_t, uint32_t> SYN::gfx::gl::Renderer::getRenderResolution() {
@@ -3028,139 +2960,6 @@ void SYN::gfx::gl::Renderer::createSkybox(Context &context) {
 }
 
 SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
-SYN::gfx::gl::Renderer::createIrradianceMap(Context &context,
-                                            Handle<Texture> hdrMap) {
-    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
-    glm::mat4 captureProjection =
-        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-    glm::mat4 captureViews[] = {
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
-                      glm::vec3(0.0f, 0.0f, 1.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
-                      glm::vec3(0.0f, 0.0f, -1.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f))};
-
-    constexpr uint32_t mapResolution = 32;
-    Handle<Texture> irradianceMap =
-        context
-            .createTexture({mapResolution, mapResolution,
-                            TextureFormat::RGBA16F, 1, 1, TextureType::Cubemap})
-            .value();
-    Handle<Framebuffer> captureFramebuffer =
-        context.createFramebuffer({std::array{AttachmentDesc{irradianceMap}}})
-            .value();
-
-    Handle<Sampler> mipSampler =
-        context
-            .createSampler({SampleFilter::Linear_Mipmap_Linear,
-                            SampleFilter::Linear, WrapMode::ClampToEdge,
-                            WrapMode::ClampToEdge, WrapMode::ClampToEdge})
-            .value();
-
-    PipelineState pipeline;
-    pipeline.shader =
-        m_ShaderCache.getShaderHandle(context, "irradiance_map", 0);
-    for (uint32_t i = 0; i < 6; ++i) {
-        context.setColorAttachment(captureFramebuffer, 0, irradianceMap, 0, i);
-        Pass pass = context.beginPass(
-            {captureFramebuffer, glm::vec4(1.0), false, false, false,
-             Viewport{0, 0, mapResolution, mapResolution}});
-        pass.usePipeline(pipeline);
-        pass.bindTexture(0, hdrMap, mipSampler);
-        pass.bindUniform("u_hdrMap", 0);
-        pass.bindUniform("u_ViewProjection",
-                         captureProjection * captureViews[i]);
-        pass.bindVertexArray(m_SkyboxCube.value());
-        pass.draw(36);
-    }
-
-    context.deleteFramebuffer(captureFramebuffer);
-    context.deleteSampler(mipSampler);
-
-    return irradianceMap;
-}
-
-SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
-SYN::gfx::gl::Renderer::createPrefilteredEnvironmentMap(
-    Context &context, Handle<Texture> hdrMap) {
-    // https://learnopengl.com/code_viewer_gh.php?code=src/6.pbr/2.1.1.ibl_irradiance_conversion/ibl_irradiance_conversion.cpp
-    glm::mat4 captureProjection =
-        glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
-    glm::mat4 captureViews[] = {
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
-                      glm::vec3(0.0f, 0.0f, 1.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
-                      glm::vec3(0.0f, 0.0f, -1.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f)),
-        glm::lookAtRH(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
-                      glm::vec3(0.0f, -1.0f, 0.0f))};
-
-    uint32_t maxMipCount = 8;
-
-    constexpr uint32_t mapResolution = 128;
-    Handle<Texture> prefilteredMap =
-        context
-            .createTexture({mapResolution, mapResolution,
-                            TextureFormat::RGBA16F, maxMipCount, 1,
-                            TextureType::Cubemap})
-            .value();
-
-    Handle<Framebuffer> captureFramebuffer =
-        context.createFramebuffer({std::array{AttachmentDesc{prefilteredMap}}})
-            .value();
-
-    Handle<Sampler> mipSampler =
-        context
-            .createSampler({SampleFilter::Linear_Mipmap_Linear,
-                            SampleFilter::Linear, WrapMode::ClampToEdge,
-                            WrapMode::ClampToEdge, WrapMode::ClampToEdge})
-            .value();
-
-    PipelineState pipeline;
-    pipeline.shader =
-        m_ShaderCache.getShaderHandle(context, "prefiltered_env", 0);
-
-    for (uint32_t i = 0; i < maxMipCount; ++i) {
-        uint32_t mipSize =
-            (uint32_t)((float)mapResolution * std::pow(0.5f, (float)i));
-        for (int j = 0; j < 6; ++j) {
-            context.setColorAttachment(captureFramebuffer, 0, prefilteredMap, i,
-                                       j);
-            Pass pass = context.beginPass({captureFramebuffer, glm::vec4(1.0),
-                                           false, false, false,
-                                           Viewport{0, 0, mipSize, mipSize}});
-
-            pass.usePipeline(pipeline);
-            pass.bindTexture(0, hdrMap, mipSampler);
-            pass.bindUniform("u_hdrMap", 0);
-            pass.bindUniform("u_ViewProjection",
-                             captureProjection * captureViews[j]);
-            float roughness = (float)i / (float)(maxMipCount - 1);
-            pass.bindUniform("u_roughness", roughness);
-            pass.bindVertexArray(m_SkyboxCube.value());
-            pass.draw(36);
-        }
-    }
-
-    context.deleteFramebuffer(captureFramebuffer);
-    context.deleteSampler(mipSampler);
-
-    return prefilteredMap;
-}
-
-SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>
 SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     Handle<Texture> brdfLUT =
         context.createTexture({512, 512, TextureFormat::RG16F}).value();
@@ -3198,7 +2997,7 @@ void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
         auto groupIt = m_GroupCache.find(maskKey);
         if (groupIt == m_GroupCache.cend()) {
             auto [it, _] = m_GroupCache.emplace(
-                maskKey, getRenderItemsByShader(groupDesc.queryMask,
+                maskKey, getRenderItemsByShader(context, groupDesc.queryMask,
                                                 groupDesc.exclusionMask));
             groupIt = it;
         }
@@ -3264,33 +3063,6 @@ void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
             }
         }
     }
-}
-
-void SYN::gfx::gl::Renderer::drawRenderItem(Pass &pass,
-                                            const RenderItem &renderItem) {
-    const Material &material = renderItem.material;
-    pass.bindUniform("u_tint", material.tint.r, material.tint.g,
-                     material.tint.b);
-    pass.bindUniform("u_metallic", material.metallic);
-    pass.bindUniform("u_roughness", material.roughness);
-
-    Handle<Sampler> sampler = material.sampler.value_or(m_DefaultModelSampler);
-
-    if (material.albedo) {
-        pass.bindTexture(0, material.albedo.value(), sampler);
-    }
-
-    if (material.normalMap) {
-        pass.bindTexture(1, material.normalMap.value(), sampler);
-    }
-
-    if (material.metallicRoughnessMap) {
-        pass.bindTexture(2, material.metallicRoughnessMap.value(), sampler);
-    }
-
-    pass.bindUniform("u_Model", renderItem.transform);
-    pass.bindVertexArray(renderItem.vao);
-    pass.drawIndexed(renderItem.indexCount);
 }
 
 void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
@@ -3377,6 +3149,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     }
 
     m_FrustumPlanes = planesFromCameraFrustum(m_MainCamera);
+    auto environmentIt = m_NameToEnvironment.find(m_CurrentEnvironment);
 
     if (m_DirectionalLight.castsShadows) {
         drawDirectionalCSM(context, m_DirectionalLight);
@@ -3388,18 +3161,18 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
 
         // Main render pass
         {
-            m_ZPrepass.setPassDesc({m_MsaaFramebuffer.handle, m_ClearColor,
-                                    true, true, false, renderViewport});
+            m_ZPrepass.setPassDesc({m_MsaaFramebuffer.handle,
+                                    environmentIt->second.clearColor, true,
+                                    true, false, renderViewport});
             drawRenderItems(context, m_ZPrepass);
             m_ForwardPass.setPassDesc({m_MsaaFramebuffer.handle, std::nullopt,
                                        false, true, false, renderViewport});
             drawRenderItems(context, m_ForwardPass);
 
-            if (m_Environment.has_value()) {
+            if (environmentIt->second.type != Environment::Type::ClearColor) {
                 Pass pass =
                     context.beginPass({m_MsaaFramebuffer.handle, std::nullopt,
                                        false, true, false, renderViewport});
-                Environment currentEnvironment = m_Environment.value();
                 PipelineState pipeline;
                 pipeline.depth.writeEnabled = false;
                 pipeline.shader =
@@ -3407,7 +3180,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                 pipeline.depth.test = DepthFunc::LessEqual;
                 pass.usePipeline(pipeline);
 
-                pass.bindTexture(0, currentEnvironment.cubemap,
+                pass.bindTexture(0, environmentIt->second.cubemap,
                                  m_CubemapSampler.value());
                 pass.bindUniform("u_skybox", 0);
                 pass.bindUniform("u_ViewProjection",
@@ -3422,8 +3195,9 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                                 renderViewport);
 
         {
-            Pass hdrPass = context.beginPass({std::nullopt, m_ClearColor, false,
-                                              false, false, m_ScreenViewport});
+            Pass hdrPass = context.beginPass(
+                {std::nullopt, environmentIt->second.clearColor, false, false,
+                 false, m_ScreenViewport});
             PipelineState hdrPipeline;
             hdrPipeline.shader =
                 m_ShaderCache.getShaderHandle(context, "hdr", 0);
@@ -3444,6 +3218,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
     m_DrawCommandList.clear();
     m_GroupCache.clear();
     m_GroupStateCache.clear();
+    m_FrameBoneMatrices.clear();
 
     TracyGpuCollect;
 }
@@ -3489,10 +3264,6 @@ void SYN::gfx::gl::Renderer::resize(int width, int height) {
     m_ScreenViewport.height = height;
     m_MsaaFramebuffer.update = true;
     m_HdrFramebuffer.update = true;
-}
-
-void SYN::gfx::gl::Renderer::setClearColor(const glm::vec4 &clearColor) {
-    m_ClearColor = clearColor;
 }
 
 std::vector<SYN::gfx::gl::Plane>
@@ -3780,7 +3551,8 @@ void SYN::gfx::gl::Renderer::reloadInternalShaders(Context &context) {
 }
 
 std::vector<SYN::gfx::gl::RenderItem>
-SYN::gfx::gl::Renderer::getRenderItemsByShader(uint32_t shaderIndex,
+SYN::gfx::gl::Renderer::getRenderItemsByShader(Context &context,
+                                               uint32_t shaderIndex,
                                                uint32_t exclusionMask) {
     ZoneScopedN("GetRenderItemsByShader");
     std::vector<RenderItem> renderItems;
@@ -3791,10 +3563,27 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(uint32_t shaderIndex,
         for (const MaterialOverride &override : cmd.materialOverride) {
             if (sourceIndex != override.meshIndex)
                 continue;
-            Material material = override.material;
-            if (!material.albedo) {
-                material.albedo = m_DefaultWhite;
-            }
+
+            const MaterialData *materialData =
+                m_AssetManager->get<MaterialData>(override.material);
+
+            Material material;
+
+            material.albedo =
+                loadTexture(context, materialData->albedoData, true)
+                    .value_or(m_DefaultWhite);
+
+            material.normalMap =
+                loadTexture(context, materialData->normalData, false);
+
+            material.metallicRoughnessMap = loadTexture(
+                context, materialData->metallicRoughnessData, false);
+
+            material.metallic = materialData->metallic;
+            material.roughness = materialData->roughness;
+            material.tint = materialData->tint;
+            material.alphaCutoff = materialData->alphaCutoff;
+
             return material;
         }
         return std::nullopt;
@@ -3819,7 +3608,7 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(uint32_t shaderIndex,
 
             renderItems.push_back({worldTransform, material, mesh.vao,
                                    mesh.indexCount, shaderFeatures, mesh.aabb,
-                                   cmd.boneMatrices});
+                                   cmd.boneOffset});
         }
     };
 
@@ -3855,13 +3644,9 @@ void SYN::gfx::gl::Renderer::sortRenderItems(std::vector<RenderItem> &items) {
               });
 }
 
-SYN::gfx::gl::AnimationPlayer SYN::gfx::gl::Renderer::createAnimationPlayer() {
-    return AnimationPlayer(this);
-}
-
-void SYN::gfx::gl::Renderer::bindBoneMatrices(
-    Pass &pass, const std::vector<glm::mat4> &boneMatrices) {
+void SYN::gfx::gl::Renderer::bindBoneMatrices(Pass &pass, uint32_t offset) {
     TracyGpuZone("BindBoneMatrices");
     ZoneScopedN("BindBoneMatrices");
-    pass.bindUniform("boneTransforms[0]", boneMatrices);
+    pass.bindUniform("boneTransforms[0]", m_FrameBoneMatrices, offset,
+                     MAX_BONES);
 }

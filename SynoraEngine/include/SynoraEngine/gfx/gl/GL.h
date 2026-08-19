@@ -11,6 +11,9 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <SynoraEngine/project/AssetRef.h>
+#include <SynoraEngine/project/UUID.h>
+
 #ifdef SHADER_DEBUG_PATH
 #define SHADER_PATH SHADER_DEBUG_PATH
 #else
@@ -26,6 +29,7 @@ constexpr float MIN_GAMMA = 1.8f;
 constexpr float MAX_GAMMA = 2.6f;
 constexpr uint32_t MAX_SHADER_FEATURES = 32;
 constexpr uint32_t MAX_BONES = 128;
+constexpr std::string DEFAULT_ENVIRONMENT_NAME = "RendererDefault";
 
 enum class BufferType : uint8_t { Vertex, Index, Uniform };
 enum class MemoryUsage : uint8_t { GpuOnly, CpuToGPU };
@@ -369,25 +373,6 @@ struct Vertex {
     glm::vec4 boneWeights = glm::vec4(0);
 };
 
-// For renderer
-struct TextureData {
-    TextureDesc info;
-    std::span<uint8_t> data;
-    std::string sourcePath;
-};
-
-struct MaterialData {
-    std::optional<TextureData> albedoData;
-    std::optional<TextureData> normalData;
-    std::optional<TextureData> metallicRoughnessData;
-
-    float metallic = 1.0f;
-    float roughness = 1.0f;
-    glm::vec4 tint = glm::vec4(1.0f);
-
-    float alphaCutoff = 1.0f;
-};
-
 struct Material {
     std::optional<Handle<Texture>> albedo;
     std::optional<Handle<Texture>> normalMap;
@@ -403,7 +388,7 @@ struct Material {
 
 struct MaterialOverride {
     uint32_t meshIndex;
-    Material material;
+    UUID material;
 };
 
 struct Camera {
@@ -451,44 +436,6 @@ struct AABB {
     AABB transform(glm::mat4 transform) const;
 };
 
-struct MeshData {
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    MaterialData material;
-    glm::mat4 localTransform = glm::mat4(1.0);
-
-    bool hasSkin = false;
-
-    AABB aabb;
-};
-
-struct Skeleton {
-    struct Node {
-        std::string name;
-        std::optional<uint32_t> parentIndex;
-
-        glm::vec3 position;
-        glm::quat rotation;
-        glm::vec3 scale;
-    };
-
-    struct BoneInfo {
-        uint32_t nodeIndex;
-        glm::mat4 inverseBindMatrix = glm::mat4(1.0f);
-    };
-
-    std::vector<Node> nodes;
-
-    std::vector<BoneInfo> boneInfo;
-
-    glm::mat4 inverseRoot = glm::mat4(1.0f);
-};
-
-struct ModelData {
-    std::vector<MeshData> meshes;
-    Skeleton skeleton;
-};
-
 struct Mesh {
     Handle<VertexArray> vao;
     Handle<Buffer> vbo;
@@ -509,39 +456,29 @@ struct Mesh {
 struct Model {
     std::vector<Mesh> meshesOpaque;
     std::vector<Mesh> meshesMasked;
-    Skeleton skeleton;
-};
-
-struct VectorKey {
-    glm::vec3 value;
-    float timestamp;
-};
-
-struct QuatKey {
-    glm::quat value;
-    float timestamp;
-};
-
-struct AnimationChannel {
-    std::vector<VectorKey> translation;
-    std::vector<VectorKey> scale;
-    std::vector<QuatKey> rotation;
-};
-
-struct AnimationClip {
-    std::string name;
-
-    float duration;
-    float fps;
-
-    // Bone name -> Animation Channel
-    std::unordered_map<std::string, AnimationChannel> channels;
+    const struct Skeleton *skeleton;
 };
 
 struct Environment {
+    enum class Type { Cubemap, HdrMap, ClearColor };
+    Type type = Type::ClearColor;
+    glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    std::vector<UUID> cubemap;
+    float exposure = 1.0f;
+    float gamma = 2.2f;
+    bool bloomEnabled = false;
+};
+
+struct EnvironmentResource {
+    Environment::Type type = Environment::Type::ClearColor;
+    glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    std::vector<AssetRef> textures;
+    Handle<Texture> irradianceMap;
+    Handle<Texture> prefilterMap;
     Handle<Texture> cubemap;
-    std::optional<Handle<Texture>> irradianceMap = std::nullopt;
-    std::optional<Handle<Texture>> prefilteredMap = std::nullopt;
+    float exposure = 1.0f;
+    float gamma = 2.2f;
+    bool bloomEnabled = false;
 };
 
 struct RenderItem {
@@ -554,7 +491,7 @@ struct RenderItem {
     // Sorted in render bucket
     uint32_t shaderIndex;
     AABB aabb;
-    std::vector<glm::mat4> boneMatrices;
+    std::optional<uint32_t> boneOffset;
 };
 
 class Pass {
@@ -592,7 +529,9 @@ class Pass {
     // Matrix uniforms
     void bindUniform(std::string_view name, const glm::mat4 &v);
 
-    void bindUniform(std::string_view name, const std::vector<glm::mat4> &v);
+    void bindUniform(std::string_view name, const std::vector<glm::mat4> &v,
+                     std::optional<uint32_t> start = std::nullopt,
+                     std::optional<uint32_t> size = std::nullopt);
 
     void bindTexture(uint32_t binding, Handle<Texture> textureHandle,
                      Handle<Sampler> samplerHandle);
@@ -779,67 +718,6 @@ class ShaderCache {
     std::unordered_map<std::string, std::string> m_ShaderSources;
 };
 
-class AnimationPlayer {
-  public:
-    AnimationPlayer() = default;
-    AnimationPlayer(class Renderer *renderer);
-
-    void setClip(const AnimationClip *clip);
-    void setTargetClip(const AnimationClip *target);
-    void setBlendWeight(float blendWeight);
-    void setLoop(bool loop);
-
-    // If time is nullopt then resume from current internal time, otherwise,
-    // start playing at specified time
-    void play(std::optional<float> time = std::nullopt);
-
-    // Blends between current clip to target clip in time specified by duration
-    void crossfadeTo(const AnimationClip *target, float duration);
-
-    // Blends between current clip to 'to' clip (with blendIn time) and from
-    // 'to' to 'returnTo' (with blendOut time).
-    void playOneShot(const AnimationClip *to, const AnimationClip *returnTo,
-                     float blendIn, float blendOut);
-
-    // Pause playback
-    void stop();
-
-    const std::vector<glm::mat4> &getOutput() const;
-    float getCurrentTime() const;
-    bool isLooping() const;
-    bool isPlaying() const;
-    float getDuration() const;
-
-    void update(Handle<Model> modelHandle, float dt);
-
-  private:
-    const AnimationClip *m_Clip = nullptr;
-    float m_CurrentTime = 0.0f;
-    float m_TargetTime = 0.0f;
-    float m_LastPlayedTime = 0.0f;
-
-    const AnimationClip *m_TargetClip = nullptr;
-    float m_BlendWeight = 0.0f;
-
-    float m_CrossfadeDuration = 0.0f;
-    float m_CrossfadeTime = 0.0f;
-    bool m_IsCrossfading = false;
-
-    bool m_IsPlayingOneshot = false;
-    const AnimationClip *m_ReturnTo = nullptr;
-    float m_BlendOut = 0.0f;
-
-    bool m_IsLooping = false;
-    bool m_IsPlaying = false;
-
-    bool m_DefaultPose = true;
-
-    std::vector<glm::mat4> m_BoneMatrices;
-
-  private:
-    class Renderer *m_Renderer = nullptr;
-};
-
 class RenderTechnique {
   public:
     struct GroupDesc {
@@ -917,44 +795,19 @@ class Renderer {
     explicit Renderer(const RendererConfig &config);
     ~Renderer();
 
-    void init(Context &context);
+    void init(Context &context, class AssetManager *assetManager);
 
-    std::optional<Handle<Model>> createModel(Context &context,
-                                             const ModelData &data);
-
-    void destroyModel(Context &context, Handle<Model> modelHandle);
-
-    AnimationPlayer createAnimationPlayer();
-
-    // Cubemap faces must be RGBA8!
-    Handle<Texture> loadCubemap(Context &context,
-                                const std::array<uint8_t *, 6> &faces,
-                                uint32_t width, uint32_t height);
-
-    // Must be HDR
-    Handle<Texture> loadCubemapFromEquirectangularTexture(Context &context,
-                                                          float *data,
-                                                          uint32_t width,
-                                                          uint32_t height);
-
-    // hdrMap must be a cubemap
-    Handle<Texture> createIrradianceMap(Context &context,
-                                        Handle<Texture> hdrMap);
-
-    Handle<Texture> createPrefilteredEnvironmentMap(Context &context,
-                                                    Handle<Texture> hdrMap);
-
-    // TODO: Just wrte to disk
-    Handle<Texture> createBRDFLut(Context &context);
+    void createEnvironment(Context &context, std::string_view name,
+                           const Environment &enviroment);
+    Environment *getEnvironmentRefMut(std::string_view name);
 
     // If no environment is set just use the renderer clear color
-    void setEnvironment(std::optional<Environment> environment);
-
-    void setClearColor(const glm::vec4 &clearColor);
+    void setEnvironment(std::optional<std::string_view> name);
+    void destroyEnvironment(Context &context, std::string_view name);
 
     void beginFrame(const Camera &camera);
     void setDirectionalLight(const DirectionalLight &light);
-    void submit(Handle<Model> modelHandle, const glm::mat4 &transform,
+    void submit(Context &context, UUID model, const glm::mat4 &transform,
                 std::span<const MaterialOverride> materialOverride = {},
                 std::span<const glm::mat4> boneMatrices = {});
     void endFrame(Context &context);
@@ -979,6 +832,24 @@ class Renderer {
 
     // Resets the shader cache. Use for hot reloading.
     void reloadInternalShaders(Context &context);
+
+  private:
+    class AssetManager *m_AssetManager = nullptr;
+
+    struct ResourceHandle {
+        std::variant<Handle<Model>, Handle<Texture>> handle;
+    };
+
+    std::unordered_map<UUID, ResourceHandle> m_UUIDToHandle;
+    std::unordered_map<std::string, EnvironmentResource> m_NameToEnvironment;
+    std::string m_CurrentEnvironment = DEFAULT_ENVIRONMENT_NAME;
+
+  private:
+    void createModel(Context &context, UUID model);
+    Mesh createMesh(Context &context, const struct MeshData &meshData);
+    Material loadMaterial(Context &context,
+                          const struct MaterialData &materialData);
+    void destroyModel(Context &context, UUID model);
 
   private:
     struct {
@@ -1007,6 +878,10 @@ class Renderer {
     void createDefaultPrefilterMap(Context &context);
     void createCSM(Context &context);
     void createTextureDefaults(Context &context);
+    Handle<Texture> createBRDFLut(Context &context);
+
+    std::optional<Handle<Texture>>
+    loadTexture(Context &context, const AssetRef &texture, bool srgb);
 
     void initShaderCache();
     void initDefaultUBOs(Context &context);
@@ -1016,15 +891,12 @@ class Renderer {
 
   private:
     Camera m_MainCamera;
-    glm::vec4 m_ClearColor;
     Viewport m_ScreenViewport;
     DirectionalLight m_DirectionalLight;
 
     RendererConfig m_RenderConfig;
 
   private:
-    std::optional<Environment> m_Environment;
-
     std::optional<Handle<VertexArray>> m_ScreenQuad;
     std::optional<Handle<VertexArray>> m_SkyboxCube;
 
@@ -1040,8 +912,6 @@ class Renderer {
     SamplerDesc m_DefaultModelSamplerDesc;
 
   private:
-    friend class AnimationPlayer;
-
     ResourceRegistry<Model> m_ModelRegistry;
     ShaderCache m_ShaderCache;
     std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
@@ -1083,9 +953,10 @@ class Renderer {
         Handle<Model> modelHandle;
         glm::mat4 transform;
         std::vector<MaterialOverride> materialOverride;
-        std::vector<glm::mat4> boneMatrices;
+        std::optional<uint32_t> boneOffset;
     };
     std::vector<DrawCommand> m_DrawCommandList;
+    std::vector<glm::mat4> m_FrameBoneMatrices;
     std::vector<Plane> m_FrustumPlanes;
 
     RenderTechnique m_ShadowPass;
@@ -1102,12 +973,10 @@ class Renderer {
 
     void drawRenderItems(Context &context, const RenderTechnique &technique);
 
-    void drawRenderItem(Pass &pass, const RenderItem &renderItems);
+    void bindBoneMatrices(Pass &pass, uint32_t offset);
 
-    void bindBoneMatrices(Pass &pass,
-                          const std::vector<glm::mat4> &boneMatrices);
-
-    std::vector<RenderItem> getRenderItemsByShader(uint32_t shaderIndex,
+    std::vector<RenderItem> getRenderItemsByShader(Context &context,
+                                                   uint32_t shaderIndex,
                                                    uint32_t exclusionMask = 0);
     void frustumCullRenderItems(std::vector<RenderItem> &items,
                                 const std::vector<Plane> &planes);
