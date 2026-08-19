@@ -46,6 +46,8 @@ bool AnimationImporter::load(std::filesystem::path filepath,
         return outputKeys;
     };
 
+    std::vector<AnimationClipData> clips;
+
     for (uint32_t i = 0; i < scene->mNumAnimations; ++i) {
         const aiAnimation *animation = scene->mAnimations[i];
         double fps = animation->mTicksPerSecond;
@@ -55,8 +57,8 @@ bool AnimationImporter::load(std::filesystem::path filepath,
         if (fps == 0.0)
             fps = 24.0;
 
-        AnimationClipInstance &clip = asset.clips.emplace_back(
-            animation->mName.C_Str(), animation->mDuration, fps);
+        AnimationClipData &clip = clips.emplace_back(animation->mName.C_Str(),
+                                                     animation->mDuration, fps);
 
         for (uint32_t j = 0; j < animation->mNumChannels; ++j) {
             const aiNodeAnim *channel = animation->mChannels[j];
@@ -69,9 +71,17 @@ bool AnimationImporter::load(std::filesystem::path filepath,
         }
     }
 
-    if (asset.clips.empty()) {
+    if (clips.empty()) {
         spdlog::warn("No clips found in [{}]. Empty clip data returned.",
                      filepath.string());
+    } else {
+        asset = clips[0];
+    }
+
+    for (uint32_t i = 1; i < clips.size(); ++i) {
+        std::string key =
+            std::format("{}|{}", filepath.stem().string(), clips[i].name);
+        assetManager->add(std::move(clips[i]), key);
     }
 
     return true;
