@@ -46,6 +46,7 @@ void Application::init() {
     m_IsRunning = true;
 
     m_EngineContext.window->init(m_EngineContext.windowConfig);
+    m_EngineContext.projectConfig.assetManager->init();
 
     if (m_EngineContext.windowConfig.openGLConfig.has_value()) {
         m_EngineContext.glContext = gfx::gl::Context::createContext(
@@ -57,7 +58,6 @@ void Application::init() {
     m_EngineContext.inputManager->init(&m_EngineContext);
     if (!m_EngineContext.windowConfig.openGLConfig.has_value()) {
         m_EngineContext.renderer->init(&m_EngineContext);
-        m_EngineContext.projectConfig.assetManager->init();
 
         m_EngineContext.scene->init(&m_EngineContext);
         m_EngineContext.cameraSystem->init(&m_EngineContext);
