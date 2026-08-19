@@ -242,6 +242,8 @@ bool ModelImporter::load(std::filesystem::path filepath, ModelData &asset,
 
     m_AssetManager = assetManager;
 
+    asset.skeleton.inverseRoot =
+        glm::inverse(toGlmMatrix(m_Scene->mRootNode->mTransformation));
     processNode(m_Scene->mRootNode, -1, glm::mat4(1.0f), asset.skeleton);
 
     for (uint32_t i = 0; i < m_Scene->mNumMeshes; ++i) {
