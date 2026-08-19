@@ -20,7 +20,7 @@ struct AnimationChannel {
     std::vector<QuatKey> rotation;
 };
 
-struct AnimationClipInstance {
+struct AnimationClipData {
     std::string name;
 
     float duration;
@@ -28,10 +28,6 @@ struct AnimationClipInstance {
 
     // Bone name -> Animation Channel
     std::unordered_map<std::string, AnimationChannel> channels;
-};
-
-struct AnimationClipData {
-    std::vector<AnimationClipInstance> clips;
 };
 
 } // namespace SYN
