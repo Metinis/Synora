@@ -30,27 +30,33 @@ void AssetManager::registerCleanup(CleanupFn fn) {
 }
 
 void AssetManager::resolvePendingDeletions() {
-    for (UUID id : m_PendingDelete) {
-        auto it = m_AssetRefs.find(id);
+    while (!m_PendingDelete.empty()) {
 
-        if (it == m_AssetRefs.cend() || it->second > 0)
-            continue;
+        std::vector<UUID> toDelete;
+        toDelete.swap(m_PendingDelete);
 
-        for (auto &fn : m_CleanupObservers)
-            fn(id);
+        for (UUID id : toDelete) {
+            auto it = m_AssetRefs.find(id);
 
-        auto poolType = m_Owner.at(id);
-        m_Pools.at(poolType)->remove(id);
+            if (it == m_AssetRefs.cend() || it->second > 0)
+                continue;
 
-        m_AssetRefs.erase(id);
-        m_Owner.erase(id);
+            for (auto &fn : m_CleanupObservers)
+                fn(id);
 
-        if (auto pathIt = m_UUIDToKey.find(id); pathIt != m_UUIDToKey.cend()) {
-            m_KeyToUUID.erase(pathIt->second);
-            m_UUIDToKey.erase(pathIt);
+            auto poolType = m_Owner.at(id);
+            m_Pools.at(poolType)->remove(id);
+
+            m_AssetRefs.erase(id);
+            m_Owner.erase(id);
+
+            if (auto pathIt = m_UUIDToKey.find(id);
+                pathIt != m_UUIDToKey.cend()) {
+                m_KeyToUUID.erase(pathIt->second);
+                m_UUIDToKey.erase(pathIt);
+            }
         }
     }
-    m_PendingDelete.clear();
 }
 
 std::optional<UUID> AssetManager::uuidFromKey(std::string_view key) {
