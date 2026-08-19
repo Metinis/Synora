@@ -9,8 +9,12 @@
 #include <SynoraEngine/core/Application.h>
 #include <SynoraEngine/core/Window.h>
 #include <SynoraEngine/gfx/gl/GL.h>
-
-#include "model_loader.h"
+#include <SynoraEngine/project/AssetManager.h>
+#include <SynoraEngine/project/assets/AnimationClipData.h>
+#include <SynoraEngine/project/assets/MaterialData.h>
+#include <SynoraEngine/project/assets/ModelData.h>
+#include <SynoraEngine/project/assets/TextureData.h>
+#include <SynoraEngine/scene/3d/AnimationPlayer.h>
 
 using namespace SYN::gfx;
 
@@ -29,43 +33,56 @@ class GraphicsScene : public SYN::ILayer {
 
         m_Context->enableVSync(false);
 
-        m_Renderer.init(*m_Context);
+        SYN::AssetManager *assetManager =
+            engineContext->projectConfig.assetManager.get();
+
+        m_Renderer.init(*m_Context, assetManager);
 
         m_Renderer.setRenderScale(0.7f);
 
         m_CSMLayers = m_Renderer.getCSMTextures(*m_Context);
 
-        gl::ModelData waltuhModelData =
-            gl::loadModelData("resources/assets/waltuh.glb").value();
-        m_Waltuh = m_Renderer.createModel(*m_Context, waltuhModelData).value();
+        m_Waltuh =
+            assetManager->load<SYN::ModelData>("resources/assets/waltuh.glb")
+                .value();
 
-        gl::ModelData cabinModelData =
-            gl::loadModelData("resources/assets/Cabin/scene.gltf").value();
-        m_Cabin = m_Renderer.createModel(*m_Context, cabinModelData).value();
+        m_Cabin =
+            assetManager
+                ->load<SYN::ModelData>("resources/assets/Cabin/scene.gltf")
+                .value();
 
-        gl::ModelData sphereModelData =
-            gl::loadModelData("resources/assets/Sphere.glb").value();
-        m_Sphere = m_Renderer.createModel(*m_Context, sphereModelData).value();
+        m_Sphere =
+            assetManager->load<SYN::ModelData>("resources/assets/Sphere.glb")
+                .value();
 
-        gl::ModelData dancerModelData =
-            gl::loadModelData("resources/assets/dancer.glb").value();
-        m_Dancer = m_Renderer.createModel(*m_Context, dancerModelData).value();
-        m_DancerClips = gl::loadAnimationClips("resources/assets/dancer.glb");
-        m_DancerPlayer = m_Renderer.createAnimationPlayer();
+        m_Dancer =
+            assetManager->load<SYN::ModelData>("resources/assets/dancer.glb")
+                .value();
+
+        m_DancerClips = {assetManager
+                             ->loadWithKey<SYN::AnimationClipData>(
+                                 "resources/assets/dancer.glb", "dancerAnim")
+                             .value()};
+
+        m_DancerPlayer = SYN::AnimationPlayer(assetManager);
         assert(m_DancerClips.size() > 0 && "Unable to load dancer animations!");
-        m_DancerPlayer.setClip(&m_DancerClips[0]);
+        m_DancerPlayer.setClip(m_DancerClips[0]);
 
-        gl::ModelData parasiteModelData =
-            gl::loadModelData("resources/assets/parasite.glb").value();
         m_Parasite =
-            m_Renderer.createModel(*m_Context, parasiteModelData).value();
-        m_ParasiteClips =
-            gl::loadAnimationClips("resources/assets/parasite.glb");
-        m_ParasitePlayer = m_Renderer.createAnimationPlayer();
+            assetManager->load<SYN::ModelData>("resources/assets/parasite.glb")
+                .value();
+        m_ParasiteClips = {
+            assetManager
+                ->loadWithKey<SYN::AnimationClipData>(
+                    "resources/assets/parasite.glb", "parasiteAnim")
+                .value()};
+        m_ParasiteClips.push_back(
+            assetManager->uuidFromKey("parasite|mixamo.com.001").value());
+        m_ParasitePlayer = SYN::AnimationPlayer(assetManager);
         assert(m_ParasiteClips.size() > 0 &&
                "Unable to load parasite animations!");
-        m_ParasitePlayer.setClip(&m_ParasiteClips[0]);
-        m_ParasitePlayer.setTargetClip(&m_ParasiteClips[1]);
+        m_ParasitePlayer.setClip(m_ParasiteClips[0]);
+        m_ParasitePlayer.setTargetClip(m_ParasiteClips[1]);
         m_Weight = 0.0f;
         m_ParasitePlayer.setLoop(true);
         m_ParasitePlayer.play();
@@ -77,90 +94,90 @@ class GraphicsScene : public SYN::ILayer {
         m_CameraSpeed = 1.0f;
         m_CameraDistance = 20.0f;
 
-        int width, height, nrChannels;
-        uint8_t *nx = stbi_load("resources/assets/GhibliSkybox/nx.png", &width,
-                                &height, &nrChannels, 4);
-        uint8_t *ny = stbi_load("resources/assets/GhibliSkybox/ny.png", &width,
-                                &height, &nrChannels, 4);
-        uint8_t *nz = stbi_load("resources/assets/GhibliSkybox/nz.png", &width,
-                                &height, &nrChannels, 4);
+        SYN::UUID nx =
+            assetManager
+                ->load<SYN::TextureData>("resources/assets/GhibliSkybox/nx.png")
+                .value();
+        SYN::UUID ny =
+            assetManager
+                ->load<SYN::TextureData>("resources/assets/GhibliSkybox/ny.png")
+                .value();
+        SYN::UUID nz =
+            assetManager
+                ->load<SYN::TextureData>("resources/assets/GhibliSkybox/nz.png")
+                .value();
+        SYN::UUID px =
+            assetManager
+                ->load<SYN::TextureData>("resources/assets/GhibliSkybox/px.png")
+                .value();
+        SYN::UUID py =
+            assetManager
+                ->load<SYN::TextureData>("resources/assets/GhibliSkybox/py.png")
+                .value();
+        SYN::UUID pz =
+            assetManager
+                ->load<SYN::TextureData>("resources/assets/GhibliSkybox/pz.png")
+                .value();
 
-        uint8_t *px = stbi_load("resources/assets/GhibliSkybox/px.png", &width,
-                                &height, &nrChannels, 4);
-        uint8_t *py = stbi_load("resources/assets/GhibliSkybox/py.png", &width,
-                                &height, &nrChannels, 4);
-        uint8_t *pz = stbi_load("resources/assets/GhibliSkybox/pz.png", &width,
-                                &height, &nrChannels, 4);
-        if (nx == nullptr || ny == nullptr || nz == nullptr || px == nullptr ||
-            py == nullptr || pz == nullptr) {
-            spdlog::error("Unable to load skybox");
-            return;
-        }
-
-        m_Environments[0] = {m_Renderer.loadCubemap(
-            *m_Context, {px, nx, py, ny, pz, nz}, width, height)};
+        m_Environments[0] = {gl::Environment::Type::Cubemap,
+                             glm::vec4(1.0f),
+                             {px, nx, py, ny, pz, nz},
+                             1.0f,
+                             2.2f,
+                             true};
+        m_EnvironmentNames[0] = "Ghibli";
 
         stbi_set_flip_vertically_on_load(true);
-        float *hdrData =
-            stbi_loadf("resources/assets/cowboy_town_saloon_4k.hdr", &width,
-                       &height, &nrChannels, 4);
-        assert(hdrData != nullptr);
+        SYN::UUID hdr = assetManager
+                            ->load<SYN::TextureData>(
+                                "resources/assets/cowboy_town_saloon_4k.hdr")
+                            .value();
 
-        m_Environments[1].cubemap =
-            m_Renderer.loadCubemapFromEquirectangularTexture(
-                *m_Context, hdrData, width, height);
+        m_Environments[1].type = gl::Environment::Type::HdrMap;
+        m_Environments[1].cubemap = {hdr};
+        m_EnvironmentNames[1] = "Saloon";
 
-        m_Environments[1].irradianceMap = m_Renderer.createIrradianceMap(
-            *m_Context, m_Environments[1].cubemap);
+        hdr = assetManager
+                  ->load<SYN::TextureData>(
+                      "resources/assets/suburban_garden_4k.hdr")
+                  .value();
 
-        m_Environments[1].prefilteredMap =
-            m_Renderer.createPrefilteredEnvironmentMap(
-                *m_Context, m_Environments[1].cubemap);
+        m_Environments[2].type = gl::Environment::Type::HdrMap;
+        m_Environments[2].cubemap = {hdr};
+        m_EnvironmentNames[2] = "Suburbs";
 
-        stbi_image_free(hdrData);
+        hdr = assetManager->load<SYN::TextureData>("resources/assets/lobby.hdr")
+                  .value();
 
-        hdrData = stbi_loadf("resources/assets/suburban_garden_4k.hdr", &width,
-                             &height, &nrChannels, 4);
-        assert(hdrData != nullptr);
-
-        m_Environments[2].cubemap =
-            m_Renderer.loadCubemapFromEquirectangularTexture(
-                *m_Context, hdrData, width, height);
-
-        m_Environments[2].irradianceMap = m_Renderer.createIrradianceMap(
-            *m_Context, m_Environments[2].cubemap);
-
-        m_Environments[2].prefilteredMap =
-            m_Renderer.createPrefilteredEnvironmentMap(
-                *m_Context, m_Environments[2].cubemap);
-
-        stbi_image_free(hdrData);
-
-        hdrData = stbi_loadf("resources/assets/lobby.hdr", &width, &height,
-                             &nrChannels, 4);
-        assert(hdrData != nullptr);
-
-        m_Environments[3].cubemap =
-            m_Renderer.loadCubemapFromEquirectangularTexture(
-                *m_Context, hdrData, width, height);
-
-        m_Environments[3].irradianceMap = m_Renderer.createIrradianceMap(
-            *m_Context, m_Environments[3].cubemap);
-
-        m_Environments[3].prefilteredMap =
-            m_Renderer.createPrefilteredEnvironmentMap(
-                *m_Context, m_Environments[3].cubemap);
-
-        stbi_image_free(hdrData);
+        m_Environments[3].type = gl::Environment::Type::HdrMap;
+        m_Environments[3].cubemap = {hdr};
+        m_EnvironmentNames[3] = "Lobby";
 
         stbi_set_flip_vertically_on_load(false);
 
-        stbi_image_free(px);
-        stbi_image_free(nx);
-        stbi_image_free(py);
-        stbi_image_free(ny);
-        stbi_image_free(pz);
-        stbi_image_free(nz);
+        for (uint32_t i = 0; i < m_EnvironmentNames.size(); ++i) {
+            m_Renderer.createEnvironment(*m_Context, m_EnvironmentNames.at(i),
+                                         m_Environments.at(i));
+        }
+
+        m_Renderer.setEnvironment(m_EnvironmentNames.at(0));
+
+        m_AssetManager = assetManager;
+
+        for (int row = 0; row < 7; ++row) {
+            float metal = (float)row / 6.0f;
+            for (int column = 0; column < 7; ++column) {
+                float rough = (float)column / 6.0f;
+                SYN::MaterialData data{};
+                data.metallic = metal;
+                data.roughness = rough;
+                data.tint = glm::vec4(1.0f);
+                data.alphaCutoff = 1.0f;
+                data.name = std::format("DefaultMat{}{}", row, column);
+
+                m_AssetManager->add<SYN::MaterialData>(data, data.name);
+            }
+        }
     }
 
     void onUpdate(float dt) override {
@@ -207,24 +224,23 @@ class GraphicsScene : public SYN::ILayer {
         auto [screenWidth, screenHeight] = m_Window->getScreenSize();
 
         m_Renderer.resize(screenWidth, screenHeight);
-        m_Renderer.setClearColor({0.48, 0.68, 0.54, 1.0});
         m_Renderer.beginFrame(m_Camera);
-        m_Renderer.submit(m_Cabin, glm::mat4(1.0));
+        m_Renderer.submit(*m_Context, m_Cabin, glm::mat4(1.0));
 
         m_Renderer.submit(
-            m_Waltuh,
+            *m_Context, m_Waltuh,
             glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 0.0f)));
 
         glm::mat4 dancerTransform =
             glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 3.0f));
 
-        m_Renderer.submit(m_Dancer, dancerTransform, {},
+        m_Renderer.submit(*m_Context, m_Dancer, dancerTransform, {},
                           m_DancerPlayer.getOutput());
 
         glm::mat4 parasiteTransform =
             glm::translate(glm::mat4(1.0f), glm::vec3(-8.0f, 0.0f, 1.5f));
 
-        m_Renderer.submit(m_Parasite, parasiteTransform, {},
+        m_Renderer.submit(*m_Context, m_Parasite, parasiteTransform, {},
                           m_ParasitePlayer.getOutput());
 
         m_Renderer.endFrame(*m_Context);
@@ -238,21 +254,21 @@ class GraphicsScene : public SYN::ILayer {
         auto [screenWidth, screenHeight] = m_Window->getScreenSize();
 
         m_Renderer.resize(screenWidth, screenHeight);
-        m_Renderer.setClearColor({0.48, 0.68, 0.54, 1.0});
         m_Renderer.beginFrame(m_Camera);
 
         for (int row = 0; row < 7; ++row) {
-            float metal = (float)row / 6.0f;
             for (int column = 0; column < 7; ++column) {
-                float rough = (float)column / 6.0f;
                 glm::vec3 position(column * 2.5 - 7.5f, row * 2.5 - 7.5f, 0.0);
-                m_Renderer.submit(
-                    m_Sphere, glm::translate(glm::mat4(1.0f), position),
-                    std::array<gl::MaterialOverride, 1>{gl::MaterialOverride{
-                        0,
-                        {std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                         std::nullopt, metal, rough,
-                         glm::vec4(m_Color.r, m_Color.g, m_Color.b, 1.0f)}}});
+
+                SYN::UUID matUUID = m_AssetManager
+                                        ->uuidFromKey(std::format(
+                                            "DefaultMat{}{}", row, column))
+                                        .value();
+
+                m_Renderer.submit(*m_Context, m_Sphere,
+                                  glm::translate(glm::mat4(1.0f), position),
+                                  std::array<gl::MaterialOverride, 1>{
+                                      gl::MaterialOverride{0, matUUID}});
             }
         }
 
@@ -260,8 +276,6 @@ class GraphicsScene : public SYN::ILayer {
     }
 
     void onRender() override {
-        m_Renderer.setEnvironment(m_Environments[m_EnvironmentIdx]);
-
         if (m_RenderMode == "Cabin") {
             renderCabin();
         } else if (m_RenderMode == "Sphere") {
@@ -315,10 +329,14 @@ class GraphicsScene : public SYN::ILayer {
                 m_Renderer.reloadInternalShaders(*m_Context);
             }
 
-            const char *environments[] = {"Ghibli (no irradiance)",
-                                          "Cowboy Saloon", "Suburbs", "Lobby"};
-            ImGui::Combo("Environment", &m_EnvironmentIdx, environments,
-                         IM_ARRAYSIZE(environments));
+            std::vector<const char *> names;
+            for (const std::string &name : m_EnvironmentNames)
+                names.push_back(name.c_str());
+            if (ImGui::Combo("Environment", &m_EnvironmentIdx, &names[0],
+                             m_EnvironmentNames.size())) {
+                m_Renderer.setEnvironment(
+                    m_EnvironmentNames.at(m_EnvironmentIdx));
+            }
 
             const char *renderMode[] = {"Cabin", "Sphere"};
             if (ImGui::Combo("Render mode", &m_RenderModeIdx, renderMode,
@@ -356,9 +374,21 @@ class GraphicsScene : public SYN::ILayer {
         ImGui::End();
 
         if (ImGui::Begin("Material")) {
-            ImGui::ColorEdit3("Color", &m_Color[0]);
-            ImGui::SliderFloat("Roughness", &m_Roughness, 0.0, 1.0);
-            ImGui::SliderFloat("Metalness", &m_Metalness, 0.0, 1.0);
+            if (ImGui::ColorEdit3("Color", &m_Color[0])) {
+                for (int row = 0; row < 7; ++row) {
+                    float metal = (float)row / 6.0f;
+                    for (int column = 0; column < 7; ++column) {
+                        float rough = (float)column / 6.0f;
+                        SYN::MaterialData *data =
+                            m_AssetManager->getMut<SYN::MaterialData>(
+                                m_AssetManager
+                                    ->uuidFromKey(std::format("DefaultMat{}{}",
+                                                              row, column))
+                                    .value());
+                        data->tint = glm::vec4(m_Color, 1.0f);
+                    }
+                }
+            }
         }
         ImGui::End();
 
@@ -387,8 +417,8 @@ class GraphicsScene : public SYN::ILayer {
 
             if (ImGui::Button("Reset")) {
                 m_ParasitePlayer.setLoop(true);
-                m_ParasitePlayer.setClip(&m_ParasiteClips[0]);
-                m_ParasitePlayer.setTargetClip(&m_ParasiteClips[1]);
+                m_ParasitePlayer.setClip(m_ParasiteClips[0]);
+                m_ParasitePlayer.setTargetClip(m_ParasiteClips[1]);
                 m_ParasitePlayer.play(0);
             }
 
@@ -400,18 +430,17 @@ class GraphicsScene : public SYN::ILayer {
                                10.0f);
 
             if (ImGui::Button("Crossfade Idle to Run")) {
-                m_ParasitePlayer.setClip(&m_ParasiteClips[0]);
-                m_ParasitePlayer.crossfadeTo(&m_ParasiteClips[1],
+                m_ParasitePlayer.setClip(m_ParasiteClips[0]);
+                m_ParasitePlayer.crossfadeTo(m_ParasiteClips[1],
                                              m_CrossfadeDuration);
             }
 
             ImGui::SliderFloat("Ease in", &m_EaseIn, 0.0f, 10.0f);
             ImGui::SliderFloat("Ease out", &m_EaseOut, 0.0f, 10.0f);
             if (ImGui::Button("Run to dance to idle")) {
-                m_ParasitePlayer.setClip(&m_ParasiteClips[1]);
-                m_ParasitePlayer.playOneShot(&m_DancerClips[0],
-                                             &m_ParasiteClips[0], m_EaseIn,
-                                             m_EaseOut);
+                m_ParasitePlayer.setClip(m_ParasiteClips[1]);
+                m_ParasitePlayer.playOneShot(
+                    m_DancerClips[0], m_ParasiteClips[0], m_EaseIn, m_EaseOut);
             }
         }
         ImGui::End();
@@ -448,28 +477,30 @@ class GraphicsScene : public SYN::ILayer {
     gl::Context *m_Context;
     SYN::Window *m_Window;
     gl::Renderer m_Renderer;
+    SYN::AssetManager *m_AssetManager;
 
     float m_FrameHistory[120] = {};
     int m_FrameIdx = 0;
 
-    gl::Handle<gl::Model> m_Waltuh;
+    SYN::UUID m_Waltuh;
 
-    gl::Handle<gl::Model> m_Dancer;
-    std::vector<gl::AnimationClip> m_DancerClips;
-    gl::AnimationPlayer m_DancerPlayer;
+    SYN::UUID m_Dancer;
+    std::vector<SYN::UUID> m_DancerClips;
+    SYN::AnimationPlayer m_DancerPlayer;
 
-    gl::Handle<gl::Model> m_Parasite;
-    std::vector<gl::AnimationClip> m_ParasiteClips;
-    gl::AnimationPlayer m_ParasitePlayer;
+    SYN::UUID m_Parasite;
+    std::vector<SYN::UUID> m_ParasiteClips;
+    SYN::AnimationPlayer m_ParasitePlayer;
     float m_Weight = 0.0f;
     float m_CrossfadeDuration = 0.0f;
 
     float m_EaseIn = 0.0f;
     float m_EaseOut = 0.0f;
 
-    gl::Handle<gl::Model> m_Cabin;
-    gl::Handle<gl::Model> m_Sphere;
+    SYN::UUID m_Cabin;
+    SYN::UUID m_Sphere;
     std::array<gl::Environment, 4> m_Environments;
+    std::array<std::string, 4> m_EnvironmentNames;
 
     float m_FrameAvg = 0.0f;
 
@@ -489,9 +520,7 @@ class GraphicsScene : public SYN::ILayer {
     bool m_IsPlaying = false;
     bool m_IsLooping = false;
 
-    float m_Roughness;
     glm::vec3 m_Color;
-    float m_Metalness;
 
     std::string m_RenderMode = "Sphere";
     int m_RenderModeIdx = 1;
