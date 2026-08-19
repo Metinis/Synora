@@ -143,6 +143,12 @@ class AssetManager {
 
     AssetRef acquire(UUID id);
 
+    // TODO: Return a handle to the cleanup function
+    //       so observers can unregister.
+    //
+    // Only necessary for observers that can have a shorter lifespan
+    // than the asset manager. The only observers so far would be any renderer,
+    // and any renderer should live as long as the application.
     void registerCleanup(CleanupFn fn);
 
     // Notify observers (e.g. render backends) that asset UUID is no longer
