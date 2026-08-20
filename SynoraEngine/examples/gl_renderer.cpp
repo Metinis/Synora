@@ -71,16 +71,13 @@ class GraphicsScene : public SYN::ILayer {
         m_Parasite =
             assetManager->load<SYN::ModelData>("resources/assets/parasite.glb")
                 .value();
-        m_ParasiteClips = {
-            assetManager
-                ->loadWithKey<SYN::AnimationClipData>(
-                    "resources/assets/parasite.glb", "parasiteAnim")
-                .value()};
-        m_ParasiteClips.push_back(
-            assetManager->uuidFromKey("parasite|mixamo.com.001").value());
-        m_ParasitePlayer = SYN::AnimationPlayer(assetManager);
+        m_ParasiteClips = assetManager
+                              ->loadGroup<SYN::AnimationClipData>(
+                                  "resources/assets/parasite.glb")
+                              .value();
         assert(m_ParasiteClips.size() > 0 &&
                "Unable to load parasite animations!");
+        m_ParasitePlayer = SYN::AnimationPlayer(assetManager);
         m_ParasitePlayer.setClip(m_ParasiteClips[0]);
         m_ParasitePlayer.setTargetClip(m_ParasiteClips[1]);
         m_Weight = 0.0f;
