@@ -55,6 +55,19 @@ void AssetManager::resolvePendingDeletions() {
                 m_KeyToUUID.erase(pathIt->second);
                 m_UUIDToKey.erase(pathIt);
             }
+
+            if (auto groupIt = m_UUIDToGroup.find(id);
+                groupIt != m_UUIDToGroup.cend()) {
+                if (auto keyToGroupIt = m_KeyToGroupUUID.find(groupIt->second);
+                    keyToGroupIt != m_KeyToGroupUUID.cend()) {
+                    auto &group = keyToGroupIt->second;
+                    group.erase(std::remove(group.begin(), group.end(), id),
+                                group.end());
+                    if (group.empty())
+                        m_KeyToGroupUUID.erase(keyToGroupIt);
+                }
+                m_UUIDToGroup.erase(groupIt);
+            }
         }
     }
 }

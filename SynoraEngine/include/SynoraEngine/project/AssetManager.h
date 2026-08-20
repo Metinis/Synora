@@ -117,6 +117,7 @@ class AssetManager {
             auto ownerIt = m_Owner.find(uuid);
 
             if (ownerIt == m_Owner.cend()) {
+                m_UUIDToKey.erase(it->second);
                 m_KeyToUUID.erase(it);
             } else if (ownerIt->second != std::type_index(typeid(AssetT))) {
                 spdlog::error(
@@ -134,6 +135,73 @@ class AssetManager {
             return std::nullopt;
 
         return add(std::move(asset.value()), key);
+    }
+
+    template <typename AssetT>
+    std::optional<std::vector<UUID>> loadGroup(std::filesystem::path path) {
+        std::string keyString(path.string());
+        if (auto it = m_KeyToGroupUUID.find(keyString);
+            it != m_KeyToGroupUUID.cend()) {
+            const std::vector<UUID> uuids = it->second;
+
+            auto ownerIt = m_Owner.cend();
+            if (!uuids.empty()) {
+                for (UUID id : uuids) {
+                    ownerIt = m_Owner.find(id);
+                    if (ownerIt == m_Owner.cend())
+                        break;
+                }
+            }
+
+            if (ownerIt == m_Owner.cend()) {
+                m_KeyToGroupUUID.erase(it);
+                for (UUID id : uuids) {
+                    if (auto it = m_UUIDToKey.find(id);
+                        it != m_UUIDToKey.cend()) {
+                        m_KeyToUUID.erase(it->second);
+                        m_UUIDToKey.erase(id);
+                    }
+                    m_UUIDToGroup.erase(id);
+                }
+            } else if (ownerIt->second != std::type_index(typeid(AssetT))) {
+                spdlog::error(
+                    "[{}] has a UUID associated with it, but the actual asset "
+                    "type differs from the intended type!",
+                    keyString);
+                return std::nullopt;
+            } else {
+                return uuids;
+            }
+        }
+
+        auto it = m_Importers.find(std::type_index(typeid(AssetT)));
+        if (it == m_Importers.cend()) {
+            spdlog::error("Unable to find importer for [{}]!", keyString);
+            return std::nullopt;
+        }
+
+        AssetImporter<AssetT> *importer =
+            static_cast<AssetImporter<AssetT> *>(it->second.get());
+
+        std::vector<std::pair<std::string, AssetT>> loadedAssets;
+        if (!importer->loadGroup(path, loadedAssets, this)) {
+            spdlog::error("Failed to load [{}]!", keyString);
+            return std::nullopt;
+        }
+
+        std::vector<UUID> uuids;
+        for (auto &[name, asset] : loadedAssets) {
+            UUID loaded = add(std::move(asset), name);
+            uuids.emplace_back(loaded);
+            m_UUIDToGroup[loaded] = keyString;
+        }
+
+        if (uuids.empty())
+            return std::nullopt;
+
+        m_KeyToGroupUUID[keyString] = uuids;
+
+        return uuids;
     }
 
     template <typename AssetT>
@@ -196,6 +264,9 @@ class AssetManager {
 
     std::unordered_map<std::type_index, std::unique_ptr<IAssetImporter>>
         m_Importers;
+
+    std::unordered_map<std::string, std::vector<UUID>> m_KeyToGroupUUID;
+    std::unordered_map<UUID, std::string> m_UUIDToGroup;
 
     std::unordered_map<std::string, UUID> m_KeyToUUID;
     std::unordered_map<UUID, std::string> m_UUIDToKey;
