@@ -21,9 +21,9 @@ class InputContext final {
 
     using ActionCallback = std::variant<StateCallback, Vec2Callback>;
 
-    using VectorAxisCallback = std::function<void(float, float)>;
+    using InputVectorCallback = std::function<void(float, float)>;
 
-    struct VectorAxis {
+    struct InputVector {
         float x;
         float y;
 
@@ -73,26 +73,26 @@ class InputContext final {
 
     void removeActionCallbacks(ActionID action);
 
-    // Attach action ids to vector axis. axisActions expects the
+    // Attach action ids to input vector. inputVectorActions expects the
     // order { Up, Down, Right, Left }. As action IDs are optional,
     // you can choose to omit some of the directions. If you omit every
-    // direction, the vector axis will not be added.
-    void
-    addVectorAxis(const std::string &name,
-                  const std::array<std::optional<ActionID>, 4> &axisActions);
+    // direction, the input vector will not be added.
+    void addInputVector(
+        const std::string &name,
+        const std::array<std::optional<ActionID>, 4> &inputVectorActions);
 
-    void removeVectorAxis(const std::string &name);
+    void removeInputVector(const std::string &name);
 
     // Returns true if successful, false if not.
-    // Overwrites vector axis callback(s) attached to name if it already
+    // Overwrites input vector callback(s) attached to name if it already
     // exists.
-    bool addVectorAxisCallback(const std::string &name,
-                               const VectorAxisCallback &callback);
+    bool addInputVectorCallback(const std::string &name,
+                                const InputVectorCallback &callback);
 
     // Returns true if adding was successful, false if not.
     bool
-    addVectorAxisCallbacks(const std::string &name,
-                           const std::vector<VectorAxisCallback> &callback);
+    addInputVectorCallbacks(const std::string &name,
+                            const std::vector<InputVectorCallback> &callback);
 
     bool isTriggerBound(InputKey key);
     bool isTriggerBound(MouseButton mouseButton);
@@ -131,32 +131,32 @@ class InputContext final {
     };
 
   private:
-    // Will call callbacks attached to a vector axis with (0, 0).
-    // Use before removing a vector axis.
-    void resetVectorAxis(const std::string &name);
+    // Will call callbacks attached to a input vector with (0, 0).
+    // Use before removing an input vector.
+    void resetInputVector(const std::string &name);
 
-    void removeVectorAxisFromAction(const std::string &name);
+    void removeInputVectorFromAction(const std::string &name);
 
-    void updateVectorAxes(ActionID action, RawInput input);
+    void updateInputVectors(ActionID action, RawInput input);
 
-    void updateAxisWithDiscreteDelta(const std::string &vectorAxisName,
-                                     ActionID action,
-                                     InputContext::VectorAxis &vectorAxis,
-                                     float delta);
+    void updateInputVectorWithDiscreteDelta(
+        const std::string &inputVectorName, ActionID action,
+        InputContext::InputVector &inputVector, float delta);
 
-    void updateAxisWithMouseDelta(const std::string &vectorAxisName,
-                                  ActionID action,
-                                  InputContext::VectorAxis &vectorAxis,
-                                  float dx, float dy);
+    void updateInputVectorWithMouseDelta(const std::string &inputVectorName,
+                                         ActionID action,
+                                         InputContext::InputVector &inputVector,
+                                         float dx, float dy);
 
   private:
     bool m_ShouldConsumeInput;
     uint8_t m_Priority;
 
-    std::unordered_map<ActionID, std::vector<std::string>> m_ActionToVectorAxis;
-    std::unordered_map<std::string, VectorAxis> m_VectorAxes;
-    std::unordered_map<std::string, std::vector<VectorAxisCallback>>
-        m_VectorAxisCallbacks;
+    std::unordered_map<ActionID, std::vector<std::string>>
+        m_ActionToInputVector;
+    std::unordered_map<std::string, InputVector> m_InputVectors;
+    std::unordered_map<std::string, std::vector<InputVectorCallback>>
+        m_InputVectorCallbacks;
 
     std::unordered_map<ActionID, std::vector<ActionCallback>> m_ActionCallbacks;
     std::unordered_map<Trigger, std::vector<ActionBinding>, TriggerHash>
