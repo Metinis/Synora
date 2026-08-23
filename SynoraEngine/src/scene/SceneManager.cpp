@@ -285,6 +285,10 @@ void SceneManager::handleSwitch() {
     }
 }
 
+SceneHandle SceneManager::getActiveScene() const {
+    return m_CurrentScene.value_or(SceneHandle{0, 0});
+}
+
 void SceneManager::onAttach() { spdlog::debug("Scene: Attached"); }
 
 void SceneManager::onDettach() { spdlog::debug("Scene: Detached"); }

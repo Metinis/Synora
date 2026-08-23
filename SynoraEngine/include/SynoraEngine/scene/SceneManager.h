@@ -40,9 +40,12 @@ class SceneManager : public ILayer {
     void switchTo(SceneHandle scene, float delay = 0.0f);
 
     std::vector<SceneHandle> getAllScenes() const;
+    SceneHandle getActiveScene() const;
     SceneHandle findScene(std::string_view name) const;
     Scene *getSceneMut(SceneHandle handle);
     const Scene *getScene(SceneHandle handle) const;
+
+    bool isSceneValid(SceneHandle scene) const;
 
   public:
     void onAttach() override;
@@ -52,7 +55,6 @@ class SceneManager : public ILayer {
     void onDettach() override;
 
   private:
-    bool isSceneValid(SceneHandle scene) const;
     bool isSceneActive(SceneHandle scene) const;
 
     // Not next in the ordered list, but next to be active
