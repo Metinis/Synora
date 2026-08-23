@@ -4,7 +4,7 @@
 #include "SynoraEngine/core/InputContext.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/core/Window.h"
-#include "SynoraEngine/scene/Scene.h"
+#include "SynoraEngine/scene/SceneManager.h"
 #include "SynoraEngine/scene/components/CameraComponent.h"
 #include "SynoraEngine/scene/components/TransformComponent.h"
 #include "spdlog/spdlog.h"
@@ -26,7 +26,12 @@ enum Action : SYN::ActionID {
 SYN::CameraSystem::CameraSystem() {}
 
 SYN::Entity SYN::CameraSystem::getCameraEntity() {
-    for (auto e : m_Scene->getEntities<CameraComponent>()) {
+    SceneHandle sceneHandle = m_SceneManager->getActiveScene();
+    if (!m_SceneManager->isSceneValid(sceneHandle))
+        return Entity();
+
+    Scene *scene = m_SceneManager->getSceneMut(sceneHandle);
+    for (auto e : scene->getEntities<CameraComponent>()) {
         if (e.getComponent<CameraComponent>().isPrimary) {
             return e;
         }
@@ -37,10 +42,10 @@ SYN::Entity SYN::CameraSystem::getCameraEntity() {
 SYN::Camera SYN::CameraSystem::getCamera() {
     auto camEntity = getCameraEntity();
 
-    // if (!m_Scene->isValidEntity(camEntity)) {
-    //     spdlog::warn("Scene: No camera entity");
-    //     return Camera();
-    // }
+    if (!camEntity.isValid()) {
+        spdlog::warn("Scene: No camera entity");
+        return Camera();
+    }
 
     auto camTC = camEntity.getComponent<TransformComponent>();
     auto camComp = camEntity.getComponent<CameraComponent>();
@@ -107,14 +112,11 @@ void SYN::CameraSystem::onUpdate(float dt) {
     m_DxRot = 0;
 }
 
-void SYN::CameraSystem::onRender() {
-    // m_Renderer->setCamera(getCamera());
-}
+void SYN::CameraSystem::onRender() {}
 
 void SYN::CameraSystem::init(EngineContext *ctx) {
-    // m_Renderer = ctx->renderer.get();
     Window *window = ctx->window.get();
-    // m_Scene = ctx->scene.get();
+    m_SceneManager = ctx->sceneManager.get();
 
     std::optional<SYN::InputContextHandle> gameplayHandle{
         ctx->inputManager.get()->addInputContext(0)};
@@ -135,22 +137,23 @@ void SYN::CameraSystem::init(EngineContext *ctx) {
                              {{Action::LookDelta, {}}});
     gameplayCtx->bindActions(SYN::InputKey::Escape,
                              {{Action::ToggleCursor, {}}});
-    gameplayCtx->addVectorAxis("GroundMovement",
-                               {Action::MoveForward, Action::MoveBackward,
-                                Action::MoveRight, Action::MoveLeft});
+    gameplayCtx->addInputVector("GroundMovement",
+                                {Action::MoveForward, Action::MoveBackward,
+                                 Action::MoveRight, Action::MoveLeft});
 
-    gameplayCtx->addVectorAxis("FlyMovement",
-                               {Action::MoveUp, Action::MoveDown});
+    gameplayCtx->addInputVector("FlyMovement",
+                                {Action::MoveUp, Action::MoveDown});
 
-    gameplayCtx->addVectorAxisCallback("FlyMovement", [&](float x, float y) {
+    gameplayCtx->addInputVectorCallback("FlyMovement", [&](float x, float y) {
         m_Dy = -y;
         spdlog::info("mdy = {}", m_Dy);
     });
 
-    gameplayCtx->addVectorAxisCallback("GroundMovement", [&](float x, float z) {
-        m_Dx = -x;
-        m_Dz = z;
-    });
+    gameplayCtx->addInputVectorCallback("GroundMovement",
+                                        [&](float x, float z) {
+                                            m_Dx = -x;
+                                            m_Dz = z;
+                                        });
 
     gameplayCtx->addActionCallback(Action::ToggleCursor,
                                    [&](InputState inputState) {

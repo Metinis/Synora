@@ -19,7 +19,7 @@ class CameraSystem : public ILayer {
     ~CameraSystem() = default;
 
   private:
-    Scene *m_Scene;
+    class SceneManager *m_SceneManager;
     float m_Dx;
     float m_Dy;
     float m_Dz;
