@@ -23,12 +23,12 @@ constexpr uint32_t WINDOW_HEIGHT = 1080;
 
 class GraphicsScene : public SYN::ILayer {
   public:
-    GraphicsScene() : m_Renderer({}) {}
+    GraphicsScene() {}
 
     void onAttach() override {};
     void onDettach() override {};
     void init(SYN::EngineContext *engineContext) {
-        m_Context = &engineContext->glContext.value();
+        m_Context = engineContext->glContext.get();
         m_Window = engineContext->window.get();
 
         m_Context->enableVSync(false);
@@ -36,11 +36,11 @@ class GraphicsScene : public SYN::ILayer {
         SYN::AssetManager *assetManager =
             engineContext->projectConfig.assetManager.get();
 
-        m_Renderer.init(*m_Context, assetManager);
+        m_Renderer = static_cast<gl::Renderer *>(engineContext->renderer.get());
 
-        m_Renderer.setRenderScale(0.7f);
+        m_Renderer->setRenderScale(0.7f);
 
-        m_CSMLayers = m_Renderer.getCSMTextures(*m_Context);
+        m_CSMLayers = m_Renderer->getCSMTextures(*m_Context);
 
         m_Waltuh =
             assetManager->load<SYN::ModelData>("resources/assets/waltuh.glb")
@@ -84,7 +84,7 @@ class GraphicsScene : public SYN::ILayer {
         m_ParasitePlayer.setLoop(true);
         m_ParasitePlayer.play();
 
-        m_Renderer.setDirectionalLight(m_Light);
+        m_Renderer->setDirectionalLight(m_Light);
 
         m_Camera.fovYDegrees = 90.0f;
         m_Camera.target = glm::vec3(0.0f);
@@ -153,11 +153,11 @@ class GraphicsScene : public SYN::ILayer {
         stbi_set_flip_vertically_on_load(false);
 
         for (uint32_t i = 0; i < m_EnvironmentNames.size(); ++i) {
-            m_Renderer.createEnvironment(*m_Context, m_EnvironmentNames.at(i),
-                                         m_Environments.at(i));
+            m_Renderer->createEnvironment(*m_Context, m_EnvironmentNames.at(i),
+                                          m_Environments.at(i));
         }
 
-        m_Renderer.setEnvironment(m_EnvironmentNames.at(0));
+        m_Renderer->setEnvironment(m_EnvironmentNames.at(0));
 
         m_AssetManager = assetManager;
 
@@ -220,27 +220,27 @@ class GraphicsScene : public SYN::ILayer {
 
         auto [screenWidth, screenHeight] = m_Window->getScreenSize();
 
-        m_Renderer.resize(screenWidth, screenHeight);
-        m_Renderer.beginFrame(m_Camera);
-        m_Renderer.submit(*m_Context, m_Cabin, glm::mat4(1.0));
+        m_Renderer->resize(screenWidth, screenHeight);
+        m_Renderer->beginFrame(m_Camera);
+        m_Renderer->submit(*m_Context, m_Cabin, glm::mat4(1.0));
 
-        m_Renderer.submit(
+        m_Renderer->submit(
             *m_Context, m_Waltuh,
             glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 0.0f)));
 
         glm::mat4 dancerTransform =
             glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 3.0f));
 
-        m_Renderer.submit(*m_Context, m_Dancer, dancerTransform, {},
-                          m_DancerPlayer.getOutput());
+        m_Renderer->submit(*m_Context, m_Dancer, dancerTransform, {},
+                           m_DancerPlayer.getOutput());
 
         glm::mat4 parasiteTransform =
             glm::translate(glm::mat4(1.0f), glm::vec3(-8.0f, 0.0f, 1.5f));
 
-        m_Renderer.submit(*m_Context, m_Parasite, parasiteTransform, {},
-                          m_ParasitePlayer.getOutput());
+        m_Renderer->submit(*m_Context, m_Parasite, parasiteTransform, {},
+                           m_ParasitePlayer.getOutput());
 
-        m_Renderer.endFrame(*m_Context);
+        m_Renderer->endFrame(*m_Context);
     }
 
     void renderSpheres() {
@@ -250,8 +250,8 @@ class GraphicsScene : public SYN::ILayer {
 
         auto [screenWidth, screenHeight] = m_Window->getScreenSize();
 
-        m_Renderer.resize(screenWidth, screenHeight);
-        m_Renderer.beginFrame(m_Camera);
+        m_Renderer->resize(screenWidth, screenHeight);
+        m_Renderer->beginFrame(m_Camera);
 
         for (int row = 0; row < 7; ++row) {
             for (int column = 0; column < 7; ++column) {
@@ -262,14 +262,14 @@ class GraphicsScene : public SYN::ILayer {
                                             "DefaultMat{}{}", row, column))
                                         .value();
 
-                m_Renderer.submit(*m_Context, m_Sphere,
-                                  glm::translate(glm::mat4(1.0f), position),
-                                  std::array<gl::MaterialOverride, 1>{
-                                      gl::MaterialOverride{0, matUUID}});
+                m_Renderer->submit(*m_Context, m_Sphere,
+                                   glm::translate(glm::mat4(1.0f), position),
+                                   std::array<gl::MaterialOverride, 1>{
+                                       gl::MaterialOverride{0, matUUID}});
             }
         }
 
-        m_Renderer.endFrame(*m_Context);
+        m_Renderer->endFrame(*m_Context);
     }
 
     void onRender() override {
@@ -285,7 +285,7 @@ class GraphicsScene : public SYN::ILayer {
                                 "MSAA 8x"};
             if (ImGui::Combo("Anti Aliasing", (int *)&m_AntiAliasMode, aa,
                              IM_ARRAYSIZE(aa))) {
-                m_Renderer.setAntiAliasMode(m_AntiAliasMode);
+                m_Renderer->setAntiAliasMode(m_AntiAliasMode);
             }
 
             const char *anisotropicFiltering[] = {"None", "2x", "4x", "8x",
@@ -295,35 +295,35 @@ class GraphicsScene : public SYN::ILayer {
                              IM_ARRAYSIZE(anisotropicFiltering))) {
                 switch (m_AnisotropicMode) {
                 case 1:
-                    m_Renderer.setAnisotropicFiltering(2.0f);
+                    m_Renderer->setAnisotropicFiltering(2.0f);
                     break;
                 case 2:
-                    m_Renderer.setAnisotropicFiltering(4.0f);
+                    m_Renderer->setAnisotropicFiltering(4.0f);
                     break;
                 case 3:
-                    m_Renderer.setAnisotropicFiltering(8.0f);
+                    m_Renderer->setAnisotropicFiltering(8.0f);
                     break;
                 case 4:
-                    m_Renderer.setAnisotropicFiltering(16.0f);
+                    m_Renderer->setAnisotropicFiltering(16.0f);
                     break;
                 default:
-                    m_Renderer.setAnisotropicFiltering(1.0f);
+                    m_Renderer->setAnisotropicFiltering(1.0f);
                 }
             }
 
             if (ImGui::SliderFloat("Gamma", &m_Gamma, gl::MIN_GAMMA,
                                    gl::MAX_GAMMA)) {
-                m_Renderer.setGamma(m_Gamma);
+                m_Renderer->setGamma(m_Gamma);
             }
             if (ImGui::SliderFloat("Exposure", &m_Exposure, 0.0f, 10.0f)) {
-                m_Renderer.setExposure(m_Exposure);
+                m_Renderer->setExposure(m_Exposure);
             }
             if (ImGui::SliderFloat("Render Scale", &m_RenderScale, 0.01f,
                                    2.0f)) {
-                m_Renderer.setRenderScale(m_RenderScale);
+                m_Renderer->setRenderScale(m_RenderScale);
             }
             if (ImGui::Button("Reload shaders")) {
-                m_Renderer.reloadInternalShaders(*m_Context);
+                m_Renderer->reloadInternalShaders(*m_Context);
             }
 
             std::vector<const char *> names;
@@ -331,7 +331,7 @@ class GraphicsScene : public SYN::ILayer {
                 names.push_back(name.c_str());
             if (ImGui::Combo("Environment", &m_EnvironmentIdx, &names[0],
                              m_EnvironmentNames.size())) {
-                m_Renderer.setEnvironment(
+                m_Renderer->setEnvironment(
                     m_EnvironmentNames.at(m_EnvironmentIdx));
             }
 
@@ -354,18 +354,18 @@ class GraphicsScene : public SYN::ILayer {
 
         if (ImGui::Begin("Light control")) {
             if (ImGui::ColorEdit3("Color", &m_Light.color[0])) {
-                m_Renderer.setDirectionalLight(m_Light);
+                m_Renderer->setDirectionalLight(m_Light);
             }
             if (ImGui::SliderFloat3("Direction", &m_Light.direction[0], -1.0f,
                                     1.0f)) {
-                m_Renderer.setDirectionalLight(m_Light);
+                m_Renderer->setDirectionalLight(m_Light);
             }
             if (ImGui::SliderFloat("Intensity", &m_Light.intensity, 0.0f,
                                    10000.0f)) {
-                m_Renderer.setDirectionalLight(m_Light);
+                m_Renderer->setDirectionalLight(m_Light);
             }
             if (ImGui::Checkbox("Cast shadow", &m_Light.castsShadows)) {
-                m_Renderer.setDirectionalLight(m_Light);
+                m_Renderer->setDirectionalLight(m_Light);
             }
         }
         ImGui::End();
@@ -464,7 +464,7 @@ class GraphicsScene : public SYN::ILayer {
 
             if (ImGui::SliderFloat("CSM Distance", &m_CSMDistance, 0.001f,
                                    500.0f)) {
-                m_Renderer.setCSMDistance(m_CSMDistance);
+                m_Renderer->setCSMDistance(m_CSMDistance);
             }
         }
         ImGui::End();
@@ -473,7 +473,7 @@ class GraphicsScene : public SYN::ILayer {
   private:
     gl::Context *m_Context;
     SYN::Window *m_Window;
-    gl::Renderer m_Renderer;
+    gl::Renderer *m_Renderer;
     SYN::AssetManager *m_AssetManager;
 
     float m_FrameHistory[120] = {};

@@ -3,6 +3,8 @@
 #include <SynoraEngine/project/assets/ModelData.h>
 #include <SynoraEngine/project/assets/TextureData.h>
 
+#include <SynoraEngine/core/Application.h>
+
 #include <SynoraEngine/gfx/gl/GL.h>
 
 // clang-format off
@@ -49,79 +51,6 @@ createDefaultColoredTexture(SYN::gfx::gl::Context &context,
         .format = SYN::gfx::gl::TextureFormat::SRGBA,
     };
     return context.createTexture(desc, &color[0]).value();
-}
-
-std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
-SYN::gfx::gl::Renderer::loadTexture(Context &context, const AssetRef &texture,
-                                    bool srgb) {
-    if (!texture.valid())
-        return std::nullopt;
-
-    if (auto it = m_UUIDToHandle.find(texture.uuid());
-        it != m_UUIDToHandle.cend()) {
-        return std::get<Handle<Texture>>(m_UUIDToHandle.at(it->first).handle);
-    }
-
-    const TextureData *textureData =
-        m_AssetManager->get<TextureData>(texture.uuid());
-
-    auto getMipLevel = [](int width, int height) {
-        return 1 +
-               static_cast<int>(std::floor(std::log2(std::max(width, height))));
-    };
-
-    auto textureFormatFromChannelCount = [](int channels, bool srgb = false) {
-        switch (channels) {
-        case 1:
-            return SYN::gfx::gl::TextureFormat::R8;
-        case 2:
-            return SYN::gfx::gl::TextureFormat::RG8;
-        case 3:
-            return srgb ? SYN::gfx::gl::TextureFormat::SRGB
-                        : SYN::gfx::gl::TextureFormat::RGB8;
-        case 4:
-        default:
-            return srgb ? SYN::gfx::gl::TextureFormat::SRGBA
-                        : SYN::gfx::gl::TextureFormat::RGBA8;
-        }
-    };
-
-    auto dataToDesc = [&](const TextureData *data, bool srgb) -> TextureDesc {
-        TextureDesc desc{};
-        desc.width = data->width;
-        desc.height = data->height;
-        desc.format = textureFormatFromChannelCount(data->channelCount, srgb);
-        desc.mipLevel = getMipLevel(data->width, data->height);
-
-        return desc;
-    };
-
-    TextureDesc desc = dataToDesc(textureData, srgb);
-
-    Handle<Texture> textureHandle =
-        context.createTexture(desc, &textureData->data[0]).value();
-    m_UUIDToHandle[texture.uuid()] = {textureHandle};
-
-    return textureHandle;
-}
-
-SYN::gfx::gl::Material
-SYN::gfx::gl::Renderer::loadMaterial(Context &context,
-                                     const MaterialData &materialData) {
-
-    SYN::gfx::gl::Material material;
-
-    material.albedo = loadTexture(context, materialData.albedoData, true);
-    material.normalMap = loadTexture(context, materialData.normalData, false);
-    material.metallicRoughnessMap =
-        loadTexture(context, materialData.normalData, false);
-
-    material.metallic = materialData.metallic;
-    material.roughness = materialData.roughness;
-    material.tint = materialData.tint;
-    material.alphaCutoff = materialData.alphaCutoff;
-
-    return material;
 }
 
 glm::vec3 SYN::gfx::gl::AABB::getPVertex(glm::vec3 normal) const {
@@ -1064,7 +993,7 @@ SYN::gfx::gl::Context::createContext(const ContextInitDesc &desc) {
 
     glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &Globals.maxAnisotropy);
 
-    return Context(desc);
+    return std::move(Context(desc));
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Buffer>>
@@ -1982,6 +1911,16 @@ SYN::gfx::gl::RenderTechnique::setShaderFeature(uint32_t defaultFeature) {
 //
 // More functions to tweak render settings, create environment maps for IBL,
 // etc.
+
+void SYN::gfx::gl::Renderer::init(EngineContext *context) {
+    init(*context->glContext.get(), context->projectConfig.assetManager.get());
+}
+
+// TODO: Submit proper render commands based on scene description
+void SYN::gfx::gl::Renderer::submitFrame(const RenderView3D &sceneDescription) {
+}
+
+void SYN::gfx::gl::Renderer::drawScene() {}
 
 SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
     m_RenderConfig = config;
@@ -3649,4 +3588,77 @@ void SYN::gfx::gl::Renderer::bindBoneMatrices(Pass &pass, uint32_t offset) {
     ZoneScopedN("BindBoneMatrices");
     pass.bindUniform("boneTransforms[0]", m_FrameBoneMatrices, offset,
                      MAX_BONES);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+SYN::gfx::gl::Renderer::loadTexture(Context &context, const AssetRef &texture,
+                                    bool srgb) {
+    if (!texture.valid())
+        return std::nullopt;
+
+    if (auto it = m_UUIDToHandle.find(texture.uuid());
+        it != m_UUIDToHandle.cend()) {
+        return std::get<Handle<Texture>>(m_UUIDToHandle.at(it->first).handle);
+    }
+
+    const TextureData *textureData =
+        m_AssetManager->get<TextureData>(texture.uuid());
+
+    auto getMipLevel = [](int width, int height) {
+        return 1 +
+               static_cast<int>(std::floor(std::log2(std::max(width, height))));
+    };
+
+    auto textureFormatFromChannelCount = [](int channels, bool srgb = false) {
+        switch (channels) {
+        case 1:
+            return SYN::gfx::gl::TextureFormat::R8;
+        case 2:
+            return SYN::gfx::gl::TextureFormat::RG8;
+        case 3:
+            return srgb ? SYN::gfx::gl::TextureFormat::SRGB
+                        : SYN::gfx::gl::TextureFormat::RGB8;
+        case 4:
+        default:
+            return srgb ? SYN::gfx::gl::TextureFormat::SRGBA
+                        : SYN::gfx::gl::TextureFormat::RGBA8;
+        }
+    };
+
+    auto dataToDesc = [&](const TextureData *data, bool srgb) -> TextureDesc {
+        TextureDesc desc{};
+        desc.width = data->width;
+        desc.height = data->height;
+        desc.format = textureFormatFromChannelCount(data->channelCount, srgb);
+        desc.mipLevel = getMipLevel(data->width, data->height);
+
+        return desc;
+    };
+
+    TextureDesc desc = dataToDesc(textureData, srgb);
+
+    Handle<Texture> textureHandle =
+        context.createTexture(desc, &textureData->data[0]).value();
+    m_UUIDToHandle[texture.uuid()] = {textureHandle};
+
+    return textureHandle;
+}
+
+SYN::gfx::gl::Material
+SYN::gfx::gl::Renderer::loadMaterial(Context &context,
+                                     const MaterialData &materialData) {
+
+    SYN::gfx::gl::Material material;
+
+    material.albedo = loadTexture(context, materialData.albedoData, true);
+    material.normalMap = loadTexture(context, materialData.normalData, false);
+    material.metallicRoughnessMap =
+        loadTexture(context, materialData.normalData, false);
+
+    material.metallic = materialData.metallic;
+    material.roughness = materialData.roughness;
+    material.tint = materialData.tint;
+    material.alphaCutoff = materialData.alphaCutoff;
+
+    return material;
 }

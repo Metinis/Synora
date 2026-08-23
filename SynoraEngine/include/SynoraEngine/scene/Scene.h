@@ -1,60 +1,50 @@
 #pragma once
-#include <entt/entt.hpp>
 
-#include "SceneState.h"
-#include "SynoraEngine/core/Application.h"
-#include "SynoraEngine/core/Layer.h"
+#include "SynoraEngine/project/UUID.h"
 #include "SynoraEngine/scene/Entity.h"
 
+#include <glm/mat4x4.hpp>
+
 namespace SYN {
-class Renderer;
-class AssetManager;
 
-// probably split scene into scene manager and scene contain like this
-class Scene : public ILayer {
+class Scene {
   public:
-    Scene();
-    ~Scene() override = default;
+    Scene() = default;
+    ~Scene();
 
-    void onUpdate(float dt) override;
-    void onAttach() override;
-    void onDettach() override;
-    void onRender() override;
-    void onUIRender() override {};
-    Entity getEntity(UUID id);
-    bool isDescendantOf(Entity parent, Entity possibleChild);
+    Scene(std::string_view sceneName);
+    Scene(const Scene &) = delete;
+    Scene(Scene &&) = delete;
 
-    bool isValidEntity(Entity entity);
-    void onUUIDRemoved(entt::registry &reg,
-                       entt::entity e); // same as removing entity
-    void onMeshAdded(entt::registry &reg, entt::entity e);
-    void onMeshRemoved(entt::registry &reg, entt::entity e);
-    void onParentAdded(entt::registry &reg, entt::entity e);
-    void onParentRemoved(entt::registry &reg, entt::entity e);
-
-    void init(EngineContext *ctx);
-    Entity createEntity(const std::string &tag = "Unnamed Entity");
+    Entity createEntity(std::string_view tag);
     void removeEntity(Entity entity);
 
-    template <typename T> std::vector<Entity> getEntities() {
-        std::vector<Entity> ret;
-        for (auto &e : m_SceneState.registry.view<T>()) {
-            ret.push_back(Entity(&m_SceneState, e));
+    Entity getEntity(UUID id);
+
+    glm::mat4 getWorldTransformOf(Entity entity);
+
+    const std::string &getName() const;
+
+    template <typename... Components> std::vector<Entity> getEntities() {
+        std::vector<Entity> entities;
+        for (entt::entity e : m_Registry.view<Components...>()) {
+            entities.emplace_back(Entity(this, &m_Registry, e));
         }
-        return ret;
+        return entities;
+    }
+
+    template <typename... Components, typename Fn> void forEach(Fn &&fn) {
+        auto view = m_Registry.view<Components...>();
+        for (auto entity : view) {
+            fn(Entity(this, &m_Registry, entity),
+               view.template get<Components>(entity)...);
+        }
     }
 
   private:
-    Renderer *m_Renderer;
-    Window *m_Window;
-    AssetManager *m_AssetManager;
-    SceneState m_SceneState;
-    std::vector<std::function<void()>> m_OnUpdate;
-    std::unordered_map<UUID, Entity> m_EntityUUIDCache;
-    std::vector<Entity> m_EntityCache; // used for updating world matrices,
-                                       // create entity will update
-
-    friend class Entity;
+    std::string m_Name;
+    entt::registry m_Registry;
+    std::unordered_map<UUID, Entity> m_UUIDToEntity;
 };
 
 } // namespace SYN

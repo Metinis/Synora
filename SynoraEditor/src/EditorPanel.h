@@ -1,7 +1,7 @@
 #pragma once
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/scene/Entity.h"
-#include <SynoraEngine/core/Layer.h>
+#include <SynoraEngine/core/ILayer.h>
 
 namespace SYN {
 struct EngineContext;

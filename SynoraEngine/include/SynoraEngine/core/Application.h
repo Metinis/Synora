@@ -1,6 +1,5 @@
 #pragma once
-#include "Layer.h"
-#include "SynoraEngine/gfx/gl/GL.h"
+#include "ILayer.h"
 #include "SynoraEngine/project/Project.h"
 #include "WindowConfig.h"
 #define GLM_ENABLE_EXPERIMENTAL
@@ -8,18 +7,24 @@
 namespace SYN {
 class Window;
 class Input;
-class Renderer;
-class Scene;
+class IRenderViewBackend;
+class SceneManager;
 class CameraSystem;
+
+namespace gfx {
+namespace gl {
+class Context;
+}
+} // namespace gfx
 
 struct EngineContext {
     std::unique_ptr<Window> window;
-    std::unique_ptr<Input> inputManager;
-    std::unique_ptr<Renderer> renderer;
-    std::unique_ptr<Scene> scene;
-    std::unique_ptr<CameraSystem> cameraSystem;
-    std::optional<gfx::gl::Context> glContext;
+    std::unique_ptr<gfx::gl::Context> glContext;
     ProjectConfig projectConfig;
+    std::unique_ptr<Input> inputManager;
+    std::unique_ptr<IRenderViewBackend> renderer;
+    std::unique_ptr<SceneManager> sceneManager;
+    std::unique_ptr<CameraSystem> cameraSystem;
     WindowConfig windowConfig;
 };
 

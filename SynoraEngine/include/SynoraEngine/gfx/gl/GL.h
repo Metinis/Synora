@@ -14,6 +14,8 @@
 #include <SynoraEngine/project/AssetRef.h>
 #include <SynoraEngine/project/UUID.h>
 
+#include <SynoraEngine/renderer/backends/IRenderViewBackend.h>
+
 #ifdef SHADER_DEBUG_PATH
 #define SHADER_PATH SHADER_DEBUG_PATH
 #else
@@ -790,10 +792,14 @@ class RenderTechnique {
     uint32_t m_DefaultShaderFeature = 0;
 };
 
-class Renderer {
+class Renderer : public IRenderViewBackend {
   public:
     explicit Renderer(const RendererConfig &config);
     ~Renderer();
+
+    void init(class EngineContext *context) override;
+    void submitFrame(const RenderView3D &sceneDescription) override;
+    void drawScene() override;
 
     void init(Context &context, class AssetManager *assetManager);
 
