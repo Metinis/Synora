@@ -9,7 +9,10 @@ class Window;
 class Input;
 class IRenderViewBackend;
 class SceneManager;
+
 class CameraSystem;
+class AnimationPlayerSystem;
+class RenderViewBuilder;
 
 namespace gfx {
 namespace gl {
@@ -24,7 +27,11 @@ struct EngineContext {
     std::unique_ptr<Input> inputManager;
     std::unique_ptr<IRenderViewBackend> renderer;
     std::unique_ptr<SceneManager> sceneManager;
+
+    std::unique_ptr<RenderViewBuilder> renderViewBuilder;
+    std::unique_ptr<AnimationPlayerSystem> animationPlayerSystem;
     std::unique_ptr<CameraSystem> cameraSystem;
+
     WindowConfig windowConfig;
 };
 

@@ -17,7 +17,9 @@
 #include <SynoraEngine/renderer/backends/IRenderViewBackend.h>
 #include <SynoraEngine/scene/SceneManager.h>
 
-#include "scene/CameraSystem.h"
+#include "scene/systems/AnimationPlayerSystem.h"
+#include "scene/systems/CameraSystem.h"
+#include "scene/systems/RenderViewBuilder.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -31,6 +33,9 @@ Application::Application() {
     m_EngineContext.inputManager = std::make_unique<Input>();
     m_EngineContext.sceneManager = std::make_unique<SceneManager>();
     m_EngineContext.cameraSystem = std::make_unique<CameraSystem>();
+    m_EngineContext.animationPlayerSystem =
+        std::make_unique<AnimationPlayerSystem>();
+    m_EngineContext.renderViewBuilder = std::make_unique<RenderViewBuilder>();
 
     ProjectConfig projectConfig{
         .resourceRoot = "", // todo add root
@@ -48,10 +53,10 @@ void Application::init() {
     m_EngineContext.window->init(m_EngineContext.windowConfig);
     m_EngineContext.projectConfig.assetManager->init();
     m_EngineContext.inputManager->init(&m_EngineContext);
-    // Scene Manager doesn't have an initialize yet. It will be added when it's
-    // determined necessary though.
-    // m_EngineContext.sceneManager->init(&m_EngineContext);
+
+    m_EngineContext.renderViewBuilder->init(&m_EngineContext);
     m_EngineContext.cameraSystem->init(&m_EngineContext);
+    m_EngineContext.animationPlayerSystem->init(&m_EngineContext);
 
     if (m_EngineContext.windowConfig.openGLConfig.has_value()) {
         m_EngineContext.glContext = std::make_unique<gfx::gl::Context>(
@@ -70,6 +75,8 @@ void Application::init() {
 
     m_Layers.push_back(m_EngineContext.sceneManager.get());
     m_Layers.push_back(m_EngineContext.cameraSystem.get());
+    m_Layers.push_back(m_EngineContext.animationPlayerSystem.get());
+    m_Layers.push_back(m_EngineContext.renderViewBuilder.get());
 }
 
 void Application::run() {

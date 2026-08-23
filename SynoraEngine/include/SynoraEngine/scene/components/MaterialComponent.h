@@ -4,7 +4,10 @@
 
 namespace SYN {
 struct MaterialComponent {
-    AssetRef material;
-    uint32_t meshIndex = 0;
+    struct Submesh {
+        AssetRef material;
+        uint32_t meshIndex = 0;
+    };
+    std::vector<Submesh> submeshes;
 };
 } // namespace SYN
