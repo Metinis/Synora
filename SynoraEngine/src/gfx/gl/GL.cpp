@@ -2458,6 +2458,24 @@ void SYN::gfx::gl::Renderer::init(EngineContext *engineContext) {
     defaultEnvironment.prefilterMap = m_DefaultPrefilterMap;
     defaultEnvironment.irradianceMap = m_DefaultIrradianceMap;
     m_NameToEnvironment[DEFAULT_ENVIRONMENT_NAME] = defaultEnvironment;
+
+    m_AssetManager->registerCleanup([&](UUID id) {
+        auto handleIt = m_UUIDToHandle.find(id);
+        if (handleIt == m_UUIDToHandle.cend())
+            return;
+        ResourceHandle resource = handleIt->second;
+        std::visit(
+            [&](auto &&arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, Handle<Texture>>) {
+                    m_Context->deleteTexture(arg);
+                    m_UUIDToHandle.erase(handleIt);
+                } else if constexpr (std::is_same_v<T, Handle<Model>>) {
+                    destroyModel(*m_Context, id);
+                }
+            },
+            resource.handle);
+    });
 }
 
 void SYN::gfx::gl::Renderer::createEnvironment(Context &context,
