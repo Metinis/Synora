@@ -3573,24 +3573,7 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(Context &context,
             const MaterialData *materialData =
                 m_AssetManager->get<MaterialData>(override.material);
 
-            Material material;
-
-            material.albedo =
-                loadTexture(context, materialData->albedoData, true)
-                    .value_or(m_DefaultWhite);
-
-            material.normalMap =
-                loadTexture(context, materialData->normalData, false);
-
-            material.metallicRoughnessMap = loadTexture(
-                context, materialData->metallicRoughnessData, false);
-
-            material.metallic = materialData->metallic;
-            material.roughness = materialData->roughness;
-            material.tint = materialData->tint;
-            material.alphaCutoff = materialData->alphaCutoff;
-
-            return material;
+            return loadMaterial(*m_Context, *materialData);
         }
         return std::nullopt;
     };
@@ -3717,10 +3700,11 @@ SYN::gfx::gl::Renderer::loadMaterial(Context &context,
 
     SYN::gfx::gl::Material material;
 
-    material.albedo = loadTexture(context, materialData.albedoData, true);
+    material.albedo = loadTexture(context, materialData.albedoData, true)
+                          .value_or(m_DefaultWhite);
     material.normalMap = loadTexture(context, materialData.normalData, false);
     material.metallicRoughnessMap =
-        loadTexture(context, materialData.normalData, false);
+        loadTexture(context, materialData.metallicRoughnessData, false);
 
     material.metallic = materialData.metallic;
     material.roughness = materialData.roughness;
