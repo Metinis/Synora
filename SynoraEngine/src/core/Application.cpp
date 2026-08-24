@@ -54,10 +54,6 @@ void Application::init() {
     m_EngineContext.projectConfig.assetManager->init();
     m_EngineContext.inputManager->init(&m_EngineContext);
 
-    m_EngineContext.renderViewBuilder->init(&m_EngineContext);
-    m_EngineContext.cameraSystem->init(&m_EngineContext);
-    m_EngineContext.animationPlayerSystem->init(&m_EngineContext);
-
     if (m_EngineContext.windowConfig.openGLConfig.has_value()) {
         m_EngineContext.glContext = std::make_unique<gfx::gl::Context>(
             gfx::gl::Context::createContext(
@@ -72,6 +68,10 @@ void Application::init() {
         // For other backends non-OpenGL this is where you can
         // set the renderer to something else.
     }
+
+    m_EngineContext.renderViewBuilder->init(&m_EngineContext);
+    m_EngineContext.cameraSystem->init(&m_EngineContext);
+    m_EngineContext.animationPlayerSystem->init(&m_EngineContext);
 
     m_Layers.push_back(m_EngineContext.sceneManager.get());
     m_Layers.push_back(m_EngineContext.cameraSystem.get());
