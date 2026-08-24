@@ -68,6 +68,12 @@ void SYN::CameraSystem::onDettach() {
 void SYN::CameraSystem::onUIRender() {}
 
 void SYN::CameraSystem::onUpdate(float dt) {
+    auto camera = getCameraEntity();
+
+    if (!camera.isValid()) {
+        return;
+    }
+
     if (m_LastCursorHiddenState != m_CursorHidden) {
         m_DyRot = 0;
         m_DxRot = 0;
@@ -83,10 +89,9 @@ void SYN::CameraSystem::onUpdate(float dt) {
         speed *= m_RunMultiplier;
     }
 
-    auto camera = getCameraEntity();
     auto &camTC = camera.getComponent<TransformComponent>();
 
-    glm::vec3 lookDir{camTC.rotation * glm::vec3(0.f, 0.f, 1.f)};
+    glm::vec3 lookDir{camTC.rotation * glm::vec3(0.f, 0.f, -1.f)};
     lookDir.y = 0.f;
     lookDir = glm::normalize(lookDir);
 
@@ -100,10 +105,10 @@ void SYN::CameraSystem::onUpdate(float dt) {
 
     float sensitivity{0.1f};
     glm::quat yaw{
-        glm::angleAxis(glm::radians(static_cast<float>(-m_DxRot * sensitivity)),
+        glm::angleAxis(glm::radians(static_cast<float>(m_DxRot * sensitivity)),
                        glm::vec3(0.f, 1.f, 0.f))};
     glm::quat pitch{
-        glm::angleAxis(glm::radians(static_cast<float>(m_DyRot * sensitivity)),
+        glm::angleAxis(glm::radians(static_cast<float>(-m_DyRot * sensitivity)),
                        glm::vec3(1.f, 0.f, 0.f))};
 
     camTC.rotation = glm::normalize(yaw * camTC.rotation * pitch);
@@ -115,7 +120,7 @@ void SYN::CameraSystem::onUpdate(float dt) {
 void SYN::CameraSystem::onRender() {}
 
 void SYN::CameraSystem::init(EngineContext *ctx) {
-    Window *window = ctx->window.get();
+    m_Window = ctx->window.get();
     m_SceneManager = ctx->sceneManager.get();
 
     std::optional<SYN::InputContextHandle> gameplayHandle{
@@ -151,7 +156,7 @@ void SYN::CameraSystem::init(EngineContext *ctx) {
 
     gameplayCtx->addInputVectorCallback("GroundMovement",
                                         [&](float x, float z) {
-                                            m_Dx = -x;
+                                            m_Dx = x;
                                             m_Dz = z;
                                         });
 
@@ -162,9 +167,9 @@ void SYN::CameraSystem::init(EngineContext *ctx) {
                                        }
 
                                        if (m_CursorHidden) {
-                                           window->enableCursor();
+                                           m_Window->enableCursor();
                                        } else {
-                                           window->disableCursor();
+                                           m_Window->disableCursor();
                                        }
                                        m_CursorHidden = !m_CursorHidden;
                                    });

@@ -20,6 +20,7 @@ class CameraSystem : public ILayer {
 
   private:
     class SceneManager *m_SceneManager;
+    class Window *m_Window;
     float m_Dx;
     float m_Dy;
     float m_Dz;
