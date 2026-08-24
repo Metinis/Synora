@@ -84,11 +84,6 @@ class GraphicsScene : public SYN::ILayer {
 
         m_Renderer->setDirectionalLight(m_Light);
 
-        m_Camera.fovYDegrees = 90.0f;
-        m_Camera.target = glm::vec3(0.0f);
-        m_CameraSpeed = 1.0f;
-        m_CameraDistance = 20.0f;
-
         SYN::UUID nx =
             assetManager
                 ->load<SYN::TextureData>("resources/assets/GhibliSkybox/nx.png")
@@ -267,7 +262,7 @@ class GraphicsScene : public SYN::ILayer {
         cameraEntity.addComponent<SYN::CameraComponent>();
         auto &cameraTransform =
             cameraEntity.getComponent<SYN::TransformComponent>();
-        cameraTransform.position = glm::vec3(0.0f, 0.0f, m_CameraDistance);
+        cameraTransform.position = glm::vec3(0.0f, 0.0f, 20.0f);
         auto &camera = cameraEntity.getComponent<SYN::CameraComponent>();
         camera.isPrimary = true;
 
@@ -361,15 +356,6 @@ class GraphicsScene : public SYN::ILayer {
                     m_SceneManager->switchTo(m_SphereScene);
                 }
             }
-        }
-        ImGui::End();
-
-        if (ImGui::Begin("Camera")) {
-            ImGui::SliderFloat("Speed", &m_CameraSpeed, 0.0f, 10.0f);
-            ImGui::SliderFloat("Distance", &m_CameraDistance, 0.01f, 50.0f);
-            ImGui::SliderFloat("FOV", &m_Camera.fovYDegrees, 45.0f, 100.0f);
-            ImGui::SliderFloat("Yaw", &m_Yaw, -360.0f, 360.0f);
-            ImGui::SliderFloat("Pitch", &m_Pitch, -90.0f, 90.0f);
         }
         ImGui::End();
 
@@ -530,12 +516,8 @@ class GraphicsScene : public SYN::ILayer {
     std::vector<uint32_t> m_CSMLayers;
 
     int m_EnvironmentIdx = 0;
-    gl::Camera m_Camera;
-    float m_CameraDistance;
-    float m_CameraSpeed;
     float m_Gamma = 2.2f;
     float m_Exposure = 1.0f;
-    float m_Yaw = 0.0f, m_Pitch = 0.0f;
     float m_RenderScale = 0.7f;
 
     // Animation controls
