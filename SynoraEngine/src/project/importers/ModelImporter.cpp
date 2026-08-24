@@ -231,7 +231,7 @@ bool ModelImporter::load(std::filesystem::path filepath, ModelData &asset,
     m_Scene = importer.ReadFile(
         filepath.string(),
         aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
-            aiProcess_GenNormals | aiProcess_CalcTangentSpace |
+            aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace |
             aiProcess_FlipUVs | aiProcess_LimitBoneWeights);
 
     if (m_Scene == nullptr || m_Scene->mRootNode == nullptr) {
