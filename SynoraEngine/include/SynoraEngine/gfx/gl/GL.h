@@ -400,6 +400,7 @@ struct Camera {
     float fovYDegrees = 60.0f;
     float nearPlane = 0.1f;
     float farPlane = 500.0f;
+    float aspect = 1.0f;
 };
 
 struct DirectionalLight {
@@ -801,8 +802,6 @@ class Renderer : public IRenderViewBackend {
     void submitFrame(const RenderView3D &sceneDescription) override;
     void drawScene() override;
 
-    void init(Context &context, class AssetManager *assetManager);
-
     void createEnvironment(Context &context, std::string_view name,
                            const Environment &enviroment);
     Environment *getEnvironmentRefMut(std::string_view name);
@@ -841,6 +840,8 @@ class Renderer : public IRenderViewBackend {
 
   private:
     class AssetManager *m_AssetManager = nullptr;
+    Context *m_Context = nullptr;
+    class Window *m_Window = nullptr;
 
     struct ResourceHandle {
         std::variant<Handle<Model>, Handle<Texture>> handle;

@@ -12,6 +12,8 @@
 #include <GLFW/glfw3.h>
 // clang-format on
 
+#include <SynoraEngine/core/Window.h>
+
 #include <glm/gtc/type_ptr.hpp>
 #include <spdlog/spdlog.h>
 
@@ -23,6 +25,8 @@
 
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyOpenGL.hpp>
+
+#include <glm/gtx/matrix_decompose.hpp>
 
 struct {
     using UniformLocations = std::unordered_map<std::string_view, int>;
@@ -1912,15 +1916,73 @@ SYN::gfx::gl::RenderTechnique::setShaderFeature(uint32_t defaultFeature) {
 // More functions to tweak render settings, create environment maps for IBL,
 // etc.
 
-void SYN::gfx::gl::Renderer::init(EngineContext *context) {
-    init(*context->glContext.get(), context->projectConfig.assetManager.get());
-}
-
 // TODO: Submit proper render commands based on scene description
 void SYN::gfx::gl::Renderer::submitFrame(const RenderView3D &sceneDescription) {
+    uint32_t modelCount = sceneDescription.models.size();
+
+    Camera sceneCamera;
+    auto cameraIt = std::find_if(
+        sceneDescription.cameras.cbegin(), sceneDescription.cameras.cend(),
+        [](const CameraView &camera) { return camera.isPrimary; });
+    if (cameraIt != sceneDescription.cameras.cend()) {
+        sceneCamera.fovYDegrees = cameraIt->fov;
+        sceneCamera.nearPlane = cameraIt->near;
+        sceneCamera.farPlane = cameraIt->far;
+        sceneCamera.aspect = cameraIt->aspect;
+
+        glm::vec3 pos, scale, skew;
+        glm::quat orientation;
+        glm::vec4 perspective;
+
+        glm::decompose(cameraIt->worldTransform, scale, orientation, pos, skew,
+                       perspective);
+
+        sceneCamera.position = pos;
+        sceneCamera.target = pos + (orientation * glm::vec3(0.0f, 0.0f, -1.0f));
+        sceneCamera.up = orientation * sceneCamera.up;
+    }
+    beginFrame(sceneCamera);
+
+    std::unordered_map<uint32_t, std::vector<MaterialView>> materialMap;
+    std::unordered_map<uint32_t, std::span<const glm::mat4>> animationMap;
+    for (uint32_t i = 0; i < modelCount; ++i) {
+        for (const MaterialView &material : sceneDescription.materials) {
+            if (material.modelIndex != i)
+                continue;
+            materialMap[i].emplace_back(material);
+        }
+        for (const AnimationView &animation : sceneDescription.animations) {
+            if (animation.modelIndex != i)
+                continue;
+            animationMap[i] = animation.boneMatrices;
+        }
+    }
+
+    for (uint32_t i = 0; i < modelCount; ++i) {
+        UUID model = sceneDescription.models.at(i);
+        glm::mat4 transform = sceneDescription.transforms.at(i);
+
+        std::vector<MaterialOverride> materialOverride;
+        if (auto it = materialMap.find(i); it != materialMap.cend()) {
+            for (const MaterialView &view : it->second) {
+                materialOverride.emplace_back(view.meshIndex, view.material);
+            }
+        }
+
+        std::span<const glm::mat4> boneMatrices;
+        if (auto it = animationMap.find(i); it != animationMap.cend()) {
+            boneMatrices = it->second;
+        }
+
+        submit(*m_Context, model, transform, materialOverride, boneMatrices);
+    }
 }
 
-void SYN::gfx::gl::Renderer::drawScene() {}
+void SYN::gfx::gl::Renderer::drawScene() {
+    auto [width, height] = m_Window->getScreenSize();
+    resize(width, height);
+    endFrame(*m_Context);
+}
 
 SYN::gfx::gl::Renderer::Renderer(const RendererConfig &config) {
     m_RenderConfig = config;
@@ -2361,24 +2423,32 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
         });
 }
 
-void SYN::gfx::gl::Renderer::init(Context &context,
-                                  AssetManager *assetManager) {
-    if (assetManager == nullptr) {
+void SYN::gfx::gl::Renderer::init(EngineContext *engineContext) {
+    if (engineContext == nullptr) {
+        spdlog::critical(
+            "Cannot initialize renderer as engine context is NULL.");
+        return;
+    }
+    if (engineContext->projectConfig.assetManager == nullptr) {
         spdlog::critical("Cannot pass NULL asset manager to renderer.");
         return;
     }
-    m_AssetManager = assetManager;
-    initShaderCache();
-    initDefaultUBOs(context);
-    createScreenQuad(context);
-    createHdrShader(context);
-    createDefaultPrefilterMap(context);
-    createDefaultIrradianceMap(context);
-    createSkybox(context);
-    createCSM(context);
-    createTextureDefaults(context);
 
-    m_BRDFLut = createBRDFLut(context);
+    m_Context = engineContext->glContext.get();
+    m_Window = engineContext->window.get();
+    m_AssetManager = engineContext->projectConfig.assetManager.get();
+
+    initShaderCache();
+    initDefaultUBOs(*m_Context);
+    createScreenQuad(*m_Context);
+    createHdrShader(*m_Context);
+    createDefaultPrefilterMap(*m_Context);
+    createDefaultIrradianceMap(*m_Context);
+    createSkybox(*m_Context);
+    createCSM(*m_Context);
+    createTextureDefaults(*m_Context);
+
+    m_BRDFLut = createBRDFLut(*m_Context);
 
     createZPrepassTechnique();
     createForwardPassTechnique();
@@ -3020,8 +3090,7 @@ void SYN::gfx::gl::Renderer::endFrame(Context &context) {
                                          m_MainCamera.target, m_MainCamera.up);
 
     glm::mat4 projMatrix = glm::perspectiveRH_NO(
-        glm::radians(m_MainCamera.fovYDegrees),
-        (float)renderViewport.width / renderViewport.height,
+        glm::radians(m_MainCamera.fovYDegrees), m_MainCamera.aspect,
         m_MainCamera.nearPlane, m_MainCamera.farPlane);
 
     updateMsaaFramebuffer(context);
@@ -3210,10 +3279,9 @@ SYN::gfx::gl::Renderer::planesFromCameraFrustum(const Camera &camera) {
     glm::mat4 viewMatrix =
         glm::lookAtRH(camera.position, camera.target, camera.up);
 
-    auto [width, height] = getRenderResolution();
-    glm::mat4 projMatrix = glm::perspectiveRH_NO(
-        glm::radians(camera.fovYDegrees), (float)width / height,
-        camera.nearPlane, camera.farPlane);
+    glm::mat4 projMatrix =
+        glm::perspectiveRH_NO(glm::radians(camera.fovYDegrees), camera.aspect,
+                              camera.nearPlane, camera.farPlane);
 
     // Transpose because math below assumes row major
     glm::mat4 vp = glm::transpose(projMatrix * viewMatrix);
@@ -3249,10 +3317,9 @@ SYN::gfx::gl::Renderer::getFrustumCornersWorldSpace(const Camera &camera) {
     glm::mat4 viewMatrix =
         glm::lookAtRH(camera.position, camera.target, camera.up);
 
-    auto [width, height] = getRenderResolution();
-    glm::mat4 projMatrix = glm::perspectiveRH_NO(
-        glm::radians(camera.fovYDegrees), (float)width / height,
-        camera.nearPlane, camera.farPlane);
+    glm::mat4 projMatrix =
+        glm::perspectiveRH_NO(glm::radians(camera.fovYDegrees), camera.aspect,
+                              camera.nearPlane, camera.farPlane);
 
     glm::mat4 viewProjectionInverse = glm::inverse(projMatrix * viewMatrix);
     std::vector<glm::vec4> frustumCorners;
