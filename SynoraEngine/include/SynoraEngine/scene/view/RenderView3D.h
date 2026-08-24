@@ -11,6 +11,7 @@ struct CameraView {
     float aspect;
     float near;
     float far;
+    bool isPrimary;
 };
 
 struct MaterialView {
