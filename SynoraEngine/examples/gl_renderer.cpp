@@ -15,6 +15,9 @@
 #include <SynoraEngine/project/assets/ModelData.h>
 #include <SynoraEngine/project/assets/TextureData.h>
 #include <SynoraEngine/scene/3d/AnimationPlayer.h>
+#include <SynoraEngine/scene/SceneManager.h>
+
+#include <SynoraEngine/scene/components/Components.h>
 
 using namespace SYN::gfx;
 
@@ -30,6 +33,7 @@ class GraphicsScene : public SYN::ILayer {
     void init(SYN::EngineContext *engineContext) {
         m_Context = engineContext->glContext.get();
         m_Window = engineContext->window.get();
+        m_SceneManager = engineContext->sceneManager.get();
 
         m_Context->enableVSync(false);
 
@@ -37,6 +41,9 @@ class GraphicsScene : public SYN::ILayer {
             engineContext->projectConfig.assetManager.get();
 
         m_Renderer = static_cast<gl::Renderer *>(engineContext->renderer.get());
+
+        m_SphereScene = m_SceneManager->createScene("Sphere");
+        m_CabinScene = m_SceneManager->createScene("Cabin");
 
         m_Renderer->setRenderScale(0.7f);
 
@@ -64,10 +71,6 @@ class GraphicsScene : public SYN::ILayer {
                                  "resources/assets/dancer.glb", "dancerAnim")
                              .value()};
 
-        m_DancerPlayer = SYN::AnimationPlayer(assetManager);
-        assert(m_DancerClips.size() > 0 && "Unable to load dancer animations!");
-        m_DancerPlayer.setClip(m_DancerClips[0]);
-
         m_Parasite =
             assetManager->load<SYN::ModelData>("resources/assets/parasite.glb")
                 .value();
@@ -77,12 +80,7 @@ class GraphicsScene : public SYN::ILayer {
                               .value();
         assert(m_ParasiteClips.size() > 0 &&
                "Unable to load parasite animations!");
-        m_ParasitePlayer = SYN::AnimationPlayer(assetManager);
-        m_ParasitePlayer.setClip(m_ParasiteClips[0]);
-        m_ParasitePlayer.setTargetClip(m_ParasiteClips[1]);
         m_Weight = 0.0f;
-        m_ParasitePlayer.setLoop(true);
-        m_ParasitePlayer.play();
 
         m_Renderer->setDirectionalLight(m_Light);
 
@@ -175,6 +173,11 @@ class GraphicsScene : public SYN::ILayer {
                 m_AssetManager->add<SYN::MaterialData>(data, data.name);
             }
         }
+
+        createSphereScene();
+        createCabinScene();
+
+        m_SceneManager->switchTo(m_SphereScene);
     }
 
     void onUpdate(float dt) override {
@@ -186,72 +189,87 @@ class GraphicsScene : public SYN::ILayer {
             m_FrameAvg += history;
         m_FrameAvg /= 120.0f;
 
-        m_DancerPlayer.update(m_Dancer, dt);
-        m_ParasitePlayer.update(m_Parasite, dt);
+        auto updateSceneCamera = [&](SYN::SceneHandle sceneHandle) {
+            SYN::Scene *scene = m_SceneManager->getSceneMut(sceneHandle);
+            scene->forEach<SYN::CameraComponent>(
+                [&](SYN::Entity e, SYN::CameraComponent &camera) {
+                    auto [w, h] = m_Window->getScreenSize();
+                    camera.aspectRatio = (float)w / h;
+                });
+        };
+
+        updateSceneCamera(m_SphereScene);
+        updateSceneCamera(m_CabinScene);
     }
 
-    void setCameraRotation() {
-        glm::mat3 rotMatrix = glm::mat3(glm::rotate(
-            glm::mat4(1.0f), glm::radians(-m_Yaw), glm::vec3(0.0f, 1.0f, 0.0)));
+    void createCabinScene() {
+        SYN::Scene *cabinScene = m_SceneManager->getSceneMut(m_CabinScene);
 
-        rotMatrix =
-            glm::mat3(glm::rotate(glm::mat4(rotMatrix), glm::radians(-m_Pitch),
-                                  glm::vec3(1.0f, 0.0f, 0.0)));
+        SYN::Entity cameraEntity = cabinScene->createEntity("Camera");
 
-        m_Camera.up = rotMatrix * glm::vec3(0.0, 1.0, 0.0);
-        m_Camera.target =
-            m_Camera.position + rotMatrix * glm::vec3(0.0, 0.0, -1.0f);
-    }
+        auto &camera = cameraEntity.addComponent<SYN::CameraComponent>();
+        camera.isPrimary = true;
 
-    void renderCabin() {
+        SYN::Entity cabinEntity = cabinScene->createEntity("Cabin");
+        cabinEntity.addComponent<SYN::ModelComponent>(
+            m_AssetManager->acquire(m_Cabin));
 
-        double time = glfwGetTime();
-
-        if (m_CameraSpeed != 0.0f) {
-            m_Camera.position =
-                glm::vec3(cos(time * m_CameraSpeed) * m_CameraDistance, 1.85,
-                          sin(time * m_CameraSpeed) * m_CameraDistance);
-        } else {
-            m_Camera.position =
-                glm::normalize(m_Camera.position) * m_CameraDistance;
+        {
+            SYN::Entity walterEntity = cabinScene->createEntity("Walter");
+            walterEntity.addComponent<SYN::ModelComponent>(
+                m_AssetManager->acquire(m_Waltuh));
+            auto &transform =
+                walterEntity.getComponent<SYN::TransformComponent>();
+            transform.position = glm::vec3(-10.0f, 0.0f, 0.0f);
         }
 
-        setCameraRotation();
+        {
+            SYN::Entity dancerEntity = cabinScene->createEntity("Dancer");
+            dancerEntity.addComponent<SYN::ModelComponent>(
+                m_AssetManager->acquire(m_Dancer));
+            auto &player =
+                dancerEntity.addComponent<SYN::SkeletalAnimationComponent>(
+                    m_AssetManager);
+            player.player.setClip(m_DancerClips[0]);
 
-        auto [screenWidth, screenHeight] = m_Window->getScreenSize();
+            m_DancerPlayer = &player.player;
 
-        m_Renderer->resize(screenWidth, screenHeight);
-        m_Renderer->beginFrame(m_Camera);
-        m_Renderer->submit(*m_Context, m_Cabin, glm::mat4(1.0));
+            auto &transform =
+                dancerEntity.getComponent<SYN::TransformComponent>();
+            transform.position = glm::vec3(-10.0f, 0.0f, 3.0f);
+        }
 
-        m_Renderer->submit(
-            *m_Context, m_Waltuh,
-            glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 0.0f)));
+        {
+            SYN::Entity parasiteEntity = cabinScene->createEntity("Parasite");
+            parasiteEntity.addComponent<SYN::ModelComponent>(
+                m_AssetManager->acquire(m_Parasite));
+            auto &player =
+                parasiteEntity.addComponent<SYN::SkeletalAnimationComponent>(
+                    m_AssetManager);
+            player.player.setClip(m_ParasiteClips[0]);
+            player.player.setTargetClip(m_ParasiteClips[1]);
+            player.player.setLoop(true);
+            player.player.play();
 
-        glm::mat4 dancerTransform =
-            glm::translate(glm::mat4(1.0f), glm::vec3(-10.0f, 0.0f, 3.0f));
+            m_ParasitePlayer = &player.player;
 
-        m_Renderer->submit(*m_Context, m_Dancer, dancerTransform, {},
-                           m_DancerPlayer.getOutput());
-
-        glm::mat4 parasiteTransform =
-            glm::translate(glm::mat4(1.0f), glm::vec3(-8.0f, 0.0f, 1.5f));
-
-        m_Renderer->submit(*m_Context, m_Parasite, parasiteTransform, {},
-                           m_ParasitePlayer.getOutput());
-
-        m_Renderer->endFrame(*m_Context);
+            auto &transform =
+                parasiteEntity.getComponent<SYN::TransformComponent>();
+            transform.position = glm::vec3(-8.0f, 0.0f, 1.5f);
+        }
     }
 
-    void renderSpheres() {
-        m_Camera.position = glm::vec3(0.0f, 0.0, m_CameraDistance);
+    void createSphereScene() {
 
-        setCameraRotation();
+        SYN::Scene *sphereScene = m_SceneManager->getSceneMut(m_SphereScene);
+        SYN::Entity cameraEntity = sphereScene->createEntity("Camera");
 
-        auto [screenWidth, screenHeight] = m_Window->getScreenSize();
-
-        m_Renderer->resize(screenWidth, screenHeight);
-        m_Renderer->beginFrame(m_Camera);
+        cameraEntity.addComponent<SYN::CameraComponent>();
+        auto &cameraTransform =
+            cameraEntity.getComponent<SYN::TransformComponent>();
+        cameraTransform.position = glm::vec3(0.0f, 0.0f, m_CameraDistance);
+        auto &camera = cameraEntity.getComponent<SYN::CameraComponent>();
+        camera.isPrimary = true;
 
         for (int row = 0; row < 7; ++row) {
             for (int column = 0; column < 7; ++column) {
@@ -262,23 +280,22 @@ class GraphicsScene : public SYN::ILayer {
                                             "DefaultMat{}{}", row, column))
                                         .value();
 
-                m_Renderer->submit(*m_Context, m_Sphere,
-                                   glm::translate(glm::mat4(1.0f), position),
-                                   std::array<gl::MaterialOverride, 1>{
-                                       gl::MaterialOverride{0, matUUID}});
+                SYN::Entity entity = sphereScene->createEntity(
+                    std::format("Sphere{}{}", row, column));
+                entity.addComponent<SYN::ModelComponent>(
+                    m_AssetManager->acquire(m_Sphere));
+                entity.addComponent<SYN::MaterialComponent>(
+                    SYN::MaterialComponent{
+                        {{m_AssetManager->acquire(matUUID), 0}}});
+                SYN::TransformComponent &transform =
+                    entity.getComponent<SYN::TransformComponent>();
+                transform.position = position;
             }
         }
-
-        m_Renderer->endFrame(*m_Context);
     }
 
-    void onRender() override {
-        if (m_RenderMode == "Cabin") {
-            renderCabin();
-        } else if (m_RenderMode == "Sphere") {
-            renderSpheres();
-        }
-    }
+    void onRender() override {}
+
     void onUIRender() override {
         if (ImGui::Begin("Renderer Config")) {
             const char *aa[] = {"None", "FXAA", "MSAA 2x", "MSAA 4x",
@@ -338,7 +355,11 @@ class GraphicsScene : public SYN::ILayer {
             const char *renderMode[] = {"Cabin", "Sphere"};
             if (ImGui::Combo("Render mode", &m_RenderModeIdx, renderMode,
                              IM_ARRAYSIZE(renderMode))) {
-                m_RenderMode = renderMode[m_RenderModeIdx];
+                if (m_RenderModeIdx == 0) {
+                    m_SceneManager->switchTo(m_CabinScene);
+                } else {
+                    m_SceneManager->switchTo(m_SphereScene);
+                }
             }
         }
         ImGui::End();
@@ -397,46 +418,46 @@ class GraphicsScene : public SYN::ILayer {
         ImGui::End();
 
         if (ImGui::Begin("Animation Control")) {
-            bool isPlaying = m_DancerPlayer.isPlaying();
+            bool isPlaying = m_DancerPlayer->isPlaying();
             if (ImGui::Button(isPlaying ? "Pause" : "Play")) {
-                if (m_DancerPlayer.isPlaying()) {
-                    m_DancerPlayer.stop();
+                if (m_DancerPlayer->isPlaying()) {
+                    m_DancerPlayer->stop();
                 } else {
-                    m_DancerPlayer.play();
+                    m_DancerPlayer->play();
                 }
             }
             if (ImGui::Checkbox("Toggle loop", &m_IsLooping)) {
-                m_DancerPlayer.setLoop(m_IsLooping);
+                m_DancerPlayer->setLoop(m_IsLooping);
             }
 
             ImGui::Text("Blending (Parasite)");
             ImGui::Separator();
 
             if (ImGui::Button("Reset")) {
-                m_ParasitePlayer.setLoop(true);
-                m_ParasitePlayer.setClip(m_ParasiteClips[0]);
-                m_ParasitePlayer.setTargetClip(m_ParasiteClips[1]);
-                m_ParasitePlayer.play(0);
+                m_ParasitePlayer->setLoop(true);
+                m_ParasitePlayer->setClip(m_ParasiteClips[0]);
+                m_ParasitePlayer->setTargetClip(m_ParasiteClips[1]);
+                m_ParasitePlayer->play(0);
             }
 
             if (ImGui::SliderFloat("Blend weight", &m_Weight, 0.0f, 1.0f)) {
-                m_ParasitePlayer.setBlendWeight(m_Weight);
+                m_ParasitePlayer->setBlendWeight(m_Weight);
             }
 
             ImGui::SliderFloat("Crossfade Duration", &m_CrossfadeDuration, 0.0f,
                                10.0f);
 
             if (ImGui::Button("Crossfade Idle to Run")) {
-                m_ParasitePlayer.setClip(m_ParasiteClips[0]);
-                m_ParasitePlayer.crossfadeTo(m_ParasiteClips[1],
-                                             m_CrossfadeDuration);
+                m_ParasitePlayer->setClip(m_ParasiteClips[0]);
+                m_ParasitePlayer->crossfadeTo(m_ParasiteClips[1],
+                                              m_CrossfadeDuration);
             }
 
             ImGui::SliderFloat("Ease in", &m_EaseIn, 0.0f, 10.0f);
             ImGui::SliderFloat("Ease out", &m_EaseOut, 0.0f, 10.0f);
             if (ImGui::Button("Run to dance to idle")) {
-                m_ParasitePlayer.setClip(m_ParasiteClips[1]);
-                m_ParasitePlayer.playOneShot(
+                m_ParasitePlayer->setClip(m_ParasiteClips[1]);
+                m_ParasitePlayer->playOneShot(
                     m_DancerClips[0], m_ParasiteClips[0], m_EaseIn, m_EaseOut);
             }
         }
@@ -474,7 +495,11 @@ class GraphicsScene : public SYN::ILayer {
     gl::Context *m_Context;
     SYN::Window *m_Window;
     gl::Renderer *m_Renderer;
+    SYN::SceneManager *m_SceneManager;
     SYN::AssetManager *m_AssetManager;
+
+    SYN::SceneHandle m_CabinScene;
+    SYN::SceneHandle m_SphereScene;
 
     float m_FrameHistory[120] = {};
     int m_FrameIdx = 0;
@@ -483,11 +508,11 @@ class GraphicsScene : public SYN::ILayer {
 
     SYN::UUID m_Dancer;
     std::vector<SYN::UUID> m_DancerClips;
-    SYN::AnimationPlayer m_DancerPlayer;
+    SYN::AnimationPlayer *m_DancerPlayer;
 
     SYN::UUID m_Parasite;
     std::vector<SYN::UUID> m_ParasiteClips;
-    SYN::AnimationPlayer m_ParasitePlayer;
+    SYN::AnimationPlayer *m_ParasitePlayer;
     float m_Weight = 0.0f;
     float m_CrossfadeDuration = 0.0f;
 
