@@ -26,6 +26,15 @@ void RenderViewBuilder::onRender() {
     Scene *scene = m_SceneManager->getSceneMut(currentSceneHandle);
 
     RenderView3D renderView;
+
+    scene->forEach<CameraComponent>([&](Entity entity,
+                                        CameraComponent &camera) {
+        glm::mat4 worldTransform = scene->getWorldTransformOf(entity);
+        renderView.cameras.emplace_back(worldTransform, camera.fovDegrees,
+                                        camera.aspectRatio, camera.nearPlane,
+                                        camera.farPlane, camera.isPrimary);
+    });
+
     scene->forEach<ModelComponent, TransformComponent>(
         [&](Entity entity, ModelComponent &model,
             TransformComponent &transform) {
