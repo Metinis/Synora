@@ -130,6 +130,7 @@ void Application::run() {
             context->flushDeferredDeletes();
         }
         m_EngineContext.renderer->onEndFrame();
+        m_EngineContext.projectConfig.assetManager->resolvePendingDeletions();
         FrameMark;
     }
 }
