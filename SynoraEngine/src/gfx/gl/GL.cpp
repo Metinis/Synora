@@ -3597,7 +3597,7 @@ glm::mat4 SYN::gfx::gl::Renderer::calculateTightLightFrustum(
         maxZ = glm::max(maxZ, pLight.z);
     }
 
-    maxZ += halfBound * 3.5f;
+    maxZ += halfBound * 1.5f;
     minZ -= halfBound * 0.5f;
 
     glm::mat4 lightProjection = glm::orthoRH_NO(
