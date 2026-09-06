@@ -119,7 +119,7 @@ SYN::InputContext::getBindings(RawInputType type) {
 }
 
 std::variant<float, std::tuple<float, float>>
-getAxisDelta(SYN::RawInput input) {
+getVectorDelta(SYN::RawInput input) {
     switch (input.inputType) {
     case SYN::RawInputType::Key:
         return input.state == SYN::InputState::Down ? 1.0f : -1.0f;
@@ -130,88 +130,90 @@ getAxisDelta(SYN::RawInput input) {
         return std::make_tuple((float)mouseDelta.dx, (float)mouseDelta.dy);
     }
     default: {
-        spdlog::warn("Mapped invalid trigger to axis delta. Only supports: "
+        spdlog::warn("Mapped invalid trigger to vector delta. Only supports: "
                      "Key, mouse button, or mouse delta.");
         return 0.0f;
     }
     }
 }
 
-void SYN::InputContext::updateAxisWithDiscreteDelta(
-    const std::string &vectorAxisName, ActionID action,
-    InputContext::VectorAxis &vectorAxis, float delta) {
-    if (vectorAxis.up && vectorAxis.up.value() == action) {
-        vectorAxis.y += delta;
+void SYN::InputContext::updateInputVectorWithDiscreteDelta(
+    const std::string &inputVectorName, ActionID action,
+    InputContext::InputVector &inputVector, float delta) {
+    if (inputVector.up && inputVector.up.value() == action) {
+        inputVector.y += delta;
     }
-    if (vectorAxis.down && vectorAxis.down.value() == action) {
-        vectorAxis.y -= delta;
+    if (inputVector.down && inputVector.down.value() == action) {
+        inputVector.y -= delta;
     }
-    if (vectorAxis.right && vectorAxis.right.value() == action) {
-        vectorAxis.x += delta;
+    if (inputVector.right && inputVector.right.value() == action) {
+        inputVector.x += delta;
     }
-    if (vectorAxis.left && vectorAxis.left.value() == action) {
-        vectorAxis.x -= delta;
+    if (inputVector.left && inputVector.left.value() == action) {
+        inputVector.x -= delta;
     }
 
-    float axisLength2 =
-        vectorAxis.x * vectorAxis.x + vectorAxis.y * vectorAxis.y;
+    float vectorLength2 =
+        inputVector.x * inputVector.x + inputVector.y * inputVector.y;
 
-    const std::vector<VectorAxisCallback> &vectorAxisCallbacks =
-        m_VectorAxisCallbacks.at(vectorAxisName);
+    const std::vector<InputVectorCallback> &inputVectorCallbacks =
+        m_InputVectorCallbacks.at(inputVectorName);
 
-    if (axisLength2 == 0.0f || axisLength2 == 1.0f) {
-        for (const VectorAxisCallback &vectorAxisCallback :
-             vectorAxisCallbacks) {
-            vectorAxisCallback(vectorAxis.x, vectorAxis.y);
+    if (vectorLength2 == 0.0f || vectorLength2 == 1.0f) {
+        for (const InputVectorCallback &inputVectorCallback :
+             inputVectorCallbacks) {
+            inputVectorCallback(inputVector.x, inputVector.y);
         }
         return;
     }
 
-    float axisLength = std::sqrt(axisLength2);
+    float vectorLength = std::sqrt(vectorLength2);
 
-    float normalizedX = vectorAxis.x / axisLength;
-    float normalizedY = vectorAxis.y / axisLength;
+    float normalizedX = inputVector.x / vectorLength;
+    float normalizedY = inputVector.y / vectorLength;
 
-    for (const VectorAxisCallback &vectorAxisCallback : vectorAxisCallbacks) {
-        vectorAxisCallback(normalizedX, normalizedY);
+    for (const InputVectorCallback &inputVectorCallback :
+         inputVectorCallbacks) {
+        inputVectorCallback(normalizedX, normalizedY);
     }
 }
 
-void SYN::InputContext::updateAxisWithMouseDelta(
-    const std::string &vectorAxisName, SYN::ActionID action,
-    SYN::InputContext::VectorAxis &vectorAxis, float dx, float dy) {
+void SYN::InputContext::updateInputVectorWithMouseDelta(
+    const std::string &inputVectorName, SYN::ActionID action,
+    SYN::InputContext::InputVector &inputVector, float dx, float dy) {
 
-    vectorAxis.x += dx;
-    vectorAxis.y += dy;
+    inputVector.x += dx;
+    inputVector.y += dy;
 
-    const std::vector<VectorAxisCallback> &vectorAxisCallbacks =
-        m_VectorAxisCallbacks.at(vectorAxisName);
+    const std::vector<InputVectorCallback> &inputVectorCallbacks =
+        m_InputVectorCallbacks.at(inputVectorName);
 
-    for (const VectorAxisCallback &vectorAxisCallback : vectorAxisCallbacks) {
-        vectorAxisCallback(vectorAxis.x, vectorAxis.y);
+    for (const InputVectorCallback &inputVectorCallback :
+         inputVectorCallbacks) {
+        inputVectorCallback(inputVector.x, inputVector.y);
     }
 }
 
-void SYN::InputContext::updateVectorAxes(ActionID action, RawInput input) {
-    if (auto actionIterator = m_ActionToVectorAxis.find(action);
-        actionIterator != m_ActionToVectorAxis.cend()) {
-        for (const std::string &vectorAxisName : actionIterator->second) {
-            VectorAxis &vectorAxis = m_VectorAxes.at(vectorAxisName);
+void SYN::InputContext::updateInputVectors(ActionID action, RawInput input) {
+    if (auto actionIterator = m_ActionToInputVector.find(action);
+        actionIterator != m_ActionToInputVector.cend()) {
+        for (const std::string &inputVectorName : actionIterator->second) {
+            InputVector &inputVector = m_InputVectors.at(inputVectorName);
 
             std::variant<float, std::tuple<float, float>> delta =
-                getAxisDelta(input);
+                getVectorDelta(input);
 
             std::visit(
                 [&](auto &&arg) {
                     using T = std::decay_t<decltype(arg)>;
                     if constexpr (std::is_same<T, float>()) {
-                        updateAxisWithDiscreteDelta(vectorAxisName, action,
-                                                    vectorAxis, arg);
+                        updateInputVectorWithDiscreteDelta(
+                            inputVectorName, action, inputVector, arg);
                     } else if constexpr (std::is_same<
                                              T, std::tuple<float, float>>()) {
                         auto &[dx, dy] = arg;
-                        updateAxisWithMouseDelta(vectorAxisName, action,
-                                                 vectorAxis, dx, dy);
+                        updateInputVectorWithMouseDelta(inputVectorName, action,
+                                                        inputVector, dx, dy);
                     }
                 },
                 delta);
@@ -250,7 +252,7 @@ void SYN::InputContext::onInputReceived(
                         [&](InputKey modifier) {
                             return keyStates[(Keycode)modifier];
                         })) {
-            updateVectorAxes(binding.action, input);
+            updateInputVectors(binding.action, input);
             onActionReceive(binding, input);
         }
     }
@@ -318,119 +320,126 @@ void SYN::InputContext::setConsumesInput(bool consumeInput) {
     m_ShouldConsumeInput = consumeInput;
 }
 
-void SYN::InputContext::addVectorAxis(
+void SYN::InputContext::addInputVector(
     const std::string &name,
-    const std::array<std::optional<ActionID>, 4> &axisActions) {
+    const std::array<std::optional<ActionID>, 4> &inputVectorActions) {
 
     std::vector<std::tuple<size_t, ActionID>> validActions;
 
-    for (size_t i = 0; i < axisActions.size(); ++i) {
-        if (axisActions[i].has_value()) {
+    for (size_t i = 0; i < inputVectorActions.size(); ++i) {
+        if (inputVectorActions[i].has_value()) {
             validActions.emplace_back(
-                std::make_tuple(i, axisActions[i].value()));
+                std::make_tuple(i, inputVectorActions[i].value()));
         }
     }
 
     if (validActions.empty())
         return;
 
-    VectorAxis newVectorAxis{};
+    InputVector newInputVector{};
 
     for (const auto &[i, action] : validActions) {
         // 0: Up, 1: Down, 2: Right, 3: Left
         switch (i) {
         case 0:
-            newVectorAxis.up = action;
+            newInputVector.up = action;
             break;
         case 1:
-            newVectorAxis.down = action;
+            newInputVector.down = action;
             break;
         case 2:
-            newVectorAxis.right = action;
+            newInputVector.right = action;
             break;
         case 3:
-            newVectorAxis.left = action;
+            newInputVector.left = action;
             break;
         }
 
-        m_ActionToVectorAxis[action].push_back(name);
+        m_ActionToInputVector[action].push_back(name);
     }
 
-    m_VectorAxes[name] = newVectorAxis;
-    m_VectorAxisCallbacks[name] = std::vector<VectorAxisCallback>();
+    m_InputVectors[name] = newInputVector;
+    m_InputVectorCallbacks[name] = std::vector<InputVectorCallback>();
 }
 
-void SYN::InputContext::removeVectorAxisFromAction(const std::string &name) {
-    if (m_VectorAxes.find(name) == m_VectorAxes.cend())
+void SYN::InputContext::removeInputVectorFromAction(const std::string &name) {
+    if (m_InputVectors.find(name) == m_InputVectors.cend())
         return;
-    VectorAxis vectorAxis = m_VectorAxes.at(name);
-    if (vectorAxis.up) {
-        std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.up.value());
-        axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
+    InputVector inputVector = m_InputVectors.at(name);
+    if (inputVector.up) {
+        std::vector<std::string> &inputVectorList =
+            m_ActionToInputVector.at(inputVector.up.value());
+        inputVectorList.erase(
+            std::remove(inputVectorList.begin(), inputVectorList.end(), name));
     }
-    if (vectorAxis.down) {
-        std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.down.value());
-        axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
+    if (inputVector.down) {
+        std::vector<std::string> &inputVectorList =
+            m_ActionToInputVector.at(inputVector.down.value());
+        inputVectorList.erase(
+            std::remove(inputVectorList.begin(), inputVectorList.end(), name));
     }
-    if (vectorAxis.left) {
-        std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.left.value());
-        axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
+    if (inputVector.left) {
+        std::vector<std::string> &inputVectorList =
+            m_ActionToInputVector.at(inputVector.left.value());
+        inputVectorList.erase(
+            std::remove(inputVectorList.begin(), inputVectorList.end(), name));
     }
-    if (vectorAxis.right) {
-        std::vector<std::string> &axisList =
-            m_ActionToVectorAxis.at(vectorAxis.right.value());
-        axisList.erase(std::remove(axisList.begin(), axisList.end(), name));
-    }
-}
-
-void SYN::InputContext::removeVectorAxis(const std::string &name) {
-    if (auto vectorAxis = m_VectorAxes.find(name);
-        vectorAxis != m_VectorAxes.cend()) {
-        resetVectorAxis(name);
-        removeVectorAxisFromAction(name);
-        m_VectorAxes.erase(vectorAxis);
-        m_VectorAxisCallbacks.erase(name);
+    if (inputVector.right) {
+        std::vector<std::string> &inputVectorList =
+            m_ActionToInputVector.at(inputVector.right.value());
+        inputVectorList.erase(
+            std::remove(inputVectorList.begin(), inputVectorList.end(), name));
     }
 }
 
-bool SYN::InputContext::addVectorAxisCallback(
-    const std::string &name, const VectorAxisCallback &callback) {
-    if (m_VectorAxes.find(name) == m_VectorAxes.cend()) {
-        spdlog::error("Could not add vector axis callback because vector axis "
-                      "isn't registered.");
+void SYN::InputContext::removeInputVector(const std::string &name) {
+    if (auto inputVector = m_InputVectors.find(name);
+        inputVector != m_InputVectors.cend()) {
+        resetInputVector(name);
+        removeInputVectorFromAction(name);
+        m_InputVectors.erase(inputVector);
+        m_InputVectorCallbacks.erase(name);
+    }
+}
+
+bool SYN::InputContext::addInputVectorCallback(
+    const std::string &name, const InputVectorCallback &callback) {
+    if (m_InputVectors.find(name) == m_InputVectors.cend()) {
+        spdlog::error(
+            "Could not add input vector callback because input vector name"
+            "isn't registered.");
         return false;
     }
 
-    resetVectorAxis(name);
-    m_VectorAxisCallbacks[name] = {callback};
+    resetInputVector(name);
+    m_InputVectorCallbacks[name] = {callback};
     return true;
 }
 
 // Returns true if adding was successful, false if not.
-bool SYN::InputContext::addVectorAxisCallbacks(
-    const std::string &name, const std::vector<VectorAxisCallback> &callback) {
-    if (m_VectorAxes.find(name) == m_VectorAxes.cend()) {
-        spdlog::error("Could not add vector axis callback because vector axis "
-                      "isn't registered.");
+bool SYN::InputContext::addInputVectorCallbacks(
+    const std::string &name, const std::vector<InputVectorCallback> &callback) {
+    if (m_InputVectors.find(name) == m_InputVectors.cend()) {
+        spdlog::error(
+            "Could not add input vector callback because input vector "
+            "isn't registered.");
         return false;
     }
 
-    resetVectorAxis(name);
-    m_VectorAxisCallbacks[name] = callback;
+    resetInputVector(name);
+    m_InputVectorCallbacks[name] = callback;
     return true;
 }
 
-void SYN::InputContext::resetVectorAxis(const std::string &name) {
-    if (m_VectorAxisCallbacks.find(name) == m_VectorAxisCallbacks.cend())
+void SYN::InputContext::resetInputVector(const std::string &name) {
+    if (m_InputVectorCallbacks.find(name) == m_InputVectorCallbacks.cend())
         return;
 
-    const std::vector<VectorAxisCallback> axisCallbacks =
-        m_VectorAxisCallbacks.at(name);
+    const std::vector<InputVectorCallback> inputVectorCallbacks =
+        m_InputVectorCallbacks.at(name);
 
-    for (const VectorAxisCallback &axisCallback : axisCallbacks) {
-        axisCallback(0, 0);
+    for (const InputVectorCallback &inputVectorCallback :
+         inputVectorCallbacks) {
+        inputVectorCallback(0, 0);
     }
 }

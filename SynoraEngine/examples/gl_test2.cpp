@@ -294,8 +294,8 @@ std::optional<Model> loadModel(const std::string &path) {
 class GraphicsScene : public SYN::ILayer {
   public:
     void init(SYN::EngineContext *engineContext) {
-        m_Context = &engineContext->glContext.value();
-        m_WindowHandle = engineContext->window->getHandle();
+        m_Context = engineContext->glContext.get();
+        m_Window = engineContext->window.get();
         m_Model = loadModel("resources/assets/waltuh.glb").value();
         for (const Mesh &mesh : m_Model.meshes) {
             SYN::gfx::gl::Handle<SYN::gfx::gl::Buffer> modelVertexBuf =
@@ -447,8 +447,7 @@ class GraphicsScene : public SYN::ILayer {
     }
     void onRender() override {
         SYN::gfx::gl::Viewport vp;
-        int w, h;
-        glfwGetWindowSize(m_WindowHandle, &w, &h);
+        auto [w, h] = m_Window->getScreenSize();
         {
             SYN::gfx::gl::PipelineState pipeline;
             pipeline.shader = m_Shader;
@@ -524,7 +523,7 @@ class GraphicsScene : public SYN::ILayer {
   private:
     SYN::Scene *m_Scene;
     SYN::gfx::gl::Context *m_Context;
-    GLFWwindow *m_WindowHandle;
+    SYN::Window *m_Window;
     Model m_Model;
     int m_PostProcessMode = 0;
     SYN::gfx::gl::Handle<SYN::gfx::gl::Shader> m_Shader;

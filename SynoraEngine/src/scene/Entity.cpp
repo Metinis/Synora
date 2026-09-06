@@ -1,44 +1,77 @@
 #include "SynoraEngine/scene/Entity.h"
+#include "SynoraEngine/scene/Scene.h"
 
-using namespace SYN;
-Entity::Entity(SceneState *sceneState, entt::entity handle)
-    : m_Registry(&sceneState->registry), m_Handle(handle) {}
+#include <SynoraEngine/scene/components/ParentComponent.h>
+#include <SynoraEngine/scene/components/TransformComponent.h>
+#include <SynoraEngine/scene/components/UUIDComponent.h>
 
-// or if you wanna be more explicit
-Entity::Entity(entt::registry *registry, entt::entity handle)
-    : m_Registry(registry), m_Handle(handle) {}
+namespace SYN {
+Entity::Entity(Scene *sceneOwner, entt::registry *registry, entt::entity handle)
+    : m_SceneOwner(sceneOwner), m_Registry(registry), m_Handle(handle) {}
 
-void Entity::addParent(const ParentComp &pc) {
-    addComponent<ParentComp>(pc);
+bool Entity::isValid() const {
+    return m_Registry != nullptr && m_Handle != entt::null &&
+           m_SceneOwner != nullptr && m_Registry->valid(m_Handle);
 }
 
-/*ParentComp& Entity::addParent(UUID parentID) {
-    if (hasComponent<TransformComp>()) {
-        auto& tc = getComponent<TransformComp>();
-        auto parentE = m_Scene->getEntity(parentID);
+void Entity::setParent(Entity parent, bool preserveWorldTransform) {
+    if (!parent.isValid())
+        return;
 
-        if (parentE.isValid() && parentE.hasComponent<TransformComp>()) {
-            auto& ptc = parentE.getComponent<TransformComp>();
-            tc.localPosition =
-                glm::inverse(ptc.worldMatrix) *
-                glm::vec4(tc.localPosition, 1.0f);
+    if (parent.isDescendantOf(*this))
+        return;
+
+    glm::mat4 childTransform = m_SceneOwner->getWorldTransformOf(*this);
+    glm::mat4 parentTransform = m_SceneOwner->getWorldTransformOf(parent);
+
+    if (hasComponent<ParentComponent>())
+        removeComponent<ParentComponent>();
+
+    if (preserveWorldTransform) {
+        getComponent<TransformComponent>().setLocalMatrix(
+            glm::inverse(parentTransform) * childTransform);
+    }
+
+    addComponent<ParentComponent>(parent.getUUID());
+}
+
+UUID Entity::getUUID() const { return getComponent<UUIDComponent>().id; }
+
+void Entity::removeParent(bool preserveWorldTransform) {
+    if (preserveWorldTransform && hasComponent<TransformComponent>() &&
+        hasComponent<ParentComponent>()) {
+        auto &tc = getComponent<TransformComponent>();
+        auto &pc = getComponent<ParentComponent>();
+        auto parentE = m_SceneOwner->getEntity(pc.id);
+
+        if (parentE.isValid() && parentE.hasComponent<TransformComponent>()) {
+            tc.setLocalMatrix(m_SceneOwner->getWorldTransformOf(*this));
         }
     }
-    return m_Registry->emplace<ParentComp>(m_Handle, ParentComp{parentID});
-}*/
+    removeComponent<ParentComponent>();
+}
 
-/*void Entity::removeParent() {
-    if (hasComponent<TransformComp>() && hasComponent<ParentComp>()) {
-        auto& tc = getComponent<TransformComp>();
-        auto& pc = getComponent<ParentComp>();
-        auto parentE = m_Scene->getEntity(pc.parentID);
+bool Entity::isDescendantOf(Entity other) const {
+    if (!other.isValid())
+        return false;
 
-        if (parentE.isValid() && parentE.hasComponent<TransformComp>()) {
-            auto& ptc = parentE.getComponent<TransformComp>();
-            tc.localPosition =
-                ptc.worldMatrix *
-                glm::vec4(tc.localPosition, 1.0f);
-        }
+    if (!isValid())
+        return false;
+
+    if (!hasComponent<ParentComponent>())
+        return false;
+
+    auto current = *this;
+    while (current.hasComponent<ParentComponent>()) {
+        auto pid = current.getComponent<ParentComponent>().id;
+        if (pid == other.getComponent<UUIDComponent>().id)
+            return true;
+
+        current = m_SceneOwner->getEntity(pid);
+        if (!current.isValid())
+            break;
     }
-    m_Registry->remove<ParentComp>(m_Handle);
-}*/
+    return false;
+}
+
+} // namespace SYN

@@ -1,8 +1,7 @@
 #pragma once
 #include "SynoraEngine/project/AssetManager.h"
 #include "SynoraEngine/scene/Entity.h"
-
-#include <SynoraEngine/core/Layer.h>
+#include <SynoraEngine/core/ILayer.h>
 
 namespace SYN {
 struct EngineContext;
@@ -10,26 +9,28 @@ struct EngineContext;
 namespace SYE {
 struct PendingReparent {
     SYN::UUID child;
-    SYN::UUID newParent; //null UUID = unparent
+    SYN::UUID newParent; // null UUID = unparent
 };
 class EditorPanel : public SYN::ILayer {
-public:
+  public:
     EditorPanel() = default;
-    void init(SYN::EngineContext* ctx);
+    void init(SYN::EngineContext *ctx);
     void onUIRender() override;
-    void onAttach() override  {};
-    void onDettach() override  {};
-    void onRender() override  {};
+    void onAttach() override {};
+    void onDettach() override {};
+    void onRender() override {};
     void onUpdate(float dt) override {};
-    void drawEntityNode(SYN::Entity entity, std::vector<SYN::Entity>& deletionQueue);
+    void drawEntityNode(SYN::Entity entity,
+                        std::vector<SYN::Entity> &deletionQueue);
     void onScenePanelRender();
     void onInspectorPanelRender();
 
     ~EditorPanel() override;
-private:
+
+  private:
     SYN::Entity m_SelectedEntity{};
-    SYN::Scene* m_Scene{};
-    SYN::AssetManager* m_AssetManager{};
+    SYN::Scene *m_Scene{};
+    SYN::AssetManager *m_AssetManager{};
     std::optional<PendingReparent> m_PendingReparent;
 };
-}
+} // namespace SYE

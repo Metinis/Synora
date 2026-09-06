@@ -6,13 +6,14 @@
 #include <glm/gtc/quaternion.hpp>
 #include <unordered_map>
 
-#include "SynoraEngine/scene/Components.h"
+#include "SynoraEngine/project/UUID.h"
+#include "SynoraEngine/scene/components/TransformComponent.h"
 
 namespace SYN {
 class Window;
 
 struct Camera {
-    TransformComp transform;
+    TransformComponent transform;
     float fovDegrees;
     float aspectRatio;
     float nearPlane;

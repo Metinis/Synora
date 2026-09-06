@@ -66,7 +66,6 @@ static void simulateMouseScroll(SYN::Input &input, double x, double y) {
 int main() {
     std::unique_ptr<SYN::Application> app =
         std::make_unique<SYN::Application>();
-    app->init();
 
     std::unique_ptr<SYN::Input> &inputRef = app->GetInput();
 
@@ -87,7 +86,6 @@ int main() {
 
     if (!gameplayHandle || !uiHandle) {
         spdlog::critical("Failed to create input contexts");
-        app->shutdown();
         return 1;
     }
 
@@ -142,15 +140,15 @@ int main() {
             ->bindActions(SYN::RawInputType::MouseScroll,
                           {{Action::ScrollZoom, {}}});
 
-        // Let's make use of a vector axis for directional inputs. Useful
+        // Let's make use of a input vector for directional inputs. Useful
         // for movement related code!
         (*gameplayCtx)
-            ->addVectorAxis("Movement", {Action::MoveUp, Action::MoveDown,
-                                         Action::MoveRight, Action::MoveLeft});
+            ->addInputVector("Movement", {Action::MoveUp, Action::MoveDown,
+                                          Action::MoveRight, Action::MoveLeft});
 
         // Now update player state based on input vector:
         (*gameplayCtx)
-            ->addVectorAxisCallback("Movement", [&](float x, float y) {
+            ->addInputVectorCallback("Movement", [&](float x, float y) {
                 gameplayState.m_X = x;
                 gameplayState.m_Y = y;
                 spdlog::info("{} moves in direction: ({}, {})",
@@ -347,11 +345,12 @@ int main() {
         simulateKey(input, GLFW_KEY_F, GLFW_PRESS);
         simulateKey(input, GLFW_KEY_F, GLFW_RELEASE);
 
-        spdlog::info("Removing Movement vector axis. Expect no movement output "
-                     "on W. Note: When unbinding a vector axis, corresponding "
-                     "callbacks are called with (0, 0) to reset any states "
-                     "relying on the vector axis.");
-        (*gameplayCtx)->removeVectorAxis("Movement");
+        spdlog::info(
+            "Removing Movement input vector. Expect no movement output "
+            "on W. Note: When unbinding an input vector, corresponding "
+            "callbacks are called with (0, 0) to reset any states "
+            "relying on the input vector.");
+        (*gameplayCtx)->removeInputVector("Movement");
         simulateKey(input, GLFW_KEY_W, GLFW_PRESS);
         simulateKey(input, GLFW_KEY_W, GLFW_RELEASE);
 
@@ -359,13 +358,18 @@ int main() {
         (*gameplayCtx)
             ->bindActions(SYN::RawInputType::Key, {{Action::PrintStatus, {}}});
 
-        SYN::InputContext::VectorAxisCallback noopAxis = [](float, float) {};
+        SYN::InputContext::InputVectorCallback noopInputVector = [](float,
+                                                                    float) {};
 
-        spdlog::info("Expect error: addVectorAxisCallback on missing axis.");
-        (*gameplayCtx)->addVectorAxisCallback("MissingAxis", noopAxis);
+        spdlog::info(
+            "Expect error: addInputVectorCallback on missing input vector.");
+        (*gameplayCtx)
+            ->addInputVectorCallback("MissingInputVector", noopInputVector);
 
-        spdlog::info("Expect error: addVectorAxisCallbacks on missing axis.");
-        (*gameplayCtx)->addVectorAxisCallbacks("MissingAxis", {noopAxis});
+        spdlog::info(
+            "Expect error: addInputVectorCallbacks on missing input vector.");
+        (*gameplayCtx)
+            ->addInputVectorCallbacks("MissingInputVector", {noopInputVector});
     }
 
     spdlog::info("-- Intentional invalid handle usage (use-after-free) --");
@@ -418,6 +422,5 @@ int main() {
         input.removeContext(h);
     }
 
-    app->shutdown();
     return 0;
 }

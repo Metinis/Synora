@@ -4,7 +4,9 @@
 #include "SynoraEngine/core/InputContext.h"
 #include "SynoraEngine/core/InputTypes.h"
 #include "SynoraEngine/core/Window.h"
-#include "SynoraEngine/scene/Scene.h"
+#include "SynoraEngine/scene/SceneManager.h"
+#include "SynoraEngine/scene/components/CameraComponent.h"
+#include "SynoraEngine/scene/components/TransformComponent.h"
 #include "spdlog/spdlog.h"
 
 namespace {
@@ -24,8 +26,13 @@ enum Action : SYN::ActionID {
 SYN::CameraSystem::CameraSystem() {}
 
 SYN::Entity SYN::CameraSystem::getCameraEntity() {
-    for (auto e : m_Scene->getEntities<CameraComp>()) {
-        if (e.getComponent<CameraComp>().isPrimary) {
+    SceneHandle sceneHandle = m_SceneManager->getActiveScene();
+    if (!m_SceneManager->isSceneValid(sceneHandle))
+        return Entity();
+
+    Scene *scene = m_SceneManager->getSceneMut(sceneHandle);
+    for (auto e : scene->getEntities<CameraComponent>()) {
+        if (e.getComponent<CameraComponent>().isPrimary) {
             return e;
         }
     }
@@ -35,13 +42,13 @@ SYN::Entity SYN::CameraSystem::getCameraEntity() {
 SYN::Camera SYN::CameraSystem::getCamera() {
     auto camEntity = getCameraEntity();
 
-    if (!m_Scene->isValidEntity(camEntity)) {
+    if (!camEntity.isValid()) {
         spdlog::warn("Scene: No camera entity");
         return Camera();
     }
 
-    auto camTC = camEntity.getComponent<TransformComp>();
-    auto camComp = camEntity.getComponent<CameraComp>();
+    auto camTC = camEntity.getComponent<TransformComponent>();
+    auto camComp = camEntity.getComponent<CameraComponent>();
     Camera cam = {
         .transform = camTC,
         .fovDegrees = camComp.fovDegrees,
@@ -61,6 +68,12 @@ void SYN::CameraSystem::onDettach() {
 void SYN::CameraSystem::onUIRender() {}
 
 void SYN::CameraSystem::onUpdate(float dt) {
+    auto camera = getCameraEntity();
+
+    if (!camera.isValid()) {
+        return;
+    }
+
     if (m_LastCursorHiddenState != m_CursorHidden) {
         m_DyRot = 0;
         m_DxRot = 0;
@@ -76,10 +89,9 @@ void SYN::CameraSystem::onUpdate(float dt) {
         speed *= m_RunMultiplier;
     }
 
-    auto camera = getCameraEntity();
-    auto &camTC = camera.getComponent<TransformComp>();
+    auto &camTC = camera.getComponent<TransformComponent>();
 
-    glm::vec3 lookDir{camTC.rotation * glm::vec3(0.f, 0.f, 1.f)};
+    glm::vec3 lookDir{camTC.rotation * glm::vec3(0.f, 0.f, -1.f)};
     lookDir.y = 0.f;
     lookDir = glm::normalize(lookDir);
 
@@ -93,10 +105,10 @@ void SYN::CameraSystem::onUpdate(float dt) {
 
     float sensitivity{0.1f};
     glm::quat yaw{
-        glm::angleAxis(glm::radians(static_cast<float>(-m_DxRot * sensitivity)),
+        glm::angleAxis(glm::radians(static_cast<float>(m_DxRot * sensitivity)),
                        glm::vec3(0.f, 1.f, 0.f))};
     glm::quat pitch{
-        glm::angleAxis(glm::radians(static_cast<float>(m_DyRot * sensitivity)),
+        glm::angleAxis(glm::radians(static_cast<float>(-m_DyRot * sensitivity)),
                        glm::vec3(1.f, 0.f, 0.f))};
 
     camTC.rotation = glm::normalize(yaw * camTC.rotation * pitch);
@@ -105,12 +117,11 @@ void SYN::CameraSystem::onUpdate(float dt) {
     m_DxRot = 0;
 }
 
-void SYN::CameraSystem::onRender() { m_Renderer->setCamera(getCamera()); }
+void SYN::CameraSystem::onRender() {}
 
 void SYN::CameraSystem::init(EngineContext *ctx) {
-    m_Renderer = ctx->renderer.get();
     m_Window = ctx->window.get();
-    m_Scene = ctx->scene.get();
+    m_SceneManager = ctx->sceneManager.get();
 
     std::optional<SYN::InputContextHandle> gameplayHandle{
         ctx->inputManager.get()->addInputContext(0)};
@@ -131,22 +142,23 @@ void SYN::CameraSystem::init(EngineContext *ctx) {
                              {{Action::LookDelta, {}}});
     gameplayCtx->bindActions(SYN::InputKey::Escape,
                              {{Action::ToggleCursor, {}}});
-    gameplayCtx->addVectorAxis("GroundMovement",
-                               {Action::MoveForward, Action::MoveBackward,
-                                Action::MoveRight, Action::MoveLeft});
+    gameplayCtx->addInputVector("GroundMovement",
+                                {Action::MoveForward, Action::MoveBackward,
+                                 Action::MoveRight, Action::MoveLeft});
 
-    gameplayCtx->addVectorAxis("FlyMovement",
-                               {Action::MoveUp, Action::MoveDown});
+    gameplayCtx->addInputVector("FlyMovement",
+                                {Action::MoveUp, Action::MoveDown});
 
-    gameplayCtx->addVectorAxisCallback("FlyMovement", [&](float x, float y) {
+    gameplayCtx->addInputVectorCallback("FlyMovement", [&](float x, float y) {
         m_Dy = -y;
         spdlog::info("mdy = {}", m_Dy);
     });
 
-    gameplayCtx->addVectorAxisCallback("GroundMovement", [&](float x, float z) {
-        m_Dx = -x;
-        m_Dz = z;
-    });
+    gameplayCtx->addInputVectorCallback("GroundMovement",
+                                        [&](float x, float z) {
+                                            m_Dx = x;
+                                            m_Dz = z;
+                                        });
 
     gameplayCtx->addActionCallback(Action::ToggleCursor,
                                    [&](InputState inputState) {
@@ -161,6 +173,7 @@ void SYN::CameraSystem::init(EngineContext *ctx) {
                                        }
                                        m_CursorHidden = !m_CursorHidden;
                                    });
+
     gameplayCtx->addActionCallback(Action::Run, [&](InputState inputState) {
         if (inputState == InputState::Down) {
             m_IsRunning = true;
