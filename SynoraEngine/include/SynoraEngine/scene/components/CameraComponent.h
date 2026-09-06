@@ -8,4 +8,9 @@ struct CameraComponent {
     float farPlane = 100.f;
     bool isPrimary;
 };
+
+// Attach with CameraComponent
+struct FlyCameraComponent {
+    bool tag;
+};
 } // namespace SYN

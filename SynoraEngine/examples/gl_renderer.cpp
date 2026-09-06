@@ -205,6 +205,8 @@ class GraphicsScene : public SYN::ILayer {
         auto &camera = cameraEntity.addComponent<SYN::CameraComponent>();
         camera.isPrimary = true;
 
+        cameraEntity.addComponent<SYN::FlyCameraComponent>();
+
         SYN::Entity cabinEntity = cabinScene->createEntity("Cabin");
         cabinEntity.addComponent<SYN::ModelComponent>(
             m_AssetManager->acquire(m_Cabin));
@@ -260,6 +262,8 @@ class GraphicsScene : public SYN::ILayer {
         SYN::Entity cameraEntity = sphereScene->createEntity("Camera");
 
         cameraEntity.addComponent<SYN::CameraComponent>();
+        cameraEntity.addComponent<SYN::FlyCameraComponent>();
+
         auto &cameraTransform =
             cameraEntity.getComponent<SYN::TransformComponent>();
         cameraTransform.position = glm::vec3(0.0f, 0.0f, 20.0f);
