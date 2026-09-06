@@ -19,6 +19,9 @@ class CameraSystem : public ILayer {
     ~CameraSystem() = default;
 
   private:
+    void flyCamera(float dt, Entity *cameraEntity);
+
+  private:
     class SceneManager *m_SceneManager;
     class Window *m_Window;
     float m_Dx;
