@@ -67,13 +67,7 @@ void SYN::CameraSystem::onDettach() {
 
 void SYN::CameraSystem::onUIRender() {}
 
-void SYN::CameraSystem::onUpdate(float dt) {
-    auto camera = getCameraEntity();
-
-    if (!camera.isValid()) {
-        return;
-    }
-
+void SYN::CameraSystem::flyCamera(float dt, Entity *cameraEntity) {
     if (m_LastCursorHiddenState != m_CursorHidden) {
         m_DyRot = 0;
         m_DxRot = 0;
@@ -89,7 +83,7 @@ void SYN::CameraSystem::onUpdate(float dt) {
         speed *= m_RunMultiplier;
     }
 
-    auto &camTC = camera.getComponent<TransformComponent>();
+    auto &camTC = cameraEntity->getComponent<TransformComponent>();
 
     glm::vec3 lookDir{camTC.rotation * glm::vec3(0.f, 0.f, -1.f)};
     lookDir.y = 0.f;
@@ -121,6 +115,18 @@ void SYN::CameraSystem::onUpdate(float dt) {
 
     m_DyRot = 0;
     m_DxRot = 0;
+}
+
+void SYN::CameraSystem::onUpdate(float dt) {
+    auto camera = getCameraEntity();
+
+    if (!camera.isValid()) {
+        return;
+    }
+
+    if (camera.hasComponent<FlyCameraComponent>()) {
+        flyCamera(dt, &camera);
+    }
 }
 
 void SYN::CameraSystem::onRender() {}
