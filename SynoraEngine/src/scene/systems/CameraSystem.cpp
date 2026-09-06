@@ -107,9 +107,15 @@ void SYN::CameraSystem::onUpdate(float dt) {
     glm::quat yaw{
         glm::angleAxis(glm::radians(static_cast<float>(m_DxRot * sensitivity)),
                        glm::vec3(0.f, 1.f, 0.f))};
+    glm::vec3 forward(0.0, 0.0, -1.0);
+    forward = camTC.rotation * forward;
+    float currentPitch = glm::degrees(asin(glm::clamp(forward.y, -1.0f, 1.0f)));
+    float target =
+        glm::clamp(currentPitch - m_DyRot * sensitivity, -89.0f, 89.0f);
+    float actualPitch = target - currentPitch;
+
     glm::quat pitch{
-        glm::angleAxis(glm::radians(static_cast<float>(-m_DyRot * sensitivity)),
-                       glm::vec3(1.f, 0.f, 0.f))};
+        glm::angleAxis(glm::radians(actualPitch), glm::vec3(1.f, 0.f, 0.f))};
 
     camTC.rotation = glm::normalize(yaw * camTC.rotation * pitch);
 
