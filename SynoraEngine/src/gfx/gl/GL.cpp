@@ -286,6 +286,72 @@ GLenum getPrimitiveType(SYN::gfx::gl::PrimitiveTopology type) {
     return drawMode;
 }
 
+GLenum getCompareFuncType(SYN::gfx::gl::CompareFunc func) {
+    GLenum type = GL_LESS;
+
+    switch (func) {
+    case SYN::gfx::gl::CompareFunc::Less:
+        type = GL_LESS;
+        break;
+    case SYN::gfx::gl::CompareFunc::LessEqual:
+        type = GL_LEQUAL;
+        break;
+    case SYN::gfx::gl::CompareFunc::Greater:
+        type = GL_GREATER;
+        break;
+    case SYN::gfx::gl::CompareFunc::GreaterEqual:
+        type = GL_GEQUAL;
+        break;
+    case SYN::gfx::gl::CompareFunc::NotEqual:
+        type = GL_NOTEQUAL;
+        break;
+    case SYN::gfx::gl::CompareFunc::Equal:
+        type = GL_EQUAL;
+        break;
+    case SYN::gfx::gl::CompareFunc::Always:
+        type = GL_ALWAYS;
+        break;
+    case SYN::gfx::gl::CompareFunc::Never:
+        type = GL_NEVER;
+        break;
+    }
+
+    return type;
+}
+
+GLenum getStencilOpType(SYN::gfx::gl::StencilOp func) {
+    GLenum type = GL_KEEP;
+
+    switch (func) {
+    case SYN::gfx::gl::StencilOp::Keep:
+        type = GL_KEEP;
+        break;
+    case SYN::gfx::gl::StencilOp::Zero:
+        type = GL_ZERO;
+        break;
+    case SYN::gfx::gl::StencilOp::Replace:
+        type = GL_REPLACE;
+        break;
+    case SYN::gfx::gl::StencilOp::Increment:
+        type = GL_INCR;
+        break;
+    case SYN::gfx::gl::StencilOp::IncrementWrap:
+        type = GL_INCR_WRAP;
+        break;
+    case SYN::gfx::gl::StencilOp::Decrement:
+        type = GL_DECR;
+        break;
+    case SYN::gfx::gl::StencilOp::DecrementWrap:
+        type = GL_DECR_WRAP;
+        break;
+    case SYN::gfx::gl::StencilOp::Invert:
+        type = GL_INVERT;
+        break;
+    }
+
+    return type;
+}
+
 GLenum getIndexType(SYN::gfx::gl::IndexType type) {
     using namespace SYN::gfx::gl;
     GLenum indexType = GL_UNSIGNED_SHORT;
@@ -490,23 +556,22 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
 
     if (desc.clearColor.has_value()) {
         clearMask |= GL_COLOR_BUFFER_BIT;
+        glm::vec4 clearColor = desc.clearColor.value();
+        glColorMask(true, true, true, true);
+        glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
     }
 
-    if (desc.clearDepth) {
+    if (desc.clearDepth.has_value()) {
         clearMask |= GL_DEPTH_BUFFER_BIT;
+        glDepthMask(GL_TRUE);
+        glClearDepth(desc.clearDepth.value());
     }
 
-    if (desc.enableDepthTest) {
-        glEnable(GL_DEPTH_TEST);
-    } else {
-        glDisable(GL_DEPTH_TEST);
-    }
-
-    if (desc.enableStencilTest) {
-        glEnable(GL_STENCIL_TEST);
+    if (desc.clearStencil) {
         clearMask |= GL_STENCIL_BUFFER_BIT;
-    } else
-        glDisable(GL_STENCIL_TEST);
+        glStencilMask(0xFF);
+        glClearStencil(desc.clearStencil.value());
+    }
 
     if (desc.viewportOverride.has_value()) {
         Viewport viewport = desc.viewportOverride.value();
@@ -517,17 +582,8 @@ SYN::gfx::gl::Pass::Pass(Context *context, const PassDesc &desc) {
         glScissor(scissor.x, scissor.y, scissor.width, scissor.height);
     }
 
-    if (clearMask != 0) {
-        if (desc.clearColor.has_value()) {
-            glm::vec4 clearColor = desc.clearColor.value();
-            glClearColor(clearColor.r, clearColor.g, clearColor.b,
-                         clearColor.a);
-        }
-        if (clearMask & GL_DEPTH_BUFFER_BIT) {
-            glDepthMask(GL_TRUE);
-        }
+    if (clearMask != 0)
         glClear(clearMask);
-    }
 }
 
 SYN::gfx::gl::Pass::~Pass() {
@@ -748,32 +804,57 @@ void SYN::gfx::gl::Pass::usePipeline(const PipelineState &pipelineState) {
         break;
     }
 
+    if (pipelineState.depth.enabled)
+        glEnable(GL_DEPTH_TEST);
+    else
+        glDisable(GL_DEPTH_TEST);
+
     glDepthMask(pipelineState.depth.writeEnabled);
-    switch (pipelineState.depth.test) {
-    case DepthFunc::Less:
-        glDepthFunc(GL_LESS);
-        break;
-    case DepthFunc::LessEqual:
-        glDepthFunc(GL_LEQUAL);
-        break;
-    case DepthFunc::Greater:
-        glDepthFunc(GL_GREATER);
-        break;
-    case DepthFunc::GreaterEqual:
-        glDepthFunc(GL_GEQUAL);
-        break;
-    case DepthFunc::NotEqual:
-        glDepthFunc(GL_NOTEQUAL);
-        break;
-    case DepthFunc::Equal:
-        glDepthFunc(GL_EQUAL);
-        break;
-    case DepthFunc::Always:
-        glDepthFunc(GL_ALWAYS);
-        break;
-    case DepthFunc::Never:
-        glDepthFunc(GL_NEVER);
-        break;
+    glDepthFunc(getCompareFuncType(pipelineState.depth.test));
+
+    if (pipelineState.stencil.enabled)
+        glEnable(GL_STENCIL_TEST);
+    else
+        glDisable(GL_STENCIL_TEST);
+
+    glStencilMask(pipelineState.stencil.writeMask);
+    if (pipelineState.stencil.frontTest == pipelineState.stencil.backTest) {
+        glStencilFunc(getCompareFuncType(pipelineState.stencil.frontTest),
+                      pipelineState.stencil.reference,
+                      pipelineState.stencil.readMask);
+    } else {
+        if (pipelineState.cullMode != CullMode::None) {
+            spdlog::warn("You have cull mode enabled, but distinct stencil "
+                         "compare functions "
+                         "for front and back faces. Is this a typo?");
+        }
+        glStencilFuncSeparate(
+            GL_FRONT, getCompareFuncType(pipelineState.stencil.frontTest),
+            pipelineState.stencil.reference, pipelineState.stencil.readMask);
+        glStencilFuncSeparate(
+            GL_BACK, getCompareFuncType(pipelineState.stencil.backTest),
+            pipelineState.stencil.reference, pipelineState.stencil.readMask);
+    }
+
+    if (pipelineState.stencil.frontOp == pipelineState.stencil.backOp) {
+        glStencilOp(getStencilOpType(pipelineState.stencil.frontOp.stencilFail),
+                    getStencilOpType(pipelineState.stencil.frontOp.depthFail),
+                    getStencilOpType(pipelineState.stencil.frontOp.pass));
+    } else {
+        if (pipelineState.cullMode != CullMode::None) {
+            spdlog::warn("You have cull mode enabled, but distinct stencil ops "
+                         "for front and back faces. Is this a typo?");
+        }
+
+        glStencilOpSeparate(
+            GL_FRONT,
+            getStencilOpType(pipelineState.stencil.frontOp.stencilFail),
+            getStencilOpType(pipelineState.stencil.frontOp.depthFail),
+            getStencilOpType(pipelineState.stencil.frontOp.pass));
+        glStencilOpSeparate(
+            GL_BACK, getStencilOpType(pipelineState.stencil.backOp.stencilFail),
+            getStencilOpType(pipelineState.stencil.backOp.depthFail),
+            getStencilOpType(pipelineState.stencil.backOp.pass));
     }
 
     glColorMask(pipelineState.color.r, pipelineState.color.g,
@@ -1947,6 +2028,8 @@ void SYN::gfx::gl::Renderer::beginFrame(const RenderView3D &sceneDescription) {
 
     for (uint32_t i = 0; i < modelCount; ++i) {
         UUID model = sceneDescription.models.at(i);
+        uint64_t layer = sceneDescription.layers.at(i);
+
         glm::mat4 transform = sceneDescription.transforms.at(i);
         const std::vector<AABB> &meshBounds =
             sceneDescription.bounds.at(i).meshBounds;
@@ -1963,7 +2046,7 @@ void SYN::gfx::gl::Renderer::beginFrame(const RenderView3D &sceneDescription) {
             boneMatrices = it->second;
         }
 
-        createDrawCommand(*m_Context, model, transform, meshBounds,
+        createDrawCommand(*m_Context, model, layer, transform, meshBounds,
                           materialOverride, boneMatrices);
     }
 
@@ -2068,6 +2151,18 @@ void SYN::gfx::gl::Renderer::afterDraw() {
     m_DeferredResourceSwap.clear();
 
     TracyGpuCollect;
+}
+
+SYN::ShaderHandle
+SYN::gfx::gl::Renderer::createShader(std::filesystem::path shaderPath) {}
+
+SYN::RenderEffectHandle
+SYN::gfx::gl::Renderer::createEffect(const RenderEffectDesc &desc) {
+    RenderTechnique technique;
+
+    Handle<RenderTechnique> effectHandle =
+        m_RenderTechniqueRegistry.createHandle(technique).value();
+    return (uint64_t)(effectHandle.generation << 31 | effectHandle.index);
 }
 
 void SYN::gfx::gl::Renderer::submitLineList(
@@ -2416,6 +2511,7 @@ void SYN::gfx::gl::Renderer::createTextureDefaults(Context &context) {
 
 void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
     PipelineState zPrepassPipeline;
+    zPrepassPipeline.depth.enabled = true;
     zPrepassPipeline.depth.writeEnabled = true;
     zPrepassPipeline.color = {false, false, false, false};
     zPrepassPipeline.cullMode = CullMode::Back;
@@ -2474,7 +2570,8 @@ void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
 
 void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
     PipelineState pipeline;
-    pipeline.depth.test = DepthFunc::Equal;
+    pipeline.depth.test = CompareFunc::Equal;
+    pipeline.depth.enabled = true;
     pipeline.depth.writeEnabled = false;
     pipeline.color = {true, true, true, true};
     pipeline.cullMode = CullMode::Back;
@@ -2578,6 +2675,7 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
             (uint32_t)ShaderFeature::Skinned,
             [&]() -> PipelineState {
                 PipelineState pipeline;
+                pipeline.depth.enabled = true;
                 pipeline.cullMode = CullMode::Back;
                 return pipeline;
             },
@@ -2595,6 +2693,7 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
             0,
             [&]() -> PipelineState {
                 PipelineState pipeline;
+                pipeline.depth.enabled = true;
                 pipeline.cullMode = CullMode::Back;
                 return pipeline;
             },
@@ -2612,6 +2711,7 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
             (uint32_t)ShaderFeature::Skinned,
             [&]() -> PipelineState {
                 PipelineState pipeline;
+                pipeline.depth.enabled = true;
                 pipeline.cullMode = CullMode::None;
                 return pipeline;
             },
@@ -2630,6 +2730,7 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
             0,
             [&]() -> PipelineState {
                 PipelineState pipeline;
+                pipeline.depth.enabled = true;
                 pipeline.cullMode = CullMode::None;
                 return pipeline;
             },
@@ -2844,9 +2945,9 @@ void SYN::gfx::gl::Renderer::createEnvironment(Context &context,
         for (uint32_t i = 0; i < 6; ++i) {
             context.setColorAttachment(equirectangularProjection, 0, envCubemap,
                                        0, i);
-            Pass pass = context.beginPass({equirectangularProjection,
-                                           glm::vec4(1.0f), false, false, false,
-                                           Viewport{0, 0, 512, 512}});
+            Pass pass = context.beginPass(
+                {equirectangularProjection, glm::vec4(1.0f), std::nullopt,
+                 std::nullopt, Viewport{0, 0, 512, 512}});
 
             pass.usePipeline(pipeline);
             pass.bindTexture(0, hdrTexture, mipSampler);
@@ -2893,7 +2994,7 @@ void SYN::gfx::gl::Renderer::createEnvironment(Context &context,
             context.setColorAttachment(captureFramebuffer, 0, irradianceMap, 0,
                                        i);
             Pass pass = context.beginPass(
-                {captureFramebuffer, glm::vec4(1.0), false, false, false,
+                {captureFramebuffer, glm::vec4(1.0), std::nullopt, std::nullopt,
                  Viewport{0, 0, mapResolution, mapResolution}});
             pass.usePipeline(pipeline);
             pass.bindTexture(0, hdrMap, mipSampler);
@@ -2944,8 +3045,8 @@ void SYN::gfx::gl::Renderer::createEnvironment(Context &context,
                 context.setColorAttachment(captureFramebuffer, 0,
                                            prefilteredMap, i, j);
                 Pass pass = context.beginPass(
-                    {captureFramebuffer, glm::vec4(1.0), false, false, false,
-                     Viewport{0, 0, mipSize, mipSize}});
+                    {captureFramebuffer, glm::vec4(1.0), std::nullopt,
+                     std::nullopt, Viewport{0, 0, mipSize, mipSize}});
 
                 pass.usePipeline(pipeline);
                 pass.bindTexture(0, hdrMap, mipSampler);
@@ -3032,7 +3133,7 @@ void SYN::gfx::gl::Renderer::setDirectionalLight(
 }
 
 void SYN::gfx::gl::Renderer::createDrawCommand(
-    Context &context, UUID model, const glm::mat4 &transform,
+    Context &context, UUID model, uint64_t layer, const glm::mat4 &transform,
     std::span<const AABB> meshBounds,
     std::span<const MaterialOverride> materialOverride,
     std::span<const glm::mat4> boneMatrices) {
@@ -3052,7 +3153,7 @@ void SYN::gfx::gl::Renderer::createDrawCommand(
     auto it = m_UUIDToHandle.find(model);
 
     m_DrawCommandList.emplace_back(
-        std::get<Handle<Model>>(it->second.handle), transform,
+        std::get<Handle<Model>>(it->second.handle), layer, transform,
         std::vector<MaterialOverride>(materialOverride.begin(),
                                       materialOverride.end()),
         boneIndex, std::vector<AABB>(meshBounds.cbegin(), meshBounds.cend()));
@@ -3265,8 +3366,8 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     PipelineState pipeline;
     pipeline.shader = m_ShaderCache.getShaderHandle(context, "brdf_lut", 0);
 
-    Pass pass = context.beginPass({captureFb, glm::vec4(1.0f), false, false,
-                                   false, Viewport{0, 0, 512, 512}});
+    Pass pass = context.beginPass({captureFb, glm::vec4(1.0f), std::nullopt,
+                                   std::nullopt, Viewport{0, 0, 512, 512}});
     pass.usePipeline(pipeline);
     pass.bindVertexArray(m_ScreenQuad.value());
     pass.drawIndexed(6);
@@ -3445,22 +3546,24 @@ void SYN::gfx::gl::Renderer::draw(CameraComponent camera,
         // Main render pass
         {
             m_ZPrepass.setPassDesc({m_MsaaFramebuffer.handle,
-                                    environmentIt->second.clearColor, true,
-                                    true, false, renderViewport});
+                                    environmentIt->second.clearColor, 1.0f,
+                                    std::nullopt, renderViewport});
             drawRenderItems(*m_Context, m_ZPrepass);
             m_ForwardPass.setPassDesc({m_MsaaFramebuffer.handle, std::nullopt,
-                                       false, true, false, renderViewport});
+                                       std::nullopt, std::nullopt,
+                                       renderViewport});
             drawRenderItems(*m_Context, m_ForwardPass);
 
             if (environmentIt->second.type != Environment::Type::ClearColor) {
-                Pass pass = m_Context->beginPass({m_MsaaFramebuffer.handle,
-                                                  std::nullopt, false, true,
-                                                  false, renderViewport});
+                Pass pass = m_Context->beginPass(
+                    {m_MsaaFramebuffer.handle, std::nullopt, std::nullopt,
+                     std::nullopt, renderViewport});
                 PipelineState pipeline;
+                pipeline.depth.enabled = true;
                 pipeline.depth.writeEnabled = false;
                 pipeline.shader =
                     m_ShaderCache.getShaderHandle(*m_Context, "skybox", 0);
-                pipeline.depth.test = DepthFunc::LessEqual;
+                pipeline.depth.test = CompareFunc::LessEqual;
                 pass.usePipeline(pipeline);
 
                 pass.bindTexture(0, environmentIt->second.cubemap,
@@ -3495,8 +3598,8 @@ void SYN::gfx::gl::Renderer::draw(CameraComponent camera,
                 finalViewport.height = renderTargetData->height;
             }
             Pass hdrPass = m_Context->beginPass(
-                {finalTarget, environmentIt->second.clearColor, false, false,
-                 false, finalViewport});
+                {finalTarget, environmentIt->second.clearColor, std::nullopt,
+                 std::nullopt, finalViewport});
             PipelineState hdrPipeline;
             hdrPipeline.shader =
                 m_ShaderCache.getShaderHandle(*m_Context, "hdr", 0);
@@ -3637,7 +3740,7 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
                                                    uint32_t resolution) {
     context.setDepthAttachment(fbo, depth);
 
-    m_ShadowPass.setPassDesc({fbo, std::nullopt, true, true, false,
+    m_ShadowPass.setPassDesc({fbo, std::nullopt, 1.0f, std::nullopt,
                               Viewport{0, 0, resolution, resolution}});
 
     m_ShadowPass.setBindUniformBase([&](Pass &pass, const RenderItem &item) {
@@ -3654,7 +3757,7 @@ void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
                                           uint32_t resolution) {
     for (uint32_t i = 0; i < 2; ++i) {
         context.setDepthAttachment(fbo, depth, 0, i);
-        m_ShadowPass.setPassDesc({fbo, std::nullopt, true, true, false,
+        m_ShadowPass.setPassDesc({fbo, std::nullopt, 1.0f, std::nullopt,
                                   Viewport{0, 0, resolution, resolution}});
 
         m_ShadowPass.setBindUniformBase([&](Pass &pass,
@@ -3969,6 +4072,7 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
     PipelineState linePipeline;
     linePipeline.shader = m_ShaderCache.getShaderHandle(context, "lines", 0);
     linePipeline.topology = PrimitiveTopology::TriangleStrip;
+    linePipeline.depth.enabled = true;
     linePipeline.depth.writeEnabled = false;
 
     if (depthLines.size() > 0) {
@@ -3981,8 +4085,8 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
                                               1, 0, sizeof(DebugDraw::Line));
 
         Pass depthLinePass =
-            context.beginPass({m_MsaaFramebuffer.handle, std::nullopt, false,
-                               true, false, renderViewport, std::nullopt});
+            context.beginPass({m_MsaaFramebuffer.handle, std::nullopt,
+                               std::nullopt, std::nullopt, renderViewport});
 
         depthLinePass.usePipeline(linePipeline);
         depthLinePass.bindUniform("u_resolution", (float)renderViewport.width,
@@ -4000,10 +4104,11 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
                                               m_DebugDrawData.lineOverlayBuffer,
                                               1, 0, sizeof(DebugDraw::Line));
 
-        Pass overlayLinePass =
-            context.beginPass({m_MsaaFramebuffer.handle, std::nullopt, false,
-                               false, false, renderViewport, std::nullopt});
+        Pass overlayLinePass = context.beginPass(
+            {m_MsaaFramebuffer.handle, std::nullopt, std::nullopt, std::nullopt,
+             renderViewport, std::nullopt});
 
+        linePipeline.depth.enabled = false;
         overlayLinePass.usePipeline(linePipeline);
         overlayLinePass.bindUniform("u_resolution", (float)renderViewport.width,
                                     (float)renderViewport.height);

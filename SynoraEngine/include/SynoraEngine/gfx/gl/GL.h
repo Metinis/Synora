@@ -121,7 +121,7 @@ enum class ShaderFeature : uint32_t {
 
 enum class AntiAliasMode { None, FXAA, MSAA_2x, MSAA_4x, MSAA_8x };
 
-enum class DepthFunc : uint8_t {
+enum class CompareFunc : uint8_t {
     Always,
     Never,
     Less,
@@ -130,6 +130,17 @@ enum class DepthFunc : uint8_t {
     Greater,
     NotEqual,
     GreaterEqual
+};
+
+enum class StencilOp : uint8_t {
+    Keep,
+    Zero,
+    Replace,
+    Increment,
+    IncrementWrap,
+    Decrement,
+    DecrementWrap,
+    Invert
 };
 
 template <typename T> struct Handle {
@@ -314,17 +325,40 @@ struct FramebufferDesc {
 struct PassDesc {
     std::optional<Handle<Framebuffer>> framebufferHandle;
     std::optional<glm::vec4> clearColor;
-    bool clearDepth;
-    bool enableDepthTest;
-    bool enableStencilTest;
+    std::optional<float> clearDepth;
+    std::optional<uint8_t> clearStencil;
 
     std::optional<Viewport> viewportOverride;
     std::optional<ScissorRect> scissorOverride;
 };
 
 struct DepthState {
+    bool enabled = false;
     bool writeEnabled = true;
-    DepthFunc test = DepthFunc::Less;
+    CompareFunc test = CompareFunc::Less;
+};
+
+struct StencilState {
+    bool enabled = false;
+    uint8_t reference = 0;
+    uint8_t writeMask = 0xFF;
+    uint8_t readMask = 0xFF;
+
+    CompareFunc frontTest = CompareFunc::Always;
+    CompareFunc backTest = CompareFunc::Always;
+    struct Op {
+        StencilOp stencilFail = StencilOp::Keep;
+        StencilOp depthFail = StencilOp::Keep;
+        StencilOp pass = StencilOp::Keep;
+
+        bool operator==(const Op &other) const {
+            return stencilFail == other.stencilFail &&
+                   depthFail == other.depthFail && pass == other.pass;
+        };
+    };
+
+    Op frontOp;
+    Op backOp;
 };
 
 struct ColorMask {
@@ -351,13 +385,13 @@ struct PipelineState {
     PolygonMode polygonMode = PolygonMode::Fill;
     bool frontFaceCcw = true;
 
-    // TODO: Elaborate on depth/blend state
     DepthState depth;
 
-    // Determines which channels are written.
-    // NOT for clearing color.
+    StencilState stencil;
+
     ColorMask color;
 
+    // TODO: Properly define blend state
     BlendState blend;
 };
 
@@ -811,6 +845,8 @@ class RenderTechnique {
 
     std::string m_ShaderName;
     uint32_t m_DefaultShaderFeature = 0;
+
+    uint64_t m_FilterMask;
 };
 
 class Renderer : public IRenderViewBackend {
@@ -824,6 +860,9 @@ class Renderer : public IRenderViewBackend {
 
     void beforeDraw() override;
     void afterDraw() override;
+
+    ShaderHandle createShader(std::filesystem::path shaderPath) override;
+    RenderEffectHandle createEffect(const RenderEffectDesc &desc) override;
 
     void init(class EngineContext *context) override;
     void beginFrame(const RenderView3D &renderView) override;
@@ -873,7 +912,8 @@ class Renderer : public IRenderViewBackend {
 
   private:
     void
-    createDrawCommand(Context &context, UUID model, const glm::mat4 &transform,
+    createDrawCommand(Context &context, UUID model, uint64_t layer,
+                      const glm::mat4 &transform,
                       std::span<const AABB> meshBounds,
                       std::span<const MaterialOverride> materialOverride = {},
                       std::span<const glm::mat4> boneMatrices = {});
@@ -991,8 +1031,9 @@ class Renderer : public IRenderViewBackend {
 
   private:
     ResourceRegistry<Model> m_ModelRegistry;
+    ResourceRegistry<RenderTechnique> m_RenderTechniqueRegistry;
+
     ShaderCache m_ShaderCache;
-    std::unordered_map<std::string, Handle<Texture>> m_TextureCache;
 
     float m_AnisotropicFilter;
     bool m_AnisotropicUpdate = false;
@@ -1029,6 +1070,7 @@ class Renderer : public IRenderViewBackend {
   private:
     struct DrawCommand {
         Handle<Model> modelHandle;
+        uint64_t layer;
         glm::mat4 transform;
         std::vector<MaterialOverride> materialOverride;
         std::optional<uint32_t> boneOffset;

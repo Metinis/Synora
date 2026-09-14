@@ -456,8 +456,8 @@ class GraphicsScene : public SYN::ILayer {
             vp.height = WINDOW_HEIGHT;
 
             SYN::gfx::gl::Pass pass = m_Context->beginPass(
-                {m_Framebuffer, glm::vec4(0.2, 0.2, 0.53, 1.0), true, true,
-                 false, vp, std::nullopt});
+                {m_Framebuffer, glm::vec4(0.2, 0.2, 0.53, 1.0), 1.0f,
+                 std::nullopt, vp, std::nullopt});
 
             glm::mat4 model(1.0);
             glm::mat4 view(1.0);
@@ -475,6 +475,7 @@ class GraphicsScene : public SYN::ILayer {
             projection = glm::perspectiveRH_NO(90.0f, (float)w / (float)h,
                                                0.01f, 100.0f);
 
+            pipeline.depth.enabled = true;
             pass.usePipeline(pipeline);
             for (int i = 0; i < m_VertexArrays.size(); ++i) {
                 const Mesh &mesh = m_Model.meshes[i];
@@ -506,8 +507,9 @@ class GraphicsScene : public SYN::ILayer {
             SYN::gfx::gl::PipelineState pipeline;
             pipeline.shader = m_PostProcessShader;
             SYN::gfx::gl::Pass pass = m_Context->beginPass(
-                {std::nullopt, glm::vec4(0.0, 0.0, 0.0, 1.0), false, false,
-                 false, vp, std::nullopt});
+                {std::nullopt, glm::vec4(0.0, 0.0, 0.0, 1.0), std::nullopt,
+                 std::nullopt, vp, std::nullopt});
+            pipeline.depth.enabled = false;
             pass.usePipeline(pipeline);
             pass.bindTexture(0, m_PostProcessTexture, m_Sampler);
             pass.bindUniform("texture0", 0);

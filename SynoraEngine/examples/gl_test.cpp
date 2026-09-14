@@ -151,8 +151,8 @@ int main(void) {
             vp.width = w;
             vp.height = h;
             gl::Pass pass = glContext.beginPass(
-                {std::nullopt, glm::vec4(0.74, 0.32, 0.24, 1.0), false, false,
-                 false, vp, std::nullopt});
+                {std::nullopt, glm::vec4(0.74, 0.32, 0.24, 1.0), std::nullopt,
+                 std::nullopt, vp, std::nullopt});
             pass.usePipeline(defaultPipeline);
 
             float t = glfwGetTime();
