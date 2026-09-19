@@ -18,8 +18,6 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <spdlog/spdlog.h>
 
-#include <fstream>
-
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -28,6 +26,9 @@
 #include <tracy/TracyOpenGL.hpp>
 
 #include <glm/gtx/matrix_decompose.hpp>
+
+#include <fstream>
+#include <ranges>
 
 struct {
     using UniformLocations = std::unordered_map<std::string_view, int>;
@@ -2275,6 +2276,16 @@ SYN::gfx::gl::RenderTechnique::setShaderFeature(uint32_t defaultFeature) {
     return *this;
 }
 
+SYN::gfx::gl::RenderTechnique &
+SYN::gfx::gl::RenderTechnique::setFilterMask(uint64_t filterMask) {
+    m_FilterMask = filterMask;
+    return *this;
+}
+
+uint64_t SYN::gfx::gl::RenderTechnique::getFilterMask() const {
+    return m_FilterMask;
+}
+
 void SYN::gfx::gl::RenderTechnique::clearBindFeatures() {
     m_BindFeature.clear();
 }
@@ -2470,7 +2481,6 @@ void SYN::gfx::gl::Renderer::beginFrame(const RenderView3D &sceneDescription) {
 void SYN::gfx::gl::Renderer::endFrame() {
     m_DrawCommandList.clear();
     m_GroupCache.clear();
-    m_GroupStateCache.clear();
     m_FrameBoneMatrices.clear();
 
     m_DebugDrawData.depthLines.clear();
@@ -2564,6 +2574,7 @@ void SYN::gfx::gl::Renderer::createEffect(const RenderEffectDesc &desc) {
                         desc.inputBindings)
             .setShader(desc.shader)
             .setShaderFeature(defaultShaderFeature)
+            .setFilterMask(desc.filterMask)
             .addGroup({0, (uint32_t)ShaderFeature::Skinned,
                        [defaultPipeline]() -> PipelineState {
                            return defaultPipeline;
@@ -3977,6 +3988,7 @@ void SYN::gfx::gl::Renderer::drawRenderItems(
         passInput(pass, input);
     }
 
+    uint64_t effectFilter = technique.getFilterMask();
     for (const RenderTechnique::GroupDesc &groupDesc : groups) {
         uint64_t maskKey =
             (uint64_t)(groupDesc.queryMask) << 32 | groupDesc.exclusionMask;
@@ -3989,27 +4001,35 @@ void SYN::gfx::gl::Renderer::drawRenderItems(
             groupIt = it;
         }
 
-        const std::vector<RenderItem> *items = &groupIt->second;
-        if (items->empty())
+        std::span<const RenderItem> items(groupIt->second.cbegin(),
+                                          groupIt->second.cend());
+        if (items.empty())
             continue;
 
-        if (groupDesc.cull) {
-            auto groupStateIt = m_GroupStateCache.find(groupDesc);
-            if (groupStateIt == m_GroupStateCache.cend()) {
-                std::vector<RenderItem> itemsCopy = *items;
-                if (groupDesc.cull)
-                    frustumCullRenderItems(itemsCopy);
+        auto filterItems = [this,
+                            effectFilter](std::span<const RenderItem> items,
+                                          bool cullEnabled) {
+            auto predicate = [&](const RenderItem &item) {
+                if (!(item.layer & effectFilter))
+                    return false;
 
-                auto [it, _] = m_GroupStateCache.emplace(groupDesc, itemsCopy);
-                groupStateIt = it;
-            }
-            items = &groupStateIt->second;
-        }
-        if (items->empty())
+                if (cullEnabled &&
+                    !m_CurrentFrustum.collidesWithAABB(item.aabb))
+                    return false;
+
+                return true;
+            };
+
+            return items | std::views::filter(predicate);
+        };
+
+        auto filteredItems = filterItems(items, groupDesc.cull);
+
+        if (filteredItems.empty())
             continue;
 
         PipelineState pipeline = groupDesc.setupGroup();
-        for (const RenderItem &item : *items) {
+        for (const RenderItem &item : filteredItems) {
             if (!lastShaderMask.has_value() ||
                 item.shaderIndex != lastShaderMask.value()) {
                 pipeline.shader = m_ShaderCache.getShaderHandle(
@@ -4327,9 +4347,6 @@ void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
         m_Context->blitFramebuffer(m_MsaaFramebuffer.handle, hdrFramebuffer,
                                    renderViewport, renderViewport);
     }
-
-    m_GroupCache.clear();
-    m_GroupStateCache.clear();
 }
 
 void SYN::gfx::gl::Renderer::setGamma(float gamma) {
@@ -4639,10 +4656,10 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(Context &context,
 
             glm::mat4 worldTransform = cmd.transform * mesh.localTransform;
 
-            renderItems.push_back({worldTransform, material, mesh.vao,
-                                   mesh.indexCount, shaderFeatures,
-                                   cmd.meshBounds.at(mesh.sourceIndex),
-                                   cmd.boneOffset});
+            renderItems.emplace_back(worldTransform, material, mesh.vao,
+                                     mesh.indexCount, shaderFeatures,
+                                     cmd.meshBounds.at(mesh.sourceIndex),
+                                     cmd.boneOffset, cmd.layer);
         }
     };
 

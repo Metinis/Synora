@@ -577,6 +577,7 @@ struct RenderItem {
     uint32_t shaderIndex;
     AABB aabb;
     std::optional<uint32_t> boneOffset;
+    uint64_t layer;
 };
 
 class Pass {
@@ -868,6 +869,8 @@ class RenderTechnique {
     // Set default shader mask
     RenderTechnique &setShaderFeature(uint32_t defaultFeature);
 
+    RenderTechnique &setFilterMask(uint64_t filterMask);
+
     void forEachGroup(std::function<void(GroupDesc &group)> callback);
 
     void setPassDesc(const PassDesc &desc);
@@ -879,6 +882,7 @@ class RenderTechnique {
                       const RenderItem &item) const;
     const std::string &getShaderName() const;
     uint32_t getDefaultShaderMask() const;
+    uint64_t getFilterMask() const;
 
     const RenderEffectDesc::InputBindingTable &getInputBindings() const;
 
@@ -910,7 +914,7 @@ class RenderTechnique {
 
     uint32_t m_DefaultShaderFeature = 0;
 
-    uint64_t m_FilterMask;
+    uint64_t m_FilterMask = std::numeric_limits<uint64_t>().max();
 };
 
 class Renderer : public IRenderViewBackend {
@@ -1176,7 +1180,6 @@ class Renderer : public IRenderViewBackend {
     Handle<Sampler> getSampler(const SamplerDesc &desc);
 
     RenderTechnique::GroupCache m_GroupCache;
-    RenderTechnique::GroupStateCache m_GroupStateCache;
 
     void drawRenderItems(Context &context, const std::string &techniqueName,
                          std::span<const InputSlot> passInputs);
