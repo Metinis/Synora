@@ -24,6 +24,7 @@ struct BoundsView {
 
 struct RenderView3D {
     std::vector<UUID> models;
+    std::vector<uint64_t> layers;
     std::vector<BoundsView> bounds;
     std::vector<glm::mat4> transforms;
     std::vector<MaterialView> materials;
