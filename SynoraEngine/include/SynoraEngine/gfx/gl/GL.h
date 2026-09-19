@@ -301,8 +301,45 @@ struct SamplerDesc {
     WrapMode wrapV = WrapMode::Repeat;
     WrapMode wrapW = WrapMode::Repeat;
     glm::vec4 borderColor = glm::vec4(1.0f);
-    bool compareMode = false;
+    std::optional<CompareFunc> compareFunc = std::nullopt;
     float anisotropicLevel = 1.0f;
+
+    static SamplerDesc fromGeneralPurposeSamplerDesc(SYN::SamplerDesc desc);
+
+    bool operator==(const SamplerDesc &other) const {
+        return minFilter == other.minFilter && magFilter == other.magFilter &&
+               wrapU == other.wrapU && wrapV == other.wrapV &&
+               wrapW == other.wrapW && borderColor == other.borderColor &&
+               compareFunc == other.compareFunc &&
+               anisotropicLevel == other.anisotropicLevel;
+    }
+
+    struct Hash {
+        template <typename T>
+        void hashCombine(size_t &seed, const T &val) const {
+            seed ^=
+                std::hash<T>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+
+        size_t operator()(const SamplerDesc &desc) const {
+            size_t hash = 0;
+
+            hashCombine(hash, desc.minFilter);
+            hashCombine(hash, desc.magFilter);
+            hashCombine(hash, desc.wrapU);
+            hashCombine(hash, desc.wrapV);
+            hashCombine(hash, desc.wrapW);
+            hashCombine(hash, desc.borderColor.x);
+            hashCombine(hash, desc.borderColor.y);
+            hashCombine(hash, desc.borderColor.z);
+            hashCombine(hash, desc.borderColor.w);
+            if (desc.compareFunc.has_value())
+                hashCombine(hash, desc.compareFunc.value());
+            hashCombine(hash, desc.anisotropicLevel);
+
+            return hash;
+        }
+    };
 };
 
 struct RenderbufferDesc {
@@ -393,6 +430,9 @@ struct PipelineState {
 
     // TODO: Properly define blend state
     BlendState blend;
+
+    static PipelineState
+    fromGeneralPurposePipelineState(SYN::PipelineState state);
 };
 
 struct VertexAttribDesc {
@@ -501,6 +541,7 @@ struct RenderTarget {
     Handle<Framebuffer> framebuffer;
     std::vector<AttachmentDesc> colorAttachments;
     std::optional<AttachmentDesc> depthAttachment = std::nullopt;
+    PassDesc passDesc;
 };
 
 struct Environment {
@@ -573,9 +614,7 @@ class Pass {
     // Matrix uniforms
     void bindUniform(std::string_view name, const glm::mat4 &v);
 
-    void bindUniform(std::string_view name, const std::vector<glm::mat4> &v,
-                     std::optional<uint32_t> start = std::nullopt,
-                     std::optional<uint32_t> size = std::nullopt);
+    void bindUniform(std::string_view name, std::span<const glm::mat4> v);
 
     void bindTexture(uint32_t binding, Handle<Texture> textureHandle,
                      Handle<Sampler> samplerHandle);
@@ -743,6 +782,8 @@ class ShaderCache {
     // and you want to rebuild during runtime (hot reload).
     void reset(Context &context);
 
+    bool isShaderRegistered(const std::string &shaderName) const;
+
   private:
     struct ShaderKey {
         std::string name;
@@ -782,15 +823,13 @@ class RenderTechnique {
         uint32_t exclusionMask = 0;
         std::function<PipelineState(void)> setupGroup;
         bool cull = false;
-        bool sort = false;
         std::optional<std::function<void(Pass &, const RenderItem &item)>> draw;
 
         // Only meant for hashing groups for render technique cache.
         // Ignores callbacks on purpose.
         bool operator==(const GroupDesc &b) const {
             return queryMask == b.queryMask &&
-                   exclusionMask == b.exclusionMask && cull == b.cull &&
-                   sort == b.sort;
+                   exclusionMask == b.exclusionMask && cull == b.cull;
         }
     };
 
@@ -798,8 +837,7 @@ class RenderTechnique {
         size_t operator()(const GroupDesc &desc) const {
             size_t maskHash = std::hash<uint64_t>{}((desc.queryMask << 31) |
                                                     desc.exclusionMask);
-            size_t stateHash =
-                std::hash<uint32_t>{}((desc.cull << 1) | desc.sort);
+            size_t stateHash = std::hash<uint32_t>{}(desc.cull << 1);
 
             return maskHash ^
                    stateHash + 0x9e3779b9 + (maskHash << 6) + (maskHash >> 2);
@@ -813,8 +851,12 @@ class RenderTechnique {
         std::unordered_map<GroupDesc, std::vector<RenderItem>, GroupDescHash>;
 
     using BindUniformFunc = std::function<void(Pass &, RenderItem)>;
+    using PerPassBindUniformFunc = std::function<void(Pass &)>;
 
   public:
+    RenderTechnique(const std::string &name, RenderEffectDesc::Type effectType,
+                    const PipelineState &pipeline,
+                    const RenderEffectDesc::InputBindingTable &bindings);
     RenderTechnique() = default;
 
     RenderTechnique &setShader(const std::string &name);
@@ -826,14 +868,29 @@ class RenderTechnique {
     // Set default shader mask
     RenderTechnique &setShaderFeature(uint32_t defaultFeature);
 
+    void forEachGroup(std::function<void(GroupDesc &group)> callback);
+
     void setPassDesc(const PassDesc &desc);
 
     PassDesc getPassDesc() const;
+
     const std::vector<GroupDesc> &getGroups() const;
     void bindUniforms(Pass &pass, const GroupDesc &group,
                       const RenderItem &item) const;
     const std::string &getShaderName() const;
     uint32_t getDefaultShaderMask() const;
+
+    const RenderEffectDesc::InputBindingTable &getInputBindings() const;
+
+    bool validateInputs(std::span<const InputSlot> passInputs,
+                        std::span<const InputSlot> perInstanceInputs) const;
+
+    bool perPass(const std::string &inputName) const;
+
+    void clearBindFeatures();
+
+    RenderEffectDesc::Type getEffectType() const;
+    PipelineState getPipelineState() const;
 
   private:
     PassDesc m_PassDesc;
@@ -841,9 +898,16 @@ class RenderTechnique {
     BindUniformFunc m_BindUniformBase;
 
     // Feature Bit -> Special case function
-    std::unordered_map<uint32_t, BindUniformFunc> m_BindFeature;
+    std::unordered_map<uint32_t, std::vector<BindUniformFunc>> m_BindFeature;
+
+    RenderEffectDesc::InputBindingTable m_InputBindings;
+    RenderEffectDesc::Type m_EffectType;
+
+    PipelineState m_MainPipeline;
 
     std::string m_ShaderName;
+    std::string m_TechniqueName;
+
     uint32_t m_DefaultShaderFeature = 0;
 
     uint64_t m_FilterMask;
@@ -861,13 +925,13 @@ class Renderer : public IRenderViewBackend {
     void beforeDraw() override;
     void afterDraw() override;
 
-    ShaderHandle createShader(std::filesystem::path shaderPath) override;
-    RenderEffectHandle createEffect(const RenderEffectDesc &desc) override;
+    void createShader(std::filesystem::path shaderPath,
+                      const std::string &shaderName) override;
+    void createEffect(const RenderEffectDesc &desc) override;
 
     void init(class EngineContext *context) override;
     void beginFrame(const RenderView3D &renderView) override;
-    void draw(CameraComponent camera, glm::mat4 cameraTransform,
-              std::optional<UUID> renderTarget) override;
+    void draw(const DrawOptions &options) override;
     void endFrame() override;
     void submitLineList(const std::vector<DebugDraw::Line> &lines,
                         bool depthTest) override;
@@ -965,9 +1029,6 @@ class Renderer : public IRenderViewBackend {
     void updateMsaaFramebuffer(Context &context);
 
     struct {
-        std::optional<Handle<Framebuffer>> handle;
-        std::optional<Handle<Texture>> colorAttachment;
-        Handle<Sampler> colorSampler;
         bool update = true;
     } m_HdrFramebuffer;
 
@@ -1031,7 +1092,6 @@ class Renderer : public IRenderViewBackend {
 
   private:
     ResourceRegistry<Model> m_ModelRegistry;
-    ResourceRegistry<RenderTechnique> m_RenderTechniqueRegistry;
 
     ShaderCache m_ShaderCache;
 
@@ -1039,7 +1099,7 @@ class Renderer : public IRenderViewBackend {
     bool m_AnisotropicUpdate = false;
 
   private:
-    void drawDebugPass(Context &context);
+    void drawDebugPass(Context &context, const PassDesc &passDesc);
 
   private:
     struct {
@@ -1052,6 +1112,8 @@ class Renderer : public IRenderViewBackend {
         std::vector<glm::mat4> lightSpaceMatrices;
         std::vector<float> cascadeTexelWorldSize;
         bool isInstanced;
+        bool drawNear = true;
+        uint32_t layerIndex = 0;
     } m_CascadedShadowmap;
 
     void drawInstancedCSMDepth(Context &context, Handle<Framebuffer> fbo,
@@ -1080,19 +1142,46 @@ class Renderer : public IRenderViewBackend {
     std::vector<glm::mat4> m_FrameBoneMatrices;
     Frustum m_CurrentFrustum;
 
-    RenderTechnique m_ShadowPass;
     void createShadowPassTechnique();
-
-    RenderTechnique m_ZPrepass;
     void createZPrepassTechnique();
-
-    RenderTechnique m_ForwardPass;
     void createForwardPassTechnique();
+    void createTonemapTechnique();
+
+    void drawSkybox(Pass &pass, glm::mat4 projectionMatrix,
+                    glm::mat4 viewMatrix);
+
+    std::unordered_map<std::string, RenderTechnique> m_Techniques;
+    std::unordered_map<std::string, RenderTarget> m_InternalRenderTargets;
+
+    void registerInternalTarget(std::string_view technique,
+                                const RenderTarget &target);
+    void registerInternalUniformPerInstance(
+        std::string_view uniformName, RenderTechnique::BindUniformFunc bindFunc,
+        std::optional<ShaderFeature> feature = std::nullopt);
+
+    void registerInternalUniformPerPass(
+        std::string_view uniformName,
+        RenderTechnique::PerPassBindUniformFunc bindFunc);
+
+    void passInput(Pass &pass, const InputSlot *input);
+
+    std::unordered_map<std::string, ShaderFeature> m_FeatureDependentUniforms;
+    std::unordered_map<std::string, RenderTechnique::BindUniformFunc>
+        m_PerInstanceInternalUniforms;
+    std::unordered_map<std::string, RenderTechnique::PerPassBindUniformFunc>
+        m_PerPassInternalUniforms;
+
+    std::unordered_map<SamplerDesc, Handle<Sampler>, SamplerDesc::Hash>
+        m_SamplerCache;
+    Handle<Sampler> getSampler(const SamplerDesc &desc);
 
     RenderTechnique::GroupCache m_GroupCache;
     RenderTechnique::GroupStateCache m_GroupStateCache;
 
-    void drawRenderItems(Context &context, const RenderTechnique &technique);
+    void drawRenderItems(Context &context, const std::string &techniqueName,
+                         std::span<const InputSlot> passInputs);
+    void drawScreen(Context &context, const std::string &techniqueName,
+                    std::span<const InputSlot> passInputs);
 
     void bindBoneMatrices(Pass &pass, uint32_t offset);
 

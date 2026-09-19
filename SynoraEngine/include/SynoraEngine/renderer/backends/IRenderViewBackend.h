@@ -1,8 +1,10 @@
 #pragma once
 
 #include <SynoraEngine/renderer/DebugDraw.h>
-#include <SynoraEngine/scene/components/CameraComponent.h>
+#include <SynoraEngine/renderer/types/RenderEffectDesc.h>
 #include <SynoraEngine/scene/view/RenderView3D.h>
+
+#include <SynoraEngine/renderer/types/DrawOptions.h>
 
 #include <imgui.h>
 
@@ -28,11 +30,15 @@ class IRenderViewBackend {
         return std::nullopt;
     };
 
+    virtual void createShader(std::filesystem::path shaderPath,
+                              const std::string &key) = 0;
+    virtual void createEffect(const RenderEffectDesc &desc) = 0;
+
     virtual void beginFrame(const RenderView3D &sceneDescription) = 0;
 
     // if renderTarget is not specified then draw to default framebuffer
-    virtual void draw(CameraComponent camera, glm::mat4 cameraTransform,
-                      std::optional<UUID> renderTarget) = 0;
+    // If effect is not specified then use default internal multi-pass
+    virtual void draw(const DrawOptions &options) = 0;
 
     virtual void endFrame() = 0;
 

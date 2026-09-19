@@ -212,60 +212,6 @@ uint32_t getShaderFeatures(const SYN::gfx::gl::Mesh &mesh,
     return featureFlag;
 }
 
-void setSamplerParameters(uint32_t samplerId,
-                          const SYN::gfx::gl::SamplerDesc &desc) {
-    using namespace SYN::gfx::gl;
-
-    auto getFilterFormat = [](SampleFilter filter) {
-        switch (filter) {
-        case SampleFilter::Nearest:
-            return GL_NEAREST;
-        case SampleFilter::Linear:
-            return GL_LINEAR;
-        case SampleFilter::Nearest_Mipmap_Nearest:
-            return GL_NEAREST_MIPMAP_NEAREST;
-        default:
-            return GL_LINEAR_MIPMAP_LINEAR;
-        }
-    };
-
-    auto getWrapFormat = [](WrapMode wrap) {
-        switch (wrap) {
-        case WrapMode::ClampToEdge:
-            return GL_CLAMP_TO_EDGE;
-        case WrapMode::Repeat:
-            return GL_REPEAT;
-        case WrapMode::ClampToBorder:
-            return GL_CLAMP_TO_BORDER;
-        default:
-            return GL_MIRRORED_REPEAT;
-        }
-    };
-
-    glSamplerParameteri(samplerId, GL_TEXTURE_MIN_FILTER,
-                        getFilterFormat(desc.minFilter));
-    glSamplerParameteri(samplerId, GL_TEXTURE_MAG_FILTER,
-                        getFilterFormat(desc.magFilter));
-    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_S,
-                        getWrapFormat(desc.wrapU));
-    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_T,
-                        getWrapFormat(desc.wrapV));
-    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_R,
-                        getWrapFormat(desc.wrapW));
-    glSamplerParameterfv(samplerId, GL_TEXTURE_BORDER_COLOR,
-                         &desc.borderColor[0]);
-
-    if (desc.compareMode) {
-        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_MODE,
-                            GL_COMPARE_REF_TO_TEXTURE);
-        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-    }
-
-    float aniso =
-        glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
-    glSamplerParameterf(samplerId, GL_TEXTURE_MAX_ANISOTROPY, aniso);
-}
-
 GLenum getPrimitiveType(SYN::gfx::gl::PrimitiveTopology type) {
     using namespace SYN::gfx::gl;
     GLenum drawMode = GL_TRIANGLES;
@@ -317,6 +263,61 @@ GLenum getCompareFuncType(SYN::gfx::gl::CompareFunc func) {
     }
 
     return type;
+}
+
+void setSamplerParameters(uint32_t samplerId,
+                          const SYN::gfx::gl::SamplerDesc &desc) {
+    using namespace SYN::gfx::gl;
+
+    auto getFilterFormat = [](SampleFilter filter) {
+        switch (filter) {
+        case SampleFilter::Nearest:
+            return GL_NEAREST;
+        case SampleFilter::Linear:
+            return GL_LINEAR;
+        case SampleFilter::Nearest_Mipmap_Nearest:
+            return GL_NEAREST_MIPMAP_NEAREST;
+        default:
+            return GL_LINEAR_MIPMAP_LINEAR;
+        }
+    };
+
+    auto getWrapFormat = [](WrapMode wrap) {
+        switch (wrap) {
+        case WrapMode::ClampToEdge:
+            return GL_CLAMP_TO_EDGE;
+        case WrapMode::Repeat:
+            return GL_REPEAT;
+        case WrapMode::ClampToBorder:
+            return GL_CLAMP_TO_BORDER;
+        default:
+            return GL_MIRRORED_REPEAT;
+        }
+    };
+
+    glSamplerParameteri(samplerId, GL_TEXTURE_MIN_FILTER,
+                        getFilterFormat(desc.minFilter));
+    glSamplerParameteri(samplerId, GL_TEXTURE_MAG_FILTER,
+                        getFilterFormat(desc.magFilter));
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_S,
+                        getWrapFormat(desc.wrapU));
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_T,
+                        getWrapFormat(desc.wrapV));
+    glSamplerParameteri(samplerId, GL_TEXTURE_WRAP_R,
+                        getWrapFormat(desc.wrapW));
+    glSamplerParameterfv(samplerId, GL_TEXTURE_BORDER_COLOR,
+                         &desc.borderColor[0]);
+
+    if (desc.compareFunc.has_value()) {
+        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_MODE,
+                            GL_COMPARE_REF_TO_TEXTURE);
+        glSamplerParameteri(samplerId, GL_TEXTURE_COMPARE_FUNC,
+                            getCompareFuncType(desc.compareFunc.value()));
+    }
+
+    float aniso =
+        glm::clamp(desc.anisotropicLevel, 1.0f, Globals.maxAnisotropy);
+    glSamplerParameterf(samplerId, GL_TEXTURE_MAX_ANISOTROPY, aniso);
 }
 
 GLenum getStencilOpType(SYN::gfx::gl::StencilOp func) {
@@ -391,6 +392,171 @@ bool validateProgramLinkStatus(uint32_t program) {
         return false;
     }
     return true;
+}
+
+SYN::gfx::gl::PipelineState
+SYN::gfx::gl::PipelineState::fromGeneralPurposePipelineState(
+    SYN::PipelineState state) {
+    SYN::gfx::gl::PipelineState convertedState;
+
+    auto cullTo = [](SYN::PipelineState::Cull cull) {
+        CullMode newCull;
+        switch (cull) {
+        case SYN::PipelineState::Cull::None: {
+            newCull = CullMode::None;
+            break;
+        }
+        case SYN::PipelineState::Cull::Back: {
+            newCull = CullMode::Back;
+            break;
+        }
+        case SYN::PipelineState::Cull::Front: {
+            newCull = CullMode::Front;
+            break;
+        }
+        }
+        return newCull;
+    };
+
+    auto frontFaceTo = [](SYN::PipelineState::FrontFace face) {
+        if (face == SYN::PipelineState::FrontFace::Clockwise)
+            return false;
+        return true;
+    };
+
+    auto polygonModeTo = [](SYN::PipelineState::PolygonMode mode) {
+        if (mode == SYN::PipelineState::PolygonMode::Fill)
+            return SYN::gfx::gl::PolygonMode::Fill;
+        if (mode == SYN::PipelineState::PolygonMode::Line)
+            return SYN::gfx::gl::PolygonMode::Line;
+        return SYN::gfx::gl::PolygonMode::Point;
+    };
+
+    auto compareFuncTo = [](SYN::PipelineState::CompareFunc cf) {
+        SYN::gfx::gl::CompareFunc out;
+        switch (cf) {
+        case SYN::PipelineState::CompareFunc::Always: {
+            out = SYN::gfx::gl::CompareFunc::Always;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Never: {
+            out = SYN::gfx::gl::CompareFunc::Never;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Less: {
+            out = SYN::gfx::gl::CompareFunc::Less;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Equal: {
+            out = SYN::gfx::gl::CompareFunc::Equal;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::LessEqual: {
+            out = SYN::gfx::gl::CompareFunc::LessEqual;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Greater: {
+            out = SYN::gfx::gl::CompareFunc::Greater;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::NotEqual: {
+            out = SYN::gfx::gl::CompareFunc::NotEqual;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::GreaterEqual: {
+            out = SYN::gfx::gl::CompareFunc::GreaterEqual;
+            break;
+        }
+        };
+        return out;
+    };
+
+    auto depthTo = [&compareFuncTo](SYN::PipelineState::Depth depth) {
+        SYN::gfx::gl::DepthState depthState;
+        depthState.enabled = depth.testEnabled;
+        depthState.writeEnabled = depth.writeEnabled;
+        depthState.test = compareFuncTo(depth.test);
+        return depthState;
+    };
+
+    auto stencilOpTypeTo = [](SYN::PipelineState::Stencil::Op::Type type) {
+        SYN::gfx::gl::StencilOp stencilOp;
+        switch (type) {
+        case SYN::PipelineState::Stencil::Op::Type::Keep: {
+            stencilOp = SYN::gfx::gl::StencilOp::Keep;
+            break;
+        }
+        case SYN::PipelineState::Stencil::Op::Type::Zero: {
+            stencilOp = SYN::gfx::gl::StencilOp::Zero;
+            break;
+        }
+
+        case SYN::PipelineState::Stencil::Op::Type::Replace: {
+            stencilOp = SYN::gfx::gl::StencilOp::Replace;
+            break;
+        }
+
+        case SYN::PipelineState::Stencil::Op::Type::Increment: {
+            stencilOp = SYN::gfx::gl::StencilOp::Increment;
+            break;
+        }
+
+        case SYN::PipelineState::Stencil::Op::Type::IncrementWrap: {
+            stencilOp = SYN::gfx::gl::StencilOp::IncrementWrap;
+            break;
+        }
+
+        case SYN::PipelineState::Stencil::Op::Type::Decrement: {
+            stencilOp = SYN::gfx::gl::StencilOp::Decrement;
+            break;
+        }
+
+        case SYN::PipelineState::Stencil::Op::Type::DecrementWrap: {
+            stencilOp = SYN::gfx::gl::StencilOp::DecrementWrap;
+            break;
+        }
+
+        case SYN::PipelineState::Stencil::Op::Type::Invert: {
+            stencilOp = SYN::gfx::gl::StencilOp::Invert;
+            break;
+        }
+        };
+
+        return stencilOp;
+    };
+
+    auto stencilTo = [&stencilOpTypeTo,
+                      &compareFuncTo](SYN::PipelineState::Stencil stencil) {
+        SYN::gfx::gl::StencilState newState;
+        newState.enabled = stencil.testEnabled;
+        newState.reference = stencil.reference;
+        newState.writeMask = stencil.writeMask;
+        newState.readMask = stencil.readMask;
+
+        newState.frontTest = compareFuncTo(stencil.frontFace.test);
+        newState.backTest = compareFuncTo(stencil.backFace.test);
+
+        newState.frontOp.stencilFail =
+            stencilOpTypeTo(stencil.frontFace.stencilFail);
+        newState.frontOp.depthFail =
+            stencilOpTypeTo(stencil.frontFace.depthFail);
+        newState.frontOp.pass = stencilOpTypeTo(stencil.frontFace.pass);
+
+        newState.backOp.stencilFail =
+            stencilOpTypeTo(stencil.backFace.stencilFail);
+        newState.backOp.depthFail = stencilOpTypeTo(stencil.backFace.depthFail);
+        newState.backOp.pass = stencilOpTypeTo(stencil.backFace.pass);
+
+        return newState;
+    };
+
+    convertedState.depth = depthTo(state.depth);
+    convertedState.cullMode = cullTo(state.cull);
+    convertedState.polygonMode = polygonModeTo(state.polygonMode);
+    convertedState.frontFaceCcw = frontFaceTo(state.face);
+    convertedState.stencil = stencilTo(state.stencil);
+
+    return convertedState;
 }
 
 // Pass
@@ -724,16 +890,14 @@ void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
 }
 
 void SYN::gfx::gl::Pass::bindUniform(std::string_view name,
-                                     const std::vector<glm::mat4> &v,
-                                     std::optional<uint32_t> offset,
-                                     std::optional<uint32_t> size) {
+                                     std::span<const glm::mat4> v) {
     int loc = getShaderUniformLocation(name);
     if (loc == -1) {
         spdlog::warn("Shader uniform: {} does not exist!", name);
         return;
     }
-    glUniformMatrix4fv(loc, size.value_or(v.size()), GL_FALSE,
-                       glm::value_ptr(v[offset.value_or(0)]));
+    glUniformMatrix4fv(loc, v.size(), GL_FALSE,
+                       reinterpret_cast<const float *>(v.data()));
 }
 
 void SYN::gfx::gl::Pass::bindTexture(uint32_t binding,
@@ -1667,6 +1831,110 @@ SYN::gfx::gl::Context::createSampler(const SamplerDesc &desc) {
     return m_SamplerRegistry.createHandle(sampler);
 }
 
+SYN::gfx::gl::SamplerDesc
+SYN::gfx::gl::SamplerDesc::fromGeneralPurposeSamplerDesc(
+    SYN::SamplerDesc desc) {
+    SYN::gfx::gl::SamplerDesc output;
+
+    auto filterTo = [](SYN::SamplerDesc::Filter filter) {
+        SampleFilter output;
+
+        switch (filter) {
+        case SYN::SamplerDesc::Filter::Nearest:
+            output = SampleFilter::Nearest;
+            break;
+        case SYN::SamplerDesc::Filter::Linear:
+            output = SampleFilter::Linear;
+            break;
+        case SYN::SamplerDesc::Filter::NearestMipmapNearest:
+            output = SampleFilter::Nearest_Mipmap_Nearest;
+            break;
+        case SYN::SamplerDesc::Filter::LinearMipmapLinear:
+            output = SampleFilter::Linear_Mipmap_Linear;
+            break;
+        }
+
+        return output;
+    };
+
+    auto wrapTo = [](SYN::SamplerDesc::WrapMode wrap) {
+        WrapMode output;
+
+        switch (wrap) {
+        case SYN::SamplerDesc::WrapMode::ClampToEdge:
+            output = WrapMode::ClampToEdge;
+            break;
+        case SYN::SamplerDesc::WrapMode::Repeat:
+            output = WrapMode::Repeat;
+            break;
+        case SYN::SamplerDesc::WrapMode::MirroredRepeat:
+            output = WrapMode::MirroredRepeat;
+            break;
+        case SYN::SamplerDesc::WrapMode::ClampToBorder:
+            output = WrapMode::ClampToBorder;
+            break;
+        }
+
+        return output;
+    };
+
+    auto compareFuncTo = [](SYN::PipelineState::CompareFunc cf) {
+        SYN::gfx::gl::CompareFunc out;
+        switch (cf) {
+        case SYN::PipelineState::CompareFunc::Always: {
+            out = SYN::gfx::gl::CompareFunc::Always;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Never: {
+            out = SYN::gfx::gl::CompareFunc::Never;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Less: {
+            out = SYN::gfx::gl::CompareFunc::Less;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Equal: {
+            out = SYN::gfx::gl::CompareFunc::Equal;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::LessEqual: {
+            out = SYN::gfx::gl::CompareFunc::LessEqual;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::Greater: {
+            out = SYN::gfx::gl::CompareFunc::Greater;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::NotEqual: {
+            out = SYN::gfx::gl::CompareFunc::NotEqual;
+            break;
+        }
+        case SYN::PipelineState::CompareFunc::GreaterEqual: {
+            out = SYN::gfx::gl::CompareFunc::GreaterEqual;
+            break;
+        }
+        };
+        return out;
+    };
+
+    output.minFilter = filterTo(desc.minFilter);
+    output.magFilter = filterTo(desc.magFilter);
+
+    output.wrapU = wrapTo(desc.wrapU);
+    output.wrapV = wrapTo(desc.wrapV);
+    output.wrapW = wrapTo(desc.wrapW);
+
+    output.borderColor = desc.borderColor;
+
+    if (desc.compareFunc.has_value()) {
+        output.compareFunc = compareFuncTo(desc.compareFunc.value());
+    }
+
+    output.anisotropicLevel = desc.anisotropy;
+
+    return output;
+}
+
 void SYN::gfx::gl::Context::updateSampler(Handle<Sampler> samplerHandle,
                                           const SamplerDesc &desc) {
     std::optional<Sampler> samplerOpt =
@@ -1899,9 +2167,29 @@ void SYN::gfx::gl::ShaderCache::reset(Context &context) {
     }
 }
 
+bool SYN::gfx::gl::ShaderCache::isShaderRegistered(
+    const std::string &shaderName) const {
+    return m_ShaderSources.contains(shaderName);
+}
+
 // RenderTechnique
 // Higher level passes for the renderer. Describe which groups a pass cares
 // about, and how a pass should render each group.
+
+SYN::gfx::gl::RenderTechnique::RenderTechnique(
+    const std::string &name, RenderEffectDesc::Type effectType,
+    const PipelineState &pipeline,
+    const RenderEffectDesc::InputBindingTable &bindings) {
+    m_TechniqueName = name;
+    m_EffectType = effectType;
+    m_InputBindings = bindings;
+    m_MainPipeline = pipeline;
+}
+
+SYN::RenderEffectDesc::Type
+SYN::gfx::gl::RenderTechnique::getEffectType() const {
+    return m_EffectType;
+}
 
 void SYN::gfx::gl::RenderTechnique::setPassDesc(const PassDesc &desc) {
     m_PassDesc = desc;
@@ -1911,6 +2199,12 @@ SYN::gfx::gl::RenderTechnique &
 SYN::gfx::gl::RenderTechnique::addGroup(const GroupDesc &desc) {
     m_Groups.emplace_back(desc);
     return *this;
+}
+
+void SYN::gfx::gl::RenderTechnique::forEachGroup(
+    std::function<void(GroupDesc &group)> callback) {
+    for (auto &group : m_Groups)
+        callback(group);
 }
 
 SYN::gfx::gl::PassDesc SYN::gfx::gl::RenderTechnique::getPassDesc() const {
@@ -1937,7 +2231,7 @@ SYN::gfx::gl::RenderTechnique::setBindUniformBase(const BindUniformFunc &func) {
 SYN::gfx::gl::RenderTechnique &
 SYN::gfx::gl::RenderTechnique::addFeatureUniform(ShaderFeature feature,
                                                  const BindUniformFunc &func) {
-    m_BindFeature[(uint32_t)feature] = func;
+    m_BindFeature[(uint32_t)feature].emplace_back(func);
     return *this;
 }
 
@@ -1952,8 +2246,11 @@ void SYN::gfx::gl::RenderTechnique::bindUniforms(Pass &pass,
         uint32_t mask = 1 << counter;
         uint32_t bit = query & mask;
         if (bit) {
-            if (m_BindFeature.find(bit) != m_BindFeature.cend())
-                m_BindFeature.at(bit)(pass, item);
+            if (auto it = m_BindFeature.find(bit); it != m_BindFeature.cend()) {
+                for (auto &func : it->second) {
+                    func(pass, item);
+                }
+            }
         }
         ++counter;
     }
@@ -1967,10 +2264,86 @@ const std::string &SYN::gfx::gl::RenderTechnique::getShaderName() const {
     return m_ShaderName;
 }
 
+SYN::gfx::gl::PipelineState
+SYN::gfx::gl::RenderTechnique::getPipelineState() const {
+    return m_MainPipeline;
+}
+
 SYN::gfx::gl::RenderTechnique &
 SYN::gfx::gl::RenderTechnique::setShaderFeature(uint32_t defaultFeature) {
     m_DefaultShaderFeature = defaultFeature;
     return *this;
+}
+
+void SYN::gfx::gl::RenderTechnique::clearBindFeatures() {
+    m_BindFeature.clear();
+}
+
+const SYN::RenderEffectDesc::InputBindingTable &
+SYN::gfx::gl::RenderTechnique::getInputBindings() const {
+    return m_InputBindings;
+}
+
+bool SYN::gfx::gl::RenderTechnique::validateInputs(
+    std::span<const InputSlot> passInputs,
+    std::span<const InputSlot> perInstanceInputs) const {
+
+    bool valid = true;
+
+    auto validateInput = [this](const InputSlot &slot, bool isPassInput) {
+        bool valid = true;
+        if (const auto &binding = m_InputBindings.find(slot.inputName);
+            binding != m_InputBindings.cend()) {
+            if (std::get<0>(binding->second).index() != slot.value.index()) {
+                spdlog::error(
+                    "Input [{}] does not match type specified in contract.");
+                valid = false;
+            }
+            if (isPassInput && std::get<1>(binding->second) ==
+                                   RenderEffectDesc::InputLevel::PerInstance) {
+                spdlog::error("Input [{}] is declared per-instance in "
+                              "contract, but is being received as per-pass.");
+                valid = false;
+            } else if (!isPassInput &&
+                       std::get<1>(binding->second) ==
+                           RenderEffectDesc::InputLevel::PerPass) {
+                spdlog::error("Input [{}] is declared per-pass in contract, "
+                              "but is being received as per-instance.");
+                valid = false;
+            }
+        } else {
+            spdlog::error("Input name [{}] not found in input binding for "
+                          "technique [{}].",
+                          slot.inputName, m_TechniqueName);
+            valid = false;
+        }
+        return valid;
+    };
+
+    for (const InputSlot &slot : passInputs) {
+        if (!validateInput(slot, true))
+            valid = false;
+    }
+
+    for (const InputSlot &slot : perInstanceInputs) {
+        if (!validateInput(slot, false))
+            valid = false;
+    }
+
+    return valid;
+}
+
+bool SYN::gfx::gl::RenderTechnique::perPass(
+    const std::string &inputName) const {
+    if (const auto &binding = m_InputBindings.find(inputName);
+        binding != m_InputBindings.cend()) {
+        return std::get<1>(binding->second) ==
+               RenderEffectDesc::InputLevel::PerPass;
+    }
+    spdlog::error(
+        "Input name [{}] not found in input binding for technique [{}]",
+        inputName, m_TechniqueName);
+    return false;
 }
 
 // TODO: Update Renderer description because this is outdated LOL
@@ -2153,16 +2526,71 @@ void SYN::gfx::gl::Renderer::afterDraw() {
     TracyGpuCollect;
 }
 
-SYN::ShaderHandle
-SYN::gfx::gl::Renderer::createShader(std::filesystem::path shaderPath) {}
+void SYN::gfx::gl::Renderer::createShader(std::filesystem::path shaderPath,
+                                          const std::string &shaderName) {
+    m_ShaderCache.registerShader(shaderName, shaderPath.c_str());
+}
 
-SYN::RenderEffectHandle
-SYN::gfx::gl::Renderer::createEffect(const RenderEffectDesc &desc) {
-    RenderTechnique technique;
+void SYN::gfx::gl::Renderer::createEffect(const RenderEffectDesc &desc) {
+    if (m_Techniques.contains(desc.name)) {
+        spdlog::error(
+            "Cannot create new render effect [{}] because it already exists.",
+            desc.name);
+        return;
+    }
 
-    Handle<RenderTechnique> effectHandle =
-        m_RenderTechniqueRegistry.createHandle(technique).value();
-    return (uint64_t)(effectHandle.generation << 31 | effectHandle.index);
+    if (!m_ShaderCache.isShaderRegistered(desc.shader)) {
+        spdlog::error("Cannot create new render effect [{}] because shader "
+                      "[{}] isn't registered.",
+                      desc.name, desc.shader);
+        return;
+    }
+
+    PipelineState defaultPipeline =
+        PipelineState::fromGeneralPurposePipelineState(desc.pipeline);
+
+    uint32_t defaultShaderFeature =
+        m_CascadedShadowmap.isInstanced
+            ? (uint32_t)ShaderFeature::DepthMapInstanced
+            : 0;
+
+    defaultPipeline.shader = m_ShaderCache.getShaderHandle(
+        *m_Context, desc.shader, defaultShaderFeature);
+
+    bool frustumCull = desc.useFrustumCulling;
+
+    RenderTechnique technique =
+        RenderTechnique(desc.name, desc.type, defaultPipeline,
+                        desc.inputBindings)
+            .setShader(desc.shader)
+            .setShaderFeature(defaultShaderFeature)
+            .addGroup({0, (uint32_t)ShaderFeature::Skinned,
+                       [defaultPipeline]() -> PipelineState {
+                           return defaultPipeline;
+                       },
+                       frustumCull})
+            .addGroup({(uint32_t)ShaderFeature::Skinned, 0,
+                       [defaultPipeline]() -> PipelineState {
+                           return defaultPipeline;
+                       },
+                       frustumCull})
+            .addGroup({(uint32_t)ShaderFeature::AlphaTest,
+                       (uint32_t)ShaderFeature::Skinned,
+                       [defaultPipeline]() mutable -> PipelineState {
+                           defaultPipeline.cullMode = CullMode::None;
+                           return defaultPipeline;
+                       },
+                       frustumCull})
+            .addGroup({(uint32_t)ShaderFeature::AlphaTest |
+                           (uint32_t)ShaderFeature::Skinned,
+                       0,
+                       [defaultPipeline]() mutable -> PipelineState {
+                           defaultPipeline.cullMode = CullMode::None;
+                           return defaultPipeline;
+                       },
+                       frustumCull});
+
+    m_Techniques.emplace(desc.name, std::move(technique));
 }
 
 void SYN::gfx::gl::Renderer::submitLineList(
@@ -2433,7 +2861,8 @@ void SYN::gfx::gl::Renderer::createCSM(Context &context) {
         context
             .createSampler({SampleFilter::Linear, SampleFilter::Linear,
                             WrapMode::ClampToBorder, WrapMode::ClampToBorder,
-                            WrapMode::ClampToBorder, glm::vec4(1.0f), true})
+                            WrapMode::ClampToBorder, glm::vec4(1.0f),
+                            CompareFunc::LessEqual})
             .value();
 
     m_CascadedShadowmap.planeDistances.resize(4);
@@ -2510,239 +2939,285 @@ void SYN::gfx::gl::Renderer::createTextureDefaults(Context &context) {
 }
 
 void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
-    PipelineState zPrepassPipeline;
-    zPrepassPipeline.depth.enabled = true;
+    SYN::PipelineState zPrepassPipeline;
+    zPrepassPipeline.depth.testEnabled = true;
     zPrepassPipeline.depth.writeEnabled = true;
-    zPrepassPipeline.color = {false, false, false, false};
-    zPrepassPipeline.cullMode = CullMode::Back;
+    zPrepassPipeline.cull = SYN::PipelineState::Cull::Back;
 
-    m_ZPrepass.setShader("z_prepass")
-        .setBindUniformBase([&](Pass &pass, const RenderItem &item) {
-            const Material &material = item.material;
-            Handle<Sampler> sampler =
-                material.sampler.value_or(m_DefaultModelSampler);
+    SYN::RenderEffectDesc zPrepassEffect =
+        RenderEffectDesc::empty("ZPrepass",
+                                SYN::RenderEffectDesc::Type::Geometry)
+            .setShader("z_prepass")
+            .setPipelineState(zPrepassPipeline)
+            .addInput("u_Model", glm::mat4{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("boneTransforms", std::span<const glm::mat4>{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_albedoTexture", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_alphaCutoff", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance);
 
+    createEffect(zPrepassEffect);
+
+    registerInternalUniformPerInstance(
+        "u_Model", [](Pass &pass, const RenderItem &item) {
             pass.bindUniform("u_Model", item.transform);
-        })
-        .addFeatureUniform(ShaderFeature::Skinned,
-                           [&](Pass &pass, const RenderItem &item) {
-                               if (!item.boneOffset.has_value())
-                                   return;
-                               bindBoneMatrices(pass, item.boneOffset.value());
-                           })
-        .addFeatureUniform(
-            ShaderFeature::AlphaTest,
-            [&](Pass &pass, const RenderItem &item) {
-                const Material &material = item.material;
-                Handle<Sampler> sampler =
-                    material.sampler.value_or(m_DefaultModelSampler);
+        });
 
-                if (material.albedo) {
-                    pass.bindTexture(0, material.albedo.value(), sampler);
-                }
+    registerInternalUniformPerInstance(
+        "boneTransforms",
+        [&](Pass &pass, const RenderItem &item) {
+            if (!item.boneOffset.has_value())
+                return;
+            bindBoneMatrices(pass, item.boneOffset.value());
+        },
+        ShaderFeature::Skinned);
 
-                pass.bindUniform("u_alphaCutoff", item.material.alphaCutoff);
-            })
-        .addGroup(
-            {0, (uint32_t)ShaderFeature::Skinned,
-             [zPrepassPipeline]() -> PipelineState { return zPrepassPipeline; },
-             true})
-        .addGroup(
-            {(uint32_t)ShaderFeature::Skinned, 0,
-             [zPrepassPipeline]() -> PipelineState { return zPrepassPipeline; },
-             true})
-        .addGroup({(uint32_t)ShaderFeature::AlphaTest,
-                   (uint32_t)ShaderFeature::Skinned,
-                   [zPrepassPipeline]() mutable -> PipelineState {
-                       zPrepassPipeline.cullMode = CullMode::None;
-                       return zPrepassPipeline;
-                   },
-                   true})
-        .addGroup({(uint32_t)ShaderFeature::AlphaTest |
-                       (uint32_t)ShaderFeature::Skinned,
-                   0,
-                   [zPrepassPipeline]() mutable -> PipelineState {
-                       zPrepassPipeline.cullMode = CullMode::None;
-                       return zPrepassPipeline;
-                   },
-                   true});
-}
-
-void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
-    PipelineState pipeline;
-    pipeline.depth.test = CompareFunc::Equal;
-    pipeline.depth.enabled = true;
-    pipeline.depth.writeEnabled = false;
-    pipeline.color = {true, true, true, true};
-    pipeline.cullMode = CullMode::Back;
-
-    m_ForwardPass.setShader("forward")
-        .setBindUniformBase([&](Pass &pass, const RenderItem &item) {
-            auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
-
-            pass.bindTexture(3, it->second.irradianceMap,
-                             m_CubemapSampler.value());
-
-            pass.bindTexture(4, it->second.prefilterMap,
-                             m_MipmapCubeSampler.value());
-
-            pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
-
-            pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
-                             m_CascadedShadowmap.shadowSampler);
-
-            pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
-                             m_CascadedShadowmap.shadowSampler);
-
+    registerInternalUniformPerInstance(
+        "u_alphaCutoff",
+        [&](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
-            pass.bindUniform("u_tint", material.tint.r, material.tint.g,
-                             material.tint.b);
-            pass.bindUniform("u_metallic", material.metallic);
-            pass.bindUniform("u_roughness", material.roughness);
+            pass.bindUniform("u_alphaCutoff", item.material.alphaCutoff);
+        },
+        ShaderFeature::AlphaTest);
 
+    registerInternalUniformPerInstance(
+        "u_albedoTexture", [&](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
             Handle<Sampler> sampler =
                 material.sampler.value_or(m_DefaultModelSampler);
 
             if (material.albedo) {
                 pass.bindTexture(0, material.albedo.value(), sampler);
             }
+        });
+}
+
+void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
+    SYN::PipelineState forwardPipeline;
+    forwardPipeline.depth.test = SYN::PipelineState::CompareFunc::Equal;
+    forwardPipeline.depth.testEnabled = true;
+    forwardPipeline.depth.writeEnabled = false;
+    forwardPipeline.cull = SYN::PipelineState::Cull::Back;
+
+    SYN::RenderEffectDesc forwardPassEffect =
+        RenderEffectDesc::empty("ForwardPass",
+                                SYN::RenderEffectDesc::Type::Geometry)
+            .setShader("forward")
+            .setPipelineState(forwardPipeline)
+            .addInput("u_Model", glm::mat4{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("boneTransforms", std::span<const glm::mat4>{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            // TODO: Change cubemap texture inputs to actual CubemapInput?
+            .addInput("u_irradianceMap", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_prefilterMap", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_brdfLUT", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_csmNear", SYN::InputSlot::RenderTargetInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_csmFar", SYN::InputSlot::RenderTargetInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_tint", glm::vec3{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_metallic", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_roughness", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_albedoTexture", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_normalMap", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_metallicRoughness", SYN::InputSlot::Texture2DInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance);
+
+    createEffect(forwardPassEffect);
+
+    registerInternalUniformPerPass("u_irradianceMap", [&](Pass &pass) {
+        auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
+        pass.bindTexture(3, it->second.irradianceMap, m_CubemapSampler.value());
+    });
+
+    registerInternalUniformPerPass("u_prefilterMap", [&](Pass &pass) {
+        auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
+        pass.bindTexture(4, it->second.prefilterMap,
+                         m_MipmapCubeSampler.value());
+    });
+
+    registerInternalUniformPerPass("u_brdfLUT", [&](Pass &pass) {
+        pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
+    });
+
+    registerInternalUniformPerPass("u_csmNear", [&](Pass &pass) {
+        pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
+                         m_CascadedShadowmap.shadowSampler);
+    });
+
+    registerInternalUniformPerPass("u_csmFar", [&](Pass &pass) {
+        pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
+                         m_CascadedShadowmap.shadowSampler);
+    });
+
+    registerInternalUniformPerInstance(
+        "u_tint", [](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
+            pass.bindUniform("u_tint", material.tint.r, material.tint.g,
+                             material.tint.b);
+        });
+
+    registerInternalUniformPerInstance(
+        "u_metallic", [](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
+            pass.bindUniform("u_metallic", material.metallic);
+        });
+
+    registerInternalUniformPerInstance(
+        "u_roughness", [](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
+            pass.bindUniform("u_roughness", material.roughness);
+        });
+
+    registerInternalUniformPerInstance(
+        "u_normalMap", [&](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
+            Handle<Sampler> sampler =
+                material.sampler.value_or(m_DefaultModelSampler);
 
             if (material.normalMap) {
                 pass.bindTexture(1, material.normalMap.value(), sampler);
             }
+        });
 
+    registerInternalUniformPerInstance(
+        "u_metallicRoughness", [&](Pass &pass, const RenderItem &item) {
+            const Material &material = item.material;
+            Handle<Sampler> sampler =
+                material.sampler.value_or(m_DefaultModelSampler);
             if (material.metallicRoughnessMap) {
                 pass.bindTexture(2, material.metallicRoughnessMap.value(),
                                  sampler);
             }
-
-            pass.bindUniform("u_Model", item.transform);
-        })
-        .addFeatureUniform(ShaderFeature::Skinned,
-                           [&](Pass &pass, const RenderItem &item) {
-                               if (!item.boneOffset.has_value())
-                                   return;
-                               bindBoneMatrices(pass, item.boneOffset.value());
-                           })
-        .addGroup({0, (uint32_t)ShaderFeature::Skinned,
-                   [pipeline]() -> PipelineState { return pipeline; }, true,
-                   true})
-        .addGroup({(uint32_t)ShaderFeature::Skinned, 0,
-                   [pipeline]() -> PipelineState { return pipeline; }, true,
-                   true})
-        .addGroup({(uint32_t)ShaderFeature::AlphaTest,
-                   (uint32_t)ShaderFeature::Skinned,
-                   [pipeline]() mutable -> PipelineState {
-                       pipeline.cullMode = CullMode::None;
-                       return pipeline;
-                   },
-                   true, true})
-        .addGroup({(uint32_t)ShaderFeature::AlphaTest |
-                       (uint32_t)ShaderFeature::Skinned,
-                   0,
-                   [pipeline]() mutable -> PipelineState {
-                       pipeline.cullMode = CullMode::None;
-                       return pipeline;
-                   },
-                   true, true});
+        });
 }
 
 void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
-    m_ShadowPass.setShader("depth_map")
-        .setShaderFeature(m_CascadedShadowmap.isInstanced
-                              ? (uint32_t)ShaderFeature::DepthMapInstanced
-                              : 0)
-        .addFeatureUniform(ShaderFeature::Skinned,
-                           [&](Pass &pass, const RenderItem &item) {
-                               if (!item.boneOffset.has_value())
-                                   return;
-                               bindBoneMatrices(pass, item.boneOffset.value());
-                           })
-        .addFeatureUniform(
-            ShaderFeature::AlphaTest,
-            [&](Pass &pass, const RenderItem &item) {
-                Handle<Sampler> sampler =
-                    item.material.sampler.value_or(m_DefaultModelSampler);
+    SYN::PipelineState shadowPassPipeline;
 
-                Handle<Texture> albedo =
-                    item.material.albedo.value_or(m_DefaultWhite);
+    shadowPassPipeline.depth.testEnabled = true;
+    shadowPassPipeline.depth.writeEnabled = true;
+    shadowPassPipeline.cull = SYN::PipelineState::Cull::Back;
 
-                pass.bindTexture(0, albedo, sampler);
-                pass.bindUniform("u_alphaCutoff", item.material.alphaCutoff);
-            })
-        .addGroup({
-            0,
-            (uint32_t)ShaderFeature::Skinned,
-            [&]() -> PipelineState {
-                PipelineState pipeline;
-                pipeline.depth.enabled = true;
-                pipeline.cullMode = CullMode::Back;
-                return pipeline;
-            },
-            false,
-            false,
-            m_CascadedShadowmap.isInstanced
-                ? std::optional{[](Pass &pass, const RenderItem &item) {
-                      pass.bindVertexArray(item.vao);
-                      pass.drawInstancedIndexed(item.indexCount, 2);
-                  }}
-                : std::nullopt,
-        })
-        .addGroup({
-            (uint32_t)ShaderFeature::Skinned,
-            0,
-            [&]() -> PipelineState {
-                PipelineState pipeline;
-                pipeline.depth.enabled = true;
-                pipeline.cullMode = CullMode::Back;
-                return pipeline;
-            },
-            false,
-            false,
-            m_CascadedShadowmap.isInstanced
-                ? std::optional{[](Pass &pass, const RenderItem &item) {
-                      pass.bindVertexArray(item.vao);
-                      pass.drawInstancedIndexed(item.indexCount, 2);
-                  }}
-                : std::nullopt,
-        })
-        .addGroup({
-            (uint32_t)ShaderFeature::AlphaTest,
-            (uint32_t)ShaderFeature::Skinned,
-            [&]() -> PipelineState {
-                PipelineState pipeline;
-                pipeline.depth.enabled = true;
-                pipeline.cullMode = CullMode::None;
-                return pipeline;
-            },
-            false,
-            false,
-            m_CascadedShadowmap.isInstanced
-                ? std::optional{[](Pass &pass, const RenderItem &item) {
-                      pass.bindVertexArray(item.vao);
-                      pass.drawInstancedIndexed(item.indexCount, 2);
-                  }}
-                : std::nullopt,
-        })
-        .addGroup({
-            (uint32_t)ShaderFeature::AlphaTest |
-                (uint32_t)ShaderFeature::Skinned,
-            0,
-            [&]() -> PipelineState {
-                PipelineState pipeline;
-                pipeline.depth.enabled = true;
-                pipeline.cullMode = CullMode::None;
-                return pipeline;
-            },
-            false,
-            false,
-            m_CascadedShadowmap.isInstanced
-                ? std::optional{[](Pass &pass, const RenderItem &item) {
-                      pass.bindVertexArray(item.vao);
-                      pass.drawInstancedIndexed(item.indexCount, 2);
-                  }}
-                : std::nullopt,
-        });
+    SYN::RenderEffectDesc shadowPassEffect =
+        SYN::RenderEffectDesc::empty("ShadowPass",
+                                     SYN::RenderEffectDesc::Type::Geometry)
+            .setShader("depth_map")
+            .setPipelineState(shadowPassPipeline)
+            .addInput("boneTransforms", std::span<const glm::mat4>{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_alphaCutoff", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_albedoTexture", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance)
+            .addInput("u_Model", glm::mat4{},
+                      SYN::RenderEffectDesc::InputLevel::PerInstance);
+
+    shadowPassEffect.useFrustumCulling = false;
+
+    if (m_CascadedShadowmap.isInstanced) {
+        shadowPassEffect.addInput("u_layerOffset", int32_t{},
+                                  SYN::RenderEffectDesc::InputLevel::PerPass);
+    } else {
+        shadowPassEffect.addInput("u_lightSpaceMatrix",
+                                  std::span<const glm::mat4>{},
+                                  SYN::RenderEffectDesc::InputLevel::PerPass);
+    }
+
+    createEffect(shadowPassEffect);
+
+    registerInternalUniformPerPass("u_layerOffset", [this](Pass &pass) {
+        int32_t layerOffset = (1 - (int32_t)m_CascadedShadowmap.drawNear) * 2;
+        pass.bindUniform("u_layerOffset", layerOffset);
+    });
+
+    registerInternalUniformPerPass("u_lightSpaceMatrix", [this](Pass &pass) {
+        float isNear = (float)(m_CascadedShadowmap.drawNear);
+        uint32_t i = m_CascadedShadowmap.layerIndex;
+
+        pass.bindUniform(
+            "u_lightSpaceMatrix",
+            m_CascadedShadowmap.lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
+    });
+
+    if (m_CascadedShadowmap.isInstanced) {
+        m_Techniques.at("ShadowPass")
+            .forEachGroup([this](RenderTechnique::GroupDesc &desc) {
+                desc.draw = [](Pass &pass, const RenderItem &item) {
+                    pass.bindVertexArray(item.vao);
+                    pass.drawInstancedIndexed(item.indexCount, 2);
+                };
+            });
+    }
+}
+
+void SYN::gfx::gl::Renderer::createTonemapTechnique() {
+    SYN::PipelineState tonemapPassPipeline;
+    tonemapPassPipeline.depth.testEnabled = false;
+    tonemapPassPipeline.cull = SYN::PipelineState::Cull::None;
+
+    SYN::RenderEffectDesc tonemapEffect =
+        SYN::RenderEffectDesc::empty("TonemapPass",
+                                     SYN::RenderEffectDesc::Type::Screen)
+            .setShader("hdr")
+            .setPipelineState(tonemapPassPipeline)
+            .addInput("u_hdrBuffer", InputSlot::RenderTargetInput{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_gamma", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass)
+            .addInput("u_exposure", float{},
+                      SYN::RenderEffectDesc::InputLevel::PerPass);
+
+    createEffect(tonemapEffect);
+
+    registerInternalUniformPerPass("u_hdrBuffer", [this](Pass &pass) {
+        const auto &rt = m_InternalRenderTargets.at("HDR");
+        pass.bindTexture(
+            0, std::get<Handle<Texture>>(rt.colorAttachments.at(0).handle),
+            getSampler({}));
+        pass.bindUniform("u_hdrBuffer", 0);
+    });
+
+    registerInternalUniformPerPass("u_gamma", [this](Pass &pass) {
+        pass.bindUniform("u_gamma", m_Gamma);
+    });
+
+    registerInternalUniformPerPass("u_exposure", [this](Pass &pass) {
+        pass.bindUniform("u_exposure", m_Exposure);
+    });
+}
+
+void SYN::gfx::gl::Renderer::drawSkybox(Pass &pass, glm::mat4 projectionMatrix,
+                                        glm::mat4 viewMatrix) {
+    auto environmentIt = m_NameToEnvironment.find(m_CurrentEnvironment);
+    if (environmentIt->second.type != Environment::Type::ClearColor) {
+        PipelineState pipeline;
+        pipeline.depth.enabled = true;
+        pipeline.depth.writeEnabled = false;
+        pipeline.shader =
+            m_ShaderCache.getShaderHandle(*m_Context, "skybox", 0);
+        pipeline.depth.test = CompareFunc::LessEqual;
+        pass.usePipeline(pipeline);
+
+        pass.bindTexture(0, environmentIt->second.cubemap,
+                         m_CubemapSampler.value());
+        pass.bindUniform("u_skybox", 0);
+        pass.bindUniform("u_ViewProjection",
+                         projectionMatrix * glm::mat4(glm::mat3(viewMatrix)));
+        pass.bindVertexArray(m_SkyboxCube.value());
+        pass.draw(36);
+    }
 }
 
 void SYN::gfx::gl::Renderer::createLineData(Context &context) {
@@ -2821,6 +3296,25 @@ void SYN::gfx::gl::Renderer::init(EngineContext *engineContext) {
     createZPrepassTechnique();
     createForwardPassTechnique();
     createShadowPassTechnique();
+    createTonemapTechnique();
+
+    // Special case passes that don't go through normal
+    // effect description routine. Just need to make sure
+    // user can't take these reserved names.
+    {
+        m_Techniques.emplace("SkyboxPass",
+                             RenderTechnique("SkyboxPass",
+                                             RenderEffectDesc::Type::Geometry,
+                                             {}, {}));
+        m_Techniques.emplace("DebugPass",
+                             RenderTechnique("DebugPass",
+                                             RenderEffectDesc::Type::Geometry,
+                                             {}, {}));
+    }
+
+    registerInternalTarget("HDR", {});
+
+    getSampler({});
 
     EnvironmentResource defaultEnvironment{};
     defaultEnvironment.prefilterMap = m_DefaultPrefilterMap;
@@ -3228,25 +3722,26 @@ void SYN::gfx::gl::Renderer::updateHdrFramebuffer(Context &context) {
 
     m_HdrFramebuffer.update = false;
 
-    if (m_HdrFramebuffer.colorAttachment) {
-        context.deleteTexture(m_HdrFramebuffer.colorAttachment.value());
+    auto &rt = m_InternalRenderTargets.at("HDR");
+
+    if (rt.colorAttachments.empty()) {
+        rt.colorAttachments.emplace_back(Handle<Texture>{});
     }
-    if (m_HdrFramebuffer.handle) {
-        context.deleteFramebuffer(m_HdrFramebuffer.handle.value());
-    }
+
+    context.deleteTexture(
+        std::get<Handle<Texture>>(rt.colorAttachments.at(0).handle));
+    context.deleteFramebuffer(rt.framebuffer);
 
     auto [width, height] = getRenderResolution();
 
-    m_HdrFramebuffer.colorAttachment =
+    rt.colorAttachments[0].handle =
         context.createTexture({width, height, TextureFormat::RGBA16F}).value();
 
-    m_HdrFramebuffer.handle =
-        context
-            .createFramebuffer({
-                std::array{
-                    AttachmentDesc{m_HdrFramebuffer.colorAttachment.value()}},
-            })
-            .value();
+    rt.framebuffer = context
+                         .createFramebuffer({
+                             std::array{rt.colorAttachments.at(0)},
+                         })
+                         .value();
 }
 
 void SYN::gfx::gl::Renderer::createScreenQuad(Context &context) {
@@ -3284,8 +3779,6 @@ void SYN::gfx::gl::Renderer::createScreenQuad(Context &context) {
                  2,
                  IndexType::Unsigned16})
             .value();
-
-    m_HdrFramebuffer.colorSampler = context.createSampler({}).value();
 }
 
 void SYN::gfx::gl::Renderer::createHdrShader(Context &context) {}
@@ -3377,13 +3870,112 @@ SYN::gfx::gl::Renderer::createBRDFLut(Context &context) {
     return brdfLUT;
 }
 
-void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
-                                             const RenderTechnique &technique) {
+SYN::gfx::gl::Handle<SYN::gfx::gl::Sampler>
+SYN::gfx::gl::Renderer::getSampler(const SamplerDesc &desc) {
+    if (auto it = m_SamplerCache.find(desc); it != m_SamplerCache.cend())
+        return it->second;
+    Handle<Sampler> newSampler = m_Context->createSampler(desc).value();
+    m_SamplerCache.emplace(desc, newSampler);
+    return newSampler;
+}
+
+void SYN::gfx::gl::Renderer::drawRenderItems(
+    Context &context, const std::string &techniqueName,
+    std::span<const InputSlot> passInputs) {
     TracyGpuZone("DrawRenderItems");
     ZoneScopedN("DrawRenderItems");
-    Pass pass = context.beginPass(technique.getPassDesc());
+
+    auto techniqueIt = m_Techniques.find(techniqueName);
+    if (techniqueIt == m_Techniques.cend()) {
+        spdlog::error("Render technique [{}] not recognized!", techniqueName);
+        return;
+    }
+
+    auto &technique = techniqueIt->second;
+
+    std::vector<const InputSlot *> userPassInputs;
+
+    // TODO: Support user-defined per-instance data
+    std::vector<const InputSlot *> userInstanceInputs;
+
+    // TODO: Pass per-instance data into validation
+    if (!technique.validateInputs(passInputs, {})) {
+        spdlog::error("Cannot execute render technique: [{}]", techniqueName);
+        return;
+    }
+
+    std::unordered_set<std::string> visitedInternalInputs;
+
+    for (const InputSlot &input : passInputs) {
+        if (auto internalIt = m_PerPassInternalUniforms.find(input.inputName);
+            internalIt != m_PerPassInternalUniforms.cend()) {
+            visitedInternalInputs.emplace(input.inputName);
+        }
+        userPassInputs.push_back(&input);
+    }
+
+    // TODO: Populate userInstanceInputs
+
+    // TODO: Separate input bindings into what is overridden and what is
+    // user supplied so you don't have to iterate all the input bindings
+    // multiple times.
+    //
+    // If an input binding is neither internal nor supplied than throw an error.
+
+    technique.setBindUniformBase(
+        [this, &technique, &visitedInternalInputs,
+         &userInstanceInputs](Pass &pass, const RenderItem &item) {
+            for (auto &[inputName, _] : technique.getInputBindings()) {
+                if (auto perInstanceIt =
+                        m_PerInstanceInternalUniforms.find(inputName);
+                    perInstanceIt != m_PerInstanceInternalUniforms.cend()) {
+                    if (visitedInternalInputs.contains(inputName) ||
+                        m_FeatureDependentUniforms.contains(inputName))
+                        continue;
+                    perInstanceIt->second(pass, item);
+                }
+            }
+            for (const SYN::InputSlot *value : userInstanceInputs) {
+                passInput(pass, value);
+            }
+        });
+
+    for (auto &[inputName, _] : technique.getInputBindings()) {
+        if (auto perInstanceIt = m_PerInstanceInternalUniforms.find(inputName);
+            perInstanceIt != m_PerInstanceInternalUniforms.cend()) {
+            if (auto featureIt = m_FeatureDependentUniforms.find(inputName);
+                featureIt != m_FeatureDependentUniforms.cend()) {
+                if (visitedInternalInputs.contains(inputName))
+                    continue;
+                technique.addFeatureUniform(featureIt->second,
+                                            perInstanceIt->second);
+            }
+        }
+    }
+
     const std::vector<RenderTechnique::GroupDesc> &groups =
         technique.getGroups();
+
+    Pass pass = context.beginPass(technique.getPassDesc());
+    std::optional<uint32_t> lastShaderMask = std::nullopt;
+    const std::string &shaderName = technique.getShaderName();
+    uint32_t defaultMask = technique.getDefaultShaderMask();
+
+    auto bindPassUniforms = [this, &technique,
+                             &visitedInternalInputs](Pass &pass) {
+        for (auto &[inputName, _] : technique.getInputBindings()) {
+            if (auto perPassIt = m_PerPassInternalUniforms.find(inputName);
+                perPassIt != m_PerPassInternalUniforms.cend()) {
+                if (visitedInternalInputs.contains(inputName))
+                    continue;
+                perPassIt->second(pass);
+            }
+        }
+    };
+
+    for (const SYN::InputSlot *input : userPassInputs) {
+        passInput(pass, input);
+    }
 
     for (const RenderTechnique::GroupDesc &groupDesc : groups) {
         uint64_t maskKey =
@@ -3401,14 +3993,12 @@ void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
         if (items->empty())
             continue;
 
-        if (groupDesc.cull || groupDesc.sort) {
+        if (groupDesc.cull) {
             auto groupStateIt = m_GroupStateCache.find(groupDesc);
             if (groupStateIt == m_GroupStateCache.cend()) {
                 std::vector<RenderItem> itemsCopy = *items;
                 if (groupDesc.cull)
                     frustumCullRenderItems(itemsCopy);
-                if (groupDesc.sort)
-                    sortRenderItems(itemsCopy);
 
                 auto [it, _] = m_GroupStateCache.emplace(groupDesc, itemsCopy);
                 groupStateIt = it;
@@ -3419,45 +4009,77 @@ void SYN::gfx::gl::Renderer::drawRenderItems(Context &context,
             continue;
 
         PipelineState pipeline = groupDesc.setupGroup();
+        for (const RenderItem &item : *items) {
+            if (!lastShaderMask.has_value() ||
+                item.shaderIndex != lastShaderMask.value()) {
+                pipeline.shader = m_ShaderCache.getShaderHandle(
+                    context, shaderName, item.shaderIndex | defaultMask);
+                pass.usePipeline(pipeline);
+                lastShaderMask = item.shaderIndex;
 
-        std::optional<uint32_t> lastShaderMask = std::nullopt;
-        const std::string &shaderName = technique.getShaderName();
-        uint32_t defaultMask = technique.getDefaultShaderMask();
-
-        if (!groupDesc.sort) {
-            pipeline.shader = m_ShaderCache.getShaderHandle(
-                context, shaderName, groupDesc.queryMask | defaultMask);
-            pass.usePipeline(pipeline);
-            for (const RenderItem &item : *items) {
-                technique.bindUniforms(pass, groupDesc, item);
-                if (groupDesc.draw.has_value()) {
-                    const auto &drawFunc = groupDesc.draw.value();
-                    drawFunc(pass, item);
-                    continue;
-                }
-                pass.bindVertexArray(item.vao);
-                pass.drawIndexed(item.indexCount);
+                bindPassUniforms(pass);
             }
-        } else {
-            for (const RenderItem &item : *items) {
-                if (!lastShaderMask.has_value() ||
-                    item.shaderIndex != lastShaderMask.value()) {
-                    pipeline.shader = m_ShaderCache.getShaderHandle(
-                        context, shaderName, item.shaderIndex | defaultMask);
-                    pass.usePipeline(pipeline);
-                    lastShaderMask = item.shaderIndex;
-                }
-                technique.bindUniforms(pass, groupDesc, item);
-                if (groupDesc.draw.has_value()) {
-                    const auto &drawFunc = groupDesc.draw.value();
-                    drawFunc(pass, item);
-                    continue;
-                }
-                pass.bindVertexArray(item.vao);
-                pass.drawIndexed(item.indexCount);
+            technique.bindUniforms(pass, groupDesc, item);
+            if (groupDesc.draw.has_value()) {
+                const auto &drawFunc = groupDesc.draw.value();
+                drawFunc(pass, item);
+                continue;
             }
+            pass.bindVertexArray(item.vao);
+            pass.drawIndexed(item.indexCount);
         }
     }
+
+    technique.clearBindFeatures();
+}
+
+void SYN::gfx::gl::Renderer::drawScreen(Context &context,
+                                        const std::string &techniqueName,
+                                        std::span<const InputSlot> passInputs) {
+    TracyGpuZone("DrawScreenPass");
+    ZoneScopedN("DrawScreenPass");
+
+    auto techniqueIt = m_Techniques.find(techniqueName);
+    if (techniqueIt == m_Techniques.cend()) {
+        spdlog::error("Render technique [{}] not recognized!", techniqueName);
+        return;
+    }
+    auto &technique = techniqueIt->second;
+
+    if (!technique.validateInputs(passInputs, {})) {
+        spdlog::error("Cannot execute render technique: [{}]", techniqueName);
+        return;
+    }
+
+    std::vector<const InputSlot *> userPassInputs;
+    std::unordered_set<std::string> visitedInternalInputs;
+
+    for (const InputSlot &input : passInputs) {
+        if (auto internalIt = m_PerPassInternalUniforms.find(input.inputName);
+            internalIt != m_PerPassInternalUniforms.cend()) {
+            visitedInternalInputs.emplace(input.inputName);
+        }
+        userPassInputs.push_back(&input);
+    }
+
+    Pass screenPass = m_Context->beginPass(technique.getPassDesc());
+    screenPass.usePipeline(technique.getPipelineState());
+
+    for (auto &[inputName, _] : technique.getInputBindings()) {
+        if (auto perPassIt = m_PerPassInternalUniforms.find(inputName);
+            perPassIt != m_PerPassInternalUniforms.cend()) {
+            if (visitedInternalInputs.contains(inputName))
+                continue;
+            perPassIt->second(screenPass);
+        }
+    }
+
+    for (const SYN::InputSlot *input : userPassInputs) {
+        passInput(screenPass, input);
+    }
+
+    screenPass.bindVertexArray(m_ScreenQuad.value());
+    screenPass.drawIndexed(6);
 }
 
 void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
@@ -3466,9 +4088,10 @@ void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
     m_HdrFramebuffer.update = true;
 }
 
-void SYN::gfx::gl::Renderer::draw(CameraComponent camera,
-                                  glm::mat4 cameraTransform,
-                                  std::optional<UUID> renderTarget) {
+void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
+
+    CameraComponent camera = options.camera;
+    glm::mat4 cameraTransform = options.cameraTransform;
 
     // Set main camera from camera component and transform component
     {
@@ -3490,17 +4113,15 @@ void SYN::gfx::gl::Renderer::draw(CameraComponent camera,
         m_MainCamera.up = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
     }
 
-    Viewport renderViewport = m_ScreenViewport;
-    auto [renderWidth, renderHeight] = getRenderResolution();
-    renderViewport.width = renderWidth;
-    renderViewport.height = renderHeight;
-
     glm::mat4 viewMatrix = glm::lookAtRH(m_MainCamera.position,
                                          m_MainCamera.target, m_MainCamera.up);
 
     glm::mat4 projMatrix = glm::perspectiveRH_NO(
         glm::radians(m_MainCamera.fovYDegrees), m_MainCamera.aspect,
         m_MainCamera.nearPlane, m_MainCamera.farPlane);
+
+    m_CurrentFrustum =
+        Frustum::fromViewProjectionMatrix(viewMatrix, projMatrix);
 
     // Set per frame constant UBOs
     {
@@ -3522,72 +4143,28 @@ void SYN::gfx::gl::Renderer::draw(CameraComponent camera,
                                 &lightConstants);
     }
 
-    {
-        glm::mat4 view = glm::lookAtRH(m_MainCamera.position,
-                                       m_MainCamera.target, m_MainCamera.up);
+    bool blitMSAA = false;
 
-        glm::mat4 projection = glm::perspectiveRH(
-            glm::radians(m_MainCamera.fovYDegrees), m_MainCamera.aspect,
-            m_MainCamera.nearPlane, m_MainCamera.farPlane);
+    const std::string &currentEffect = options.passInfo.effect;
 
-        m_CurrentFrustum = Frustum::fromViewProjectionMatrix(view, projection);
-    }
+    Viewport renderViewport = m_ScreenViewport;
+    auto [renderWidth, renderHeight] = getRenderResolution();
+    renderViewport.width = renderWidth;
+    renderViewport.height = renderHeight;
 
-    if (m_DirectionalLight.castsShadows) {
-        drawDirectionalCSM(*m_Context, m_DirectionalLight);
-    }
+    auto getPassDesc =
+        [this, &options, &blitMSAA, &renderViewport](
+            const RenderTechnique &technique) -> std::optional<PassDesc> {
+        std::optional<Handle<Framebuffer>> finalTarget = std::nullopt;
+        Viewport finalViewport = renderViewport;
 
-    auto environmentIt = m_NameToEnvironment.find(m_CurrentEnvironment);
+        bool isHDR = false;
 
-    {
-        TracyGpuZone("Forward");
-        ZoneScopedN("Forward");
+        if (std::holds_alternative<AssetRef>(options.passInfo.output)) {
+            AssetRef output = std::get<AssetRef>(options.passInfo.output);
 
-        // Main render pass
-        {
-            m_ZPrepass.setPassDesc({m_MsaaFramebuffer.handle,
-                                    environmentIt->second.clearColor, 1.0f,
-                                    std::nullopt, renderViewport});
-            drawRenderItems(*m_Context, m_ZPrepass);
-            m_ForwardPass.setPassDesc({m_MsaaFramebuffer.handle, std::nullopt,
-                                       std::nullopt, std::nullopt,
-                                       renderViewport});
-            drawRenderItems(*m_Context, m_ForwardPass);
-
-            if (environmentIt->second.type != Environment::Type::ClearColor) {
-                Pass pass = m_Context->beginPass(
-                    {m_MsaaFramebuffer.handle, std::nullopt, std::nullopt,
-                     std::nullopt, renderViewport});
-                PipelineState pipeline;
-                pipeline.depth.enabled = true;
-                pipeline.depth.writeEnabled = false;
-                pipeline.shader =
-                    m_ShaderCache.getShaderHandle(*m_Context, "skybox", 0);
-                pipeline.depth.test = CompareFunc::LessEqual;
-                pass.usePipeline(pipeline);
-
-                pass.bindTexture(0, environmentIt->second.cubemap,
-                                 m_CubemapSampler.value());
-                pass.bindUniform("u_skybox", 0);
-                pass.bindUniform("u_ViewProjection",
-                                 projMatrix * glm::mat4(glm::mat3(viewMatrix)));
-                pass.bindVertexArray(m_SkyboxCube.value());
-                pass.draw(36);
-            }
-
-            drawDebugPass(*m_Context);
-        }
-
-        m_Context->blitFramebuffer(m_MsaaFramebuffer.handle,
-                                   m_HdrFramebuffer.handle, renderViewport,
-                                   renderViewport);
-
-        {
-            std::optional<Handle<Framebuffer>> finalTarget = std::nullopt;
-            Viewport finalViewport = m_ScreenViewport;
-
-            if (renderTarget.has_value()) {
-                UUID renderTargetId = renderTarget.value();
+            if (output.valid()) {
+                UUID renderTargetId = output.uuid();
                 createRenderTarget(*m_Context, renderTargetId);
                 const RenderTargetData *renderTargetData =
                     m_AssetManager->get<RenderTargetData>(renderTargetId);
@@ -3597,24 +4174,158 @@ void SYN::gfx::gl::Renderer::draw(CameraComponent camera,
                 finalViewport.width = renderTargetData->width;
                 finalViewport.height = renderTargetData->height;
             }
-            Pass hdrPass = m_Context->beginPass(
-                {finalTarget, environmentIt->second.clearColor, std::nullopt,
-                 std::nullopt, finalViewport});
-            PipelineState hdrPipeline;
-            hdrPipeline.shader =
-                m_ShaderCache.getShaderHandle(*m_Context, "hdr", 0);
+        } else {
+            std::string resourceName =
+                std::get<std::string>(options.passInfo.output);
 
-            hdrPass.usePipeline(hdrPipeline);
+            isHDR = resourceName == "HDR";
 
-            hdrPass.bindTexture(0, m_HdrFramebuffer.colorAttachment.value(),
-                                m_HdrFramebuffer.colorSampler);
-            hdrPass.bindUniform("u_hdrBuffer", 0);
-            hdrPass.bindUniform("u_gamma", m_Gamma);
-            hdrPass.bindUniform("u_exposure", m_Exposure);
+            auto handleInternalRT = [this, &finalTarget, &resourceName,
+                                     &blitMSAA]() {
+                // TODO: Do not assume that all internal render targets
+                //       match screen size always.
+                if (!resourceName.empty()) {
+                    auto it = m_InternalRenderTargets.find(resourceName);
+                    if (it == m_InternalRenderTargets.cend()) {
+                        spdlog::error("Unable to find internal render target "
+                                      "resource with name [{}]",
+                                      resourceName);
+                        return false;
+                    }
+                    finalTarget = it->second.framebuffer;
+                }
+                return true;
+            };
 
-            hdrPass.bindVertexArray(m_ScreenQuad.value());
-            hdrPass.drawIndexed(6);
+            if (resourceName == "MSAA") {
+                if (technique.getEffectType() ==
+                    RenderEffectDesc::Type::Screen) {
+                    spdlog::error("Screen effect cannot target MSAA.");
+                    return std::nullopt;
+                }
+                finalTarget = m_MsaaFramebuffer.handle;
+            } else if (!resourceName.empty()) {
+                if (!handleInternalRT())
+                    return std::nullopt;
+            }
         }
+
+        // TODO: Make MSAA blit true if sampleCount of RenderTarget is > 1
+        // and format is incompatible. Only HDR for now since it's guaranteed
+        // to be a valid blit, but this enforces right now that you
+        // must use HDR as an input if you want anti-aliasing
+        if (isHDR &&
+            technique.getEffectType() == RenderEffectDesc::Type::Geometry) {
+            // TODO: Warn if output render target
+            //       is incompatible with MSAA framebuffer
+            finalTarget = m_MsaaFramebuffer.handle;
+            blitMSAA = true;
+        }
+
+        if (!finalTarget.has_value() &&
+            technique.getEffectType() == RenderEffectDesc::Type::Screen) {
+            finalViewport.width = m_ScreenViewport.width;
+            finalViewport.height = m_ScreenViewport.height;
+        }
+
+        ClearOptions clearInfo = options.passInfo.clearOptions;
+        return PassDesc{finalTarget, clearInfo.clearColor, clearInfo.clearDepth,
+                        clearInfo.clearStencil, finalViewport};
+    };
+
+    if (options.passInfo.effect.empty()) {
+        // Default render pass
+
+        if (m_DirectionalLight.castsShadows) {
+            drawDirectionalCSM(*m_Context, m_DirectionalLight);
+        }
+
+        auto environmentIt = m_NameToEnvironment.find(m_CurrentEnvironment);
+
+        {
+            TracyGpuZone("Forward");
+            ZoneScopedN("Forward");
+
+            DrawOptions drawOptions;
+            drawOptions.camera = options.camera;
+            drawOptions.cameraTransform = options.cameraTransform;
+            drawOptions.passInfo.effect = "ZPrepass";
+            drawOptions.passInfo.output = "MSAA";
+            drawOptions.passInfo.clearOptions.clearColor =
+                environmentIt->second.clearColor;
+            drawOptions.passInfo.clearOptions.clearDepth = 1.0f;
+
+            // Z Prepass
+            draw(drawOptions);
+
+            drawOptions.passInfo.effect = "ForwardPass";
+            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
+            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+
+            // Forward
+            draw(drawOptions);
+
+            drawOptions.passInfo.effect = "SkyboxPass";
+            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
+            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+
+            // Skybox
+            draw(drawOptions);
+
+            // Debug
+            drawOptions.passInfo.effect = "DebugPass";
+            drawOptions.passInfo.output = "HDR";
+            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
+            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+            drawOptions.passInfo.clearOptions.clearStencil = std::nullopt;
+
+            draw(drawOptions);
+
+            drawOptions.passInfo.effect = "TonemapPass";
+            drawOptions.passInfo.output = options.passInfo.output;
+            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
+            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+
+            // HDR
+            draw(drawOptions);
+        }
+
+        return;
+    }
+
+    auto &technique = m_Techniques.at(currentEffect);
+
+    if (currentEffect == "SkyboxPass") { // Hard code certain effects for now.
+        Pass pass = m_Context->beginPass(getPassDesc(technique).value());
+        drawSkybox(pass, projMatrix, viewMatrix);
+    } else if (currentEffect == "DebugPass") {
+        drawDebugPass(*m_Context, getPassDesc(technique).value());
+    } else if (currentEffect == "ShadowPass" &&
+               m_DirectionalLight.castsShadows) {
+        bool valid =
+            std::holds_alternative<std::string>(options.passInfo.output) &&
+            std::get<std::string>(options.passInfo.output).empty();
+        if (!valid) {
+            spdlog::error(
+                "Passing custom render target into ShadowPass! ShadowPass "
+                "manages its own render targets, you cannot override it.");
+            return;
+        }
+
+        drawDirectionalCSM(*m_Context, m_DirectionalLight);
+    } else if (technique.getEffectType() == RenderEffectDesc::Type::Geometry) {
+        technique.setPassDesc(getPassDesc(technique).value());
+        drawRenderItems(*m_Context, currentEffect, options.passInfo.inputs);
+    } else if (technique.getEffectType() == RenderEffectDesc::Type::Screen) {
+        technique.setPassDesc(getPassDesc(technique).value());
+        drawScreen(*m_Context, currentEffect, options.passInfo.inputs);
+    }
+
+    if (blitMSAA) {
+        Handle<Framebuffer> hdrFramebuffer =
+            m_InternalRenderTargets.at("HDR").framebuffer;
+        m_Context->blitFramebuffer(m_MsaaFramebuffer.handle, hdrFramebuffer,
+                                   renderViewport, renderViewport);
     }
 
     m_GroupCache.clear();
@@ -3738,37 +4449,29 @@ void SYN::gfx::gl::Renderer::drawInstancedCSMDepth(Context &context,
                                                    Handle<Texture> depth,
                                                    bool isNear,
                                                    uint32_t resolution) {
+    auto &passIt = m_Techniques.at("ShadowPass");
+    passIt.setPassDesc({fbo, std::nullopt, 1.0f, std::nullopt,
+                        Viewport{0, 0, resolution, resolution}});
+
+    m_CascadedShadowmap.drawNear = isNear;
+
     context.setDepthAttachment(fbo, depth);
-
-    m_ShadowPass.setPassDesc({fbo, std::nullopt, 1.0f, std::nullopt,
-                              Viewport{0, 0, resolution, resolution}});
-
-    m_ShadowPass.setBindUniformBase([&](Pass &pass, const RenderItem &item) {
-        pass.bindUniform("u_layerOffset", (1 - (int32_t)isNear) * 2);
-        pass.bindUniform("u_modelMatrix", item.transform);
-    });
-
-    drawRenderItems(context, m_ShadowPass);
+    drawRenderItems(context, "ShadowPass", {});
 }
 
 void SYN::gfx::gl::Renderer::drawCSMDepth(Context &context,
                                           Handle<Framebuffer> fbo,
                                           Handle<Texture> depth, bool isNear,
                                           uint32_t resolution) {
+    auto &passIt = m_Techniques.at("ShadowPass");
+    passIt.setPassDesc({fbo, std::nullopt, 1.0f, std::nullopt,
+                        Viewport{0, 0, resolution, resolution}});
+
+    m_CascadedShadowmap.drawNear = isNear;
     for (uint32_t i = 0; i < 2; ++i) {
+        m_CascadedShadowmap.layerIndex = i;
         context.setDepthAttachment(fbo, depth, 0, i);
-        m_ShadowPass.setPassDesc({fbo, std::nullopt, 1.0f, std::nullopt,
-                                  Viewport{0, 0, resolution, resolution}});
-
-        m_ShadowPass.setBindUniformBase([&](Pass &pass,
-                                            const RenderItem &item) {
-            pass.bindUniform("u_lightSpaceMatrix",
-                             m_CascadedShadowmap
-                                 .lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
-            pass.bindUniform("u_modelMatrix", item.transform);
-        });
-
-        drawRenderItems(context, m_ShadowPass);
+        drawRenderItems(context, "ShadowPass", {});
     }
 }
 
@@ -3978,8 +4681,11 @@ void SYN::gfx::gl::Renderer::sortRenderItems(std::vector<RenderItem> &items) {
 void SYN::gfx::gl::Renderer::bindBoneMatrices(Pass &pass, uint32_t offset) {
     TracyGpuZone("BindBoneMatrices");
     ZoneScopedN("BindBoneMatrices");
-    pass.bindUniform("boneTransforms[0]", m_FrameBoneMatrices, offset,
-                     MAX_BONES);
+    std::span<const glm::mat4> boneMatrixSpan = m_FrameBoneMatrices;
+    if (boneMatrixSpan.size() > MAX_BONES) {
+        boneMatrixSpan = boneMatrixSpan.subspan(offset, MAX_BONES);
+    }
+    pass.bindUniform("boneTransforms[0]", boneMatrixSpan);
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
@@ -4056,7 +4762,8 @@ SYN::gfx::gl::Renderer::loadMaterial(Context &context,
     return material;
 }
 
-void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
+void SYN::gfx::gl::Renderer::drawDebugPass(Context &context,
+                                           const PassDesc &passDesc) {
     TracyGpuZone("Debug Draw Pass");
     ZoneScopedN("Debug Draw Pass");
 
@@ -4084,9 +4791,7 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
                                               m_DebugDrawData.lineDepthBuffer,
                                               1, 0, sizeof(DebugDraw::Line));
 
-        Pass depthLinePass =
-            context.beginPass({m_MsaaFramebuffer.handle, std::nullopt,
-                               std::nullopt, std::nullopt, renderViewport});
+        Pass depthLinePass = context.beginPass(passDesc);
 
         depthLinePass.usePipeline(linePipeline);
         depthLinePass.bindUniform("u_resolution", (float)renderViewport.width,
@@ -4104,9 +4809,7 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
                                               m_DebugDrawData.lineOverlayBuffer,
                                               1, 0, sizeof(DebugDraw::Line));
 
-        Pass overlayLinePass = context.beginPass(
-            {m_MsaaFramebuffer.handle, std::nullopt, std::nullopt, std::nullopt,
-             renderViewport, std::nullopt});
+        Pass overlayLinePass = context.beginPass(passDesc);
 
         linePipeline.depth.enabled = false;
         overlayLinePass.usePipeline(linePipeline);
@@ -4115,4 +4818,113 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context) {
         overlayLinePass.bindVertexArray(m_DebugDrawData.lineVAO);
         overlayLinePass.drawInstanced(4, overlayLines.size());
     }
+}
+
+void SYN::gfx::gl::Renderer::registerInternalTarget(
+    std::string_view technique, const RenderTarget &target) {
+    m_InternalRenderTargets.emplace(technique, target);
+}
+
+void SYN::gfx::gl::Renderer::registerInternalUniformPerInstance(
+    std::string_view uniformName, RenderTechnique::BindUniformFunc bindFunc,
+    std::optional<ShaderFeature> shaderFeature) {
+    m_PerInstanceInternalUniforms.emplace(uniformName, bindFunc);
+    if (shaderFeature.has_value()) {
+        m_FeatureDependentUniforms.emplace(uniformName, shaderFeature.value());
+    }
+}
+
+void SYN::gfx::gl::Renderer::registerInternalUniformPerPass(
+    std::string_view uniformName,
+    RenderTechnique::PerPassBindUniformFunc bindFunc) {
+    m_PerPassInternalUniforms.emplace(uniformName, bindFunc);
+}
+
+void SYN::gfx::gl::Renderer::passInput(Pass &pass, const InputSlot *input) {
+    std::visit(
+        [this, &input, &pass](auto &&arg) {
+            using T = std::decay_t<decltype(arg)>;
+            const std::string &inputName = input->inputName;
+            if constexpr (std::is_same_v<T, float>)
+                pass.bindUniform(inputName, arg);
+            else if constexpr (std::is_same_v<T, glm::vec2>)
+                pass.bindUniform(inputName, arg.x, arg.y);
+            else if constexpr (std::is_same_v<T, glm::vec3>)
+                pass.bindUniform(inputName, arg.x, arg.y, arg.z);
+            else if constexpr (std::is_same_v<T, glm::vec4>)
+                pass.bindUniform(inputName, arg.x, arg.y, arg.z, arg.w);
+            else if constexpr (std::is_same_v<T, int32_t>)
+                pass.bindUniform(inputName, arg);
+            else if constexpr (std::is_same_v<T, glm::ivec2>)
+                pass.bindUniform(inputName, arg.x, arg.y);
+            else if constexpr (std::is_same_v<T, glm::ivec3>)
+                pass.bindUniform(inputName, arg.x, arg.y, arg.z);
+            else if constexpr (std::is_same_v<T, glm::ivec4>)
+                pass.bindUniform(inputName, arg.x, arg.y, arg.z, arg.w);
+            else if constexpr (std::is_same_v<T, uint32_t>)
+                pass.bindUniform(inputName, arg);
+            else if constexpr (std::is_same_v<T, glm::uvec2>)
+                pass.bindUniform(inputName, arg.x, arg.y);
+            else if constexpr (std::is_same_v<T, glm::uvec3>)
+                pass.bindUniform(inputName, arg.x, arg.y, arg.z);
+            else if constexpr (std::is_same_v<T, glm::uvec4>)
+                pass.bindUniform(inputName, arg.x, arg.y, arg.z, arg.w);
+            else if constexpr (std::is_same_v<T, glm::mat4>)
+                pass.bindUniform(inputName, arg);
+            else if constexpr (std::is_same_v<T,
+                                              InputSlot::RenderTargetInput>) {
+                auto bindTexture = [&](const RenderTarget &target) {
+                    Handle<Texture> attachmentTexture;
+                    SamplerDesc samplerDesc =
+                        SamplerDesc::fromGeneralPurposeSamplerDesc(arg.sampler);
+
+                    if (arg.attachment == InputSlot::RenderTargetInput::
+                                              AttachmentType::DepthStencil) {
+                        attachmentTexture = std::get<Handle<Texture>>(
+                            target.depthAttachment.value().handle);
+                    } else {
+                        uint32_t colorIndex = (uint32_t)arg.attachment;
+                        attachmentTexture = std::get<Handle<Texture>>(
+                            target.colorAttachments.at(colorIndex).handle);
+                    }
+
+                    pass.bindTexture(arg.bindingIndex, attachmentTexture,
+                                     getSampler(samplerDesc));
+                };
+
+                if (std::holds_alternative<std::string>(arg.target)) {
+                    const std::string &internalName =
+                        std::get<std::string>(arg.target);
+                    if (auto it = m_InternalRenderTargets.find(internalName);
+                        it != m_InternalRenderTargets.cend()) {
+                        bindTexture(it->second);
+                    } else {
+                        spdlog::error(
+                            "Internal render target [{}] doesn't exist",
+                            internalName);
+                    }
+                    return;
+                }
+
+                UUID id = std::get<AssetRef>(arg.target).uuid();
+                RenderTarget target =
+                    std::get<RenderTarget>(m_UUIDToHandle.at(id).handle);
+
+                bindTexture(target);
+            } else if constexpr (std::is_same_v<T, InputSlot::Texture2DInput>) {
+                SamplerDesc desc =
+                    SamplerDesc::fromGeneralPurposeSamplerDesc(arg.sampler);
+                Handle<Sampler> sampler = getSampler(desc);
+                Handle<Texture> texture =
+                    loadTexture(*m_Context, arg.texture, arg.srgb).value();
+                pass.bindTexture(arg.bindingIndex, texture, sampler);
+            } else if constexpr (std::is_same_v<T,
+                                                std::span<const glm::mat4>>) {
+                pass.bindUniform(inputName, std::vector<glm::mat4>(arg.cbegin(),
+                                                                   arg.cend()));
+            } else {
+                static_assert(false, "non-exhaustive visitor!");
+            }
+        },
+        input->value);
 }
