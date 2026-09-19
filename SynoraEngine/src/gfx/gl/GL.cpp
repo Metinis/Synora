@@ -4767,10 +4767,8 @@ void SYN::gfx::gl::Renderer::drawDebugPass(Context &context,
     TracyGpuZone("Debug Draw Pass");
     ZoneScopedN("Debug Draw Pass");
 
-    Viewport renderViewport = m_ScreenViewport;
-    auto [renderWidth, renderHeight] = getRenderResolution();
-    renderViewport.width = renderWidth;
-    renderViewport.height = renderHeight;
+    // Viewport should always be overridden tbh
+    Viewport renderViewport = passDesc.viewportOverride.value();
 
     const std::vector<DebugDraw::Line> depthLines = m_DebugDrawData.depthLines;
     const std::vector<DebugDraw::Line> overlayLines =
