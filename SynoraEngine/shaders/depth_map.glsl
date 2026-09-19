@@ -19,7 +19,7 @@ uniform int u_layerOffset;
 uniform mat4 u_lightSpaceMatrix;
 #endif
 
-uniform mat4 u_modelMatrix;
+uniform mat4 u_Model;
 
 out vec2 fragTexCoords;
 
@@ -37,9 +37,9 @@ void main() {
   fragTexCoords = aTexCoords;
   #ifdef FEATURE_DEPTH_MAP_INSTANCED
   gl_Layer = gl_InstanceID;
-  gl_Position = u_lightSpaceMatrices[gl_InstanceID + u_layerOffset] * u_modelMatrix * vertexPos;
+  gl_Position = u_lightSpaceMatrices[gl_InstanceID + u_layerOffset] * u_Model * vertexPos;
   #else
-  gl_Position = u_lightSpaceMatrix * u_modelMatrix * vertexPos;
+  gl_Position = u_lightSpaceMatrix * u_Model * vertexPos;
   #endif
 }
 #endif
