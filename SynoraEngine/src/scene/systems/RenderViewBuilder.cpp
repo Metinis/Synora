@@ -32,7 +32,7 @@ void RenderViewBuilder::onRender() {
     struct RenderTargetSubmission {
         CameraComponent camera;
         glm::mat4 transform;
-        UUID target;
+        AssetRef target;
     };
 
     struct {
@@ -53,7 +53,7 @@ void RenderViewBuilder::onRender() {
                 (camera.renderMode ==
                  CameraComponent::RenderMode::Continuous)) {
                 renderTargetList.emplace_back(camera, cameraTransform,
-                                              renderTarget.renderTarget.uuid());
+                                              renderTarget.renderTarget);
                 camera.dirty = false;
             }
         });
@@ -85,13 +85,22 @@ void RenderViewBuilder::onRender() {
     RenderView3D mainSceneView = RenderView3D::fromScene(scene);
     m_Renderer->beginFrame(mainSceneView);
 
+    // TODO: Process multipass effects
     while (!renderTargetQueue.empty()) {
         RenderTargetSubmission command = renderTargetQueue.top();
-        m_Renderer->draw(command.camera, command.transform, command.target);
+        DrawOptions options;
+        options.camera = command.camera;
+        options.cameraTransform = command.transform;
+        options.passInfo.output = command.target;
+
+        m_Renderer->draw(options);
         renderTargetQueue.pop();
     }
 
-    m_Renderer->draw(primaryFrame.camera, primaryFrame.transform, std::nullopt);
+    DrawOptions options;
+    options.camera = primaryFrame.camera;
+    options.cameraTransform = primaryFrame.transform;
+    m_Renderer->draw(options);
 
     m_Renderer->endFrame();
 }
