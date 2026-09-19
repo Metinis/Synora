@@ -5,5 +5,6 @@
 namespace SYN {
 struct ModelComponent {
     AssetRef model;
+    uint64_t layer = 1;
 };
 } // namespace SYN
