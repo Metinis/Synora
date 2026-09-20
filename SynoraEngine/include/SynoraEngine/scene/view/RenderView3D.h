@@ -4,6 +4,7 @@
 
 #include <SynoraEngine/core/math/AABB.h>
 #include <SynoraEngine/project/UUID.h>
+#include <SynoraEngine/renderer/types/InputSlot.h>
 
 namespace SYN {
 
@@ -22,6 +23,12 @@ struct BoundsView {
     std::vector<AABB> meshBounds;
 };
 
+struct CustomRenderDataView {
+    using Table = std::unordered_map<std::string, std::span<const InputSlot>>;
+    uint32_t modelIndex;
+    Table effectInputs;
+};
+
 struct RenderView3D {
     std::vector<UUID> models;
     std::vector<uint64_t> layers;
@@ -29,6 +36,7 @@ struct RenderView3D {
     std::vector<glm::mat4> transforms;
     std::vector<MaterialView> materials;
     std::vector<AnimationView> animations;
+    std::vector<CustomRenderDataView> customRenderData;
 
     static RenderView3D fromScene(class Scene *scene);
 };
