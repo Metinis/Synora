@@ -13,7 +13,7 @@ struct Pass {
     static Pass empty();
     Pass &setEffect(std::string_view effect);
     Pass &setOutput(AssetRef output);
-    Pass &addInput(std::string_view name, const InputSlot::Value &value);
+    Pass &setInput(std::string_view name, const InputSlot::Value &value);
     Pass &clearColor(glm::vec4 color);
     Pass &clearDepth(float depth);
     Pass &clearStencil(uint8_t stencil);

@@ -10,7 +10,17 @@ Pass &Pass::setOutput(AssetRef output) {
     this->output = output;
     return *this;
 }
-Pass &Pass::addInput(std::string_view name, const InputSlot::Value &value) {
+Pass &Pass::setInput(std::string_view name, const InputSlot::Value &value) {
+    auto it = std::find_if(
+        inputs.begin(), inputs.end(),
+        [&name](const InputSlot &slot) { return slot.inputName == name; });
+
+    if (it != inputs.cend()) {
+        it->inputName = name;
+        it->value = value;
+        return *this;
+    }
+
     this->inputs.emplace_back(std::string(name), value);
     return *this;
 }
