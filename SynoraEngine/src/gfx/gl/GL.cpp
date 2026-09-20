@@ -2177,6 +2177,16 @@ bool SYN::gfx::gl::ShaderCache::isShaderRegistered(
 // Higher level passes for the renderer. Describe which groups a pass cares
 // about, and how a pass should render each group.
 
+std::unordered_map<std::string, SYN::gfx::gl::RenderTechnique::BindUniformFunc>
+    SYN::gfx::gl::RenderTechnique::m_PerInstanceInternalUniforms{};
+
+std::unordered_map<std::string, SYN::gfx::gl::ShaderFeature>
+    SYN::gfx::gl::RenderTechnique::m_FeatureDependentUniforms{};
+
+std::unordered_map<std::string,
+                   SYN::gfx::gl::RenderTechnique::PerPassBindUniformFunc>
+    SYN::gfx::gl::RenderTechnique::m_PerPassInternalUniforms{};
+
 SYN::gfx::gl::RenderTechnique::RenderTechnique(
     const std::string &name, RenderEffectDesc::Type effectType,
     const PipelineState &pipeline,
@@ -2185,6 +2195,21 @@ SYN::gfx::gl::RenderTechnique::RenderTechnique(
     m_EffectType = effectType;
     m_InputBindings = bindings;
     m_MainPipeline = pipeline;
+}
+
+void SYN::gfx::gl::RenderTechnique::registerInternalUniformPerInstance(
+    std::string_view uniformName, RenderTechnique::BindUniformFunc bindFunc,
+    std::optional<ShaderFeature> shaderFeature) {
+    m_PerInstanceInternalUniforms.emplace(uniformName, bindFunc);
+    if (shaderFeature.has_value()) {
+        m_FeatureDependentUniforms.emplace(uniformName, shaderFeature.value());
+    }
+}
+
+void SYN::gfx::gl::RenderTechnique::registerInternalUniformPerPass(
+    std::string_view uniformName,
+    RenderTechnique::PerPassBindUniformFunc bindFunc) {
+    m_PerPassInternalUniforms.emplace(uniformName, bindFunc);
 }
 
 SYN::RenderEffectDesc::Type
@@ -2223,38 +2248,109 @@ SYN::gfx::gl::RenderTechnique::setShader(const std::string &name) {
     return *this;
 }
 
-SYN::gfx::gl::RenderTechnique &
-SYN::gfx::gl::RenderTechnique::setBindUniformBase(const BindUniformFunc &func) {
-    m_BindUniformBase = func;
-    return *this;
+// TODO: Remove bindUniforms
+// void SYN::gfx::gl::RenderTechnique::bindUniforms(Pass &pass,
+//                                                  const GroupDesc &group,
+//                                                  const RenderItem &item)
+//                                                  const {
+//     m_BindUniformBase(pass, item);
+//
+//     uint32_t query = group.queryMask;
+//     uint32_t counter = 0;
+//     while ((query >> counter) > 0) {
+//         uint32_t mask = 1 << counter;
+//         uint32_t bit = query & mask;
+//         if (bit) {
+//             if (auto it = m_BindFeature.find(bit); it !=
+//             m_BindFeature.cend()) {
+//                 for (auto &func : it->second) {
+//                     func(pass, item);
+//                 }
+//             }
+//         }
+//         ++counter;
+//     }
+// }
+
+bool SYN::gfx::gl::RenderTechnique::bindPerPass(
+    Pass &pass, const UserInputBind &bindInput,
+    std::span<const InputSlot> inputs) const {
+    if (!validateInputs(inputs))
+        return false;
+
+    std::unordered_map<std::string, uint32_t> userProvided;
+    for (uint32_t i = 0; i < inputs.size(); ++i)
+        userProvided.emplace(inputs.at(i).inputName, i);
+
+    auto perPass =
+        m_InputBindings | std::views::filter([](const auto &binding) {
+            return std::get<1>(binding.second) ==
+                   RenderEffectDesc::InputLevel::PerPass;
+        });
+
+    for (auto &[name, input] : perPass) {
+        if (auto it = userProvided.find(name); it != userProvided.cend()) {
+            const InputSlot::Value &value = std::get<0>(input);
+            bindInput(pass, &inputs.at(it->second));
+        } else if (auto it = m_PerPassInternalUniforms.find(name);
+                   it != m_PerPassInternalUniforms.cend()) {
+            it->second(pass);
+        } else {
+            spdlog::error("Uniform binding {} is either not provided, or has "
+                          "no internal default.",
+                          name);
+            return false;
+        }
+    }
+
+    return true;
 }
 
-SYN::gfx::gl::RenderTechnique &
-SYN::gfx::gl::RenderTechnique::addFeatureUniform(ShaderFeature feature,
-                                                 const BindUniformFunc &func) {
-    m_BindFeature[(uint32_t)feature].emplace_back(func);
-    return *this;
-}
+bool SYN::gfx::gl::RenderTechnique::bindPerInstance(
+    Pass &pass, const GroupDesc &desc, const RenderItem &item,
+    const UserInputBind &bindInput) const {
+    std::unordered_map<std::string, const InputSlot *> userProvided;
 
-void SYN::gfx::gl::RenderTechnique::bindUniforms(Pass &pass,
-                                                 const GroupDesc &group,
-                                                 const RenderItem &item) const {
-    m_BindUniformBase(pass, item);
-
-    uint32_t query = group.queryMask;
-    uint32_t counter = 0;
-    while ((query >> counter) > 0) {
-        uint32_t mask = 1 << counter;
-        uint32_t bit = query & mask;
-        if (bit) {
-            if (auto it = m_BindFeature.find(bit); it != m_BindFeature.cend()) {
-                for (auto &func : it->second) {
-                    func(pass, item);
-                }
+    if (item.customRenderData != nullptr) {
+        auto it = item.customRenderData->find(m_TechniqueName);
+        if (it != item.customRenderData->cend()) {
+            if (!validateInstanceInputs(it->second))
+                return false;
+            for (uint32_t i = 0; i < it->second.size(); ++i) {
+                userProvided.emplace(it->second.at(i).inputName,
+                                     &it->second.at(i));
             }
         }
-        ++counter;
     }
+
+    auto perInstance =
+        m_InputBindings | std::views::filter([](const auto &binding) {
+            return std::get<1>(binding.second) ==
+                   RenderEffectDesc::InputLevel::PerInstance;
+        });
+
+    uint32_t query = desc.queryMask;
+    for (auto &[name, input] : perInstance) {
+        if (auto it = userProvided.find(name); it != userProvided.cend()) {
+            const InputSlot::Value &value = std::get<0>(input);
+            bindInput(pass, it->second);
+        } else if (auto it = m_FeatureDependentUniforms.find(name);
+                   it != m_FeatureDependentUniforms.cend()) {
+            if (query & (uint32_t)it->second) {
+                m_PerInstanceInternalUniforms.at(name)(pass, item);
+            }
+        } else if (auto it = m_PerInstanceInternalUniforms.find(name);
+                   it != m_PerInstanceInternalUniforms.cend()) {
+            it->second(pass, item);
+        } else {
+            spdlog::error("Uniform binding {} is either not provided, or has "
+                          "no internal default.",
+                          name);
+            return false;
+        }
+    }
+
+    return true;
 }
 
 uint32_t SYN::gfx::gl::RenderTechnique::getDefaultShaderMask() const {
@@ -2286,22 +2382,17 @@ uint64_t SYN::gfx::gl::RenderTechnique::getFilterMask() const {
     return m_FilterMask;
 }
 
-void SYN::gfx::gl::RenderTechnique::clearBindFeatures() {
-    m_BindFeature.clear();
-}
-
 const SYN::RenderEffectDesc::InputBindingTable &
 SYN::gfx::gl::RenderTechnique::getInputBindings() const {
     return m_InputBindings;
 }
 
 bool SYN::gfx::gl::RenderTechnique::validateInputs(
-    std::span<const InputSlot> passInputs,
-    std::span<const InputSlot> perInstanceInputs) const {
+    std::span<const InputSlot> passInputs) const {
 
     bool valid = true;
 
-    auto validateInput = [this](const InputSlot &slot, bool isPassInput) {
+    auto validateInput = [this](const InputSlot &slot) {
         bool valid = true;
         if (const auto &binding = m_InputBindings.find(slot.inputName);
             binding != m_InputBindings.cend()) {
@@ -2310,14 +2401,43 @@ bool SYN::gfx::gl::RenderTechnique::validateInputs(
                     "Input [{}] does not match type specified in contract.");
                 valid = false;
             }
-            if (isPassInput && std::get<1>(binding->second) ==
-                                   RenderEffectDesc::InputLevel::PerInstance) {
+            if (std::get<1>(binding->second) ==
+                RenderEffectDesc::InputLevel::PerInstance) {
                 spdlog::error("Input [{}] is declared per-instance in "
                               "contract, but is being received as per-pass.");
                 valid = false;
-            } else if (!isPassInput &&
-                       std::get<1>(binding->second) ==
-                           RenderEffectDesc::InputLevel::PerPass) {
+            }
+        } else {
+            spdlog::error("Input name [{}] not found in input binding for "
+                          "technique [{}].",
+                          slot.inputName, m_TechniqueName);
+            valid = false;
+        }
+        return valid;
+    };
+
+    for (const InputSlot &slot : passInputs) {
+        if (!validateInput(slot))
+            valid = false;
+    }
+
+    return valid;
+}
+
+bool SYN::gfx::gl::RenderTechnique::validateInstanceInputs(
+    std::span<const InputSlot> perInstanceInputs) const {
+
+    auto validateInput = [this](const InputSlot &slot) {
+        bool valid = true;
+        if (const auto &binding = m_InputBindings.find(slot.inputName);
+            binding != m_InputBindings.cend()) {
+            if (std::get<0>(binding->second).index() != slot.value.index()) {
+                spdlog::error(
+                    "Input [{}] does not match type specified in contract.");
+                valid = false;
+            }
+            if (std::get<1>(binding->second) ==
+                RenderEffectDesc::InputLevel::PerPass) {
                 spdlog::error("Input [{}] is declared per-pass in contract, "
                               "but is being received as per-instance.");
                 valid = false;
@@ -2331,13 +2451,9 @@ bool SYN::gfx::gl::RenderTechnique::validateInputs(
         return valid;
     };
 
-    for (const InputSlot &slot : passInputs) {
-        if (!validateInput(slot, true))
-            valid = false;
-    }
-
+    bool valid = true;
     for (const InputSlot &slot : perInstanceInputs) {
-        if (!validateInput(slot, false))
+        if (!validateInput(slot))
             valid = false;
     }
 
@@ -2397,6 +2513,8 @@ void SYN::gfx::gl::Renderer::beginFrame(const RenderView3D &sceneDescription) {
 
     std::unordered_map<uint32_t, std::vector<MaterialView>> materialMap;
     std::unordered_map<uint32_t, std::span<const glm::mat4>> animationMap;
+    std::unordered_map<uint32_t, uint32_t> renderDataMap;
+
     for (uint32_t i = 0; i < modelCount; ++i) {
         for (const MaterialView &material : sceneDescription.materials) {
             if (material.modelIndex != i)
@@ -2407,6 +2525,15 @@ void SYN::gfx::gl::Renderer::beginFrame(const RenderView3D &sceneDescription) {
             if (animation.modelIndex != i)
                 continue;
             animationMap[i] = animation.boneMatrices;
+            break;
+        }
+        for (uint32_t j = 0; j < sceneDescription.customRenderData.size();
+             ++j) {
+            const auto &data = sceneDescription.customRenderData.at(j);
+            if (data.modelIndex != i)
+                continue;
+            renderDataMap[i] = j;
+            break;
         }
     }
 
@@ -2430,8 +2557,15 @@ void SYN::gfx::gl::Renderer::beginFrame(const RenderView3D &sceneDescription) {
             boneMatrices = it->second;
         }
 
+        CustomRenderDataView::Table customRenderData;
+        if (auto it = renderDataMap.find(i); it != renderDataMap.cend()) {
+            customRenderData =
+                sceneDescription.customRenderData.at(it->second).effectInputs;
+        }
+
         createDrawCommand(*m_Context, model, layer, transform, meshBounds,
-                          materialOverride, boneMatrices);
+                          materialOverride, boneMatrices,
+                          std::move(customRenderData));
     }
 
     updateMsaaFramebuffer(*m_Context);
@@ -2971,12 +3105,12 @@ void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
 
     createEffect(zPrepassEffect);
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_Model", [](Pass &pass, const RenderItem &item) {
             pass.bindUniform("u_Model", item.transform);
         });
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "boneTransforms",
         [&](Pass &pass, const RenderItem &item) {
             if (!item.boneOffset.has_value())
@@ -2985,7 +3119,7 @@ void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
         },
         ShaderFeature::Skinned);
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_alphaCutoff",
         [&](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
@@ -2993,7 +3127,7 @@ void SYN::gfx::gl::Renderer::createZPrepassTechnique() {
         },
         ShaderFeature::AlphaTest);
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_albedoTexture", [&](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
             Handle<Sampler> sampler =
@@ -3047,51 +3181,57 @@ void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
 
     createEffect(forwardPassEffect);
 
-    registerInternalUniformPerPass("u_irradianceMap", [&](Pass &pass) {
-        auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
-        pass.bindTexture(3, it->second.irradianceMap, m_CubemapSampler.value());
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_irradianceMap", [&](Pass &pass) {
+            auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
+            pass.bindTexture(3, it->second.irradianceMap,
+                             m_CubemapSampler.value());
+        });
 
-    registerInternalUniformPerPass("u_prefilterMap", [&](Pass &pass) {
-        auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
-        pass.bindTexture(4, it->second.prefilterMap,
-                         m_MipmapCubeSampler.value());
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_prefilterMap", [&](Pass &pass) {
+            auto it = m_NameToEnvironment.find(m_CurrentEnvironment);
+            pass.bindTexture(4, it->second.prefilterMap,
+                             m_MipmapCubeSampler.value());
+        });
 
-    registerInternalUniformPerPass("u_brdfLUT", [&](Pass &pass) {
-        pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_brdfLUT", [&](Pass &pass) {
+            pass.bindTexture(5, m_BRDFLut, m_CubemapSampler.value());
+        });
 
-    registerInternalUniformPerPass("u_csmNear", [&](Pass &pass) {
-        pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
-                         m_CascadedShadowmap.shadowSampler);
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_csmNear", [&](Pass &pass) {
+            pass.bindTexture(6, m_CascadedShadowmap.depthTextureNear,
+                             m_CascadedShadowmap.shadowSampler);
+        });
 
-    registerInternalUniformPerPass("u_csmFar", [&](Pass &pass) {
-        pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
-                         m_CascadedShadowmap.shadowSampler);
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_csmFar", [&](Pass &pass) {
+            pass.bindTexture(7, m_CascadedShadowmap.depthTextureFar,
+                             m_CascadedShadowmap.shadowSampler);
+        });
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_tint", [](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
             pass.bindUniform("u_tint", material.tint.r, material.tint.g,
                              material.tint.b);
         });
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_metallic", [](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
             pass.bindUniform("u_metallic", material.metallic);
         });
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_roughness", [](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
             pass.bindUniform("u_roughness", material.roughness);
         });
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_normalMap", [&](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
             Handle<Sampler> sampler =
@@ -3102,7 +3242,7 @@ void SYN::gfx::gl::Renderer::createForwardPassTechnique() {
             }
         });
 
-    registerInternalUniformPerInstance(
+    RenderTechnique::registerInternalUniformPerInstance(
         "u_metallicRoughness", [&](Pass &pass, const RenderItem &item) {
             const Material &material = item.material;
             Handle<Sampler> sampler =
@@ -3148,19 +3288,22 @@ void SYN::gfx::gl::Renderer::createShadowPassTechnique() {
 
     createEffect(shadowPassEffect);
 
-    registerInternalUniformPerPass("u_layerOffset", [this](Pass &pass) {
-        int32_t layerOffset = (1 - (int32_t)m_CascadedShadowmap.drawNear) * 2;
-        pass.bindUniform("u_layerOffset", layerOffset);
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_layerOffset", [this](Pass &pass) {
+            int32_t layerOffset =
+                (1 - (int32_t)m_CascadedShadowmap.drawNear) * 2;
+            pass.bindUniform("u_layerOffset", layerOffset);
+        });
 
-    registerInternalUniformPerPass("u_lightSpaceMatrix", [this](Pass &pass) {
-        float isNear = (float)(m_CascadedShadowmap.drawNear);
-        uint32_t i = m_CascadedShadowmap.layerIndex;
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_lightSpaceMatrix", [this](Pass &pass) {
+            float isNear = (float)(m_CascadedShadowmap.drawNear);
+            uint32_t i = m_CascadedShadowmap.layerIndex;
 
-        pass.bindUniform(
-            "u_lightSpaceMatrix",
-            m_CascadedShadowmap.lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
-    });
+            pass.bindUniform("u_lightSpaceMatrix",
+                             m_CascadedShadowmap
+                                 .lightSpaceMatrices[i + ((1.0 - isNear) * 2)]);
+        });
 
     if (m_CascadedShadowmap.isInstanced) {
         m_Techniques.at("ShadowPass")
@@ -3192,21 +3335,22 @@ void SYN::gfx::gl::Renderer::createTonemapTechnique() {
 
     createEffect(tonemapEffect);
 
-    registerInternalUniformPerPass("u_hdrBuffer", [this](Pass &pass) {
-        const auto &rt = m_InternalRenderTargets.at("HDR");
-        pass.bindTexture(
-            0, std::get<Handle<Texture>>(rt.colorAttachments.at(0).handle),
-            getSampler({}));
-        pass.bindUniform("u_hdrBuffer", 0);
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_hdrBuffer", [this](Pass &pass) {
+            const auto &rt = m_InternalRenderTargets.at("HDR");
+            pass.bindTexture(
+                0, std::get<Handle<Texture>>(rt.colorAttachments.at(0).handle),
+                getSampler({}));
+            pass.bindUniform("u_hdrBuffer", 0);
+        });
 
-    registerInternalUniformPerPass("u_gamma", [this](Pass &pass) {
-        pass.bindUniform("u_gamma", m_Gamma);
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_gamma",
+        [this](Pass &pass) { pass.bindUniform("u_gamma", m_Gamma); });
 
-    registerInternalUniformPerPass("u_exposure", [this](Pass &pass) {
-        pass.bindUniform("u_exposure", m_Exposure);
-    });
+    RenderTechnique::registerInternalUniformPerPass(
+        "u_exposure",
+        [this](Pass &pass) { pass.bindUniform("u_exposure", m_Exposure); });
 }
 
 void SYN::gfx::gl::Renderer::drawSkybox(Pass &pass, glm::mat4 projectionMatrix,
@@ -3641,7 +3785,8 @@ void SYN::gfx::gl::Renderer::createDrawCommand(
     Context &context, UUID model, uint64_t layer, const glm::mat4 &transform,
     std::span<const AABB> meshBounds,
     std::span<const MaterialOverride> materialOverride,
-    std::span<const glm::mat4> boneMatrices) {
+    std::span<const glm::mat4> boneMatrices,
+    const CustomRenderDataView::Table &customRenderData) {
 
     std::optional<uint32_t> boneIndex = std::nullopt;
 
@@ -3661,7 +3806,8 @@ void SYN::gfx::gl::Renderer::createDrawCommand(
         std::get<Handle<Model>>(it->second.handle), layer, transform,
         std::vector<MaterialOverride>(materialOverride.begin(),
                                       materialOverride.end()),
-        boneIndex, std::vector<AABB>(meshBounds.cbegin(), meshBounds.cend()));
+        boneIndex, std::vector<AABB>(meshBounds.cbegin(), meshBounds.cend()),
+        std::move(customRenderData));
 }
 
 std::tuple<uint32_t, uint32_t> SYN::gfx::gl::Renderer::getRenderResolution() {
@@ -3902,93 +4048,18 @@ void SYN::gfx::gl::Renderer::drawRenderItems(
         return;
     }
 
-    auto &technique = techniqueIt->second;
-
-    std::vector<const InputSlot *> userPassInputs;
-
-    // TODO: Support user-defined per-instance data
-    std::vector<const InputSlot *> userInstanceInputs;
-
-    // TODO: Pass per-instance data into validation
-    if (!technique.validateInputs(passInputs, {})) {
-        spdlog::error("Cannot execute render technique: [{}]", techniqueName);
-        return;
-    }
-
-    std::unordered_set<std::string> visitedInternalInputs;
-
-    for (const InputSlot &input : passInputs) {
-        if (auto internalIt = m_PerPassInternalUniforms.find(input.inputName);
-            internalIt != m_PerPassInternalUniforms.cend()) {
-            visitedInternalInputs.emplace(input.inputName);
-        }
-        userPassInputs.push_back(&input);
-    }
-
-    // TODO: Populate userInstanceInputs
-
-    // TODO: Separate input bindings into what is overridden and what is
-    // user supplied so you don't have to iterate all the input bindings
-    // multiple times.
-    //
-    // If an input binding is neither internal nor supplied than throw an error.
-
-    technique.setBindUniformBase(
-        [this, &technique, &visitedInternalInputs,
-         &userInstanceInputs](Pass &pass, const RenderItem &item) {
-            for (auto &[inputName, _] : technique.getInputBindings()) {
-                if (auto perInstanceIt =
-                        m_PerInstanceInternalUniforms.find(inputName);
-                    perInstanceIt != m_PerInstanceInternalUniforms.cend()) {
-                    if (visitedInternalInputs.contains(inputName) ||
-                        m_FeatureDependentUniforms.contains(inputName))
-                        continue;
-                    perInstanceIt->second(pass, item);
-                }
-            }
-            for (const SYN::InputSlot *value : userInstanceInputs) {
-                passInput(pass, value);
-            }
-        });
-
-    for (auto &[inputName, _] : technique.getInputBindings()) {
-        if (auto perInstanceIt = m_PerInstanceInternalUniforms.find(inputName);
-            perInstanceIt != m_PerInstanceInternalUniforms.cend()) {
-            if (auto featureIt = m_FeatureDependentUniforms.find(inputName);
-                featureIt != m_FeatureDependentUniforms.cend()) {
-                if (visitedInternalInputs.contains(inputName))
-                    continue;
-                technique.addFeatureUniform(featureIt->second,
-                                            perInstanceIt->second);
-            }
-        }
-    }
+    const auto &technique = techniqueIt->second;
 
     const std::vector<RenderTechnique::GroupDesc> &groups =
         technique.getGroups();
 
     Pass pass = context.beginPass(technique.getPassDesc());
+
     std::optional<uint32_t> lastShaderMask = std::nullopt;
     const std::string &shaderName = technique.getShaderName();
     uint32_t defaultMask = technique.getDefaultShaderMask();
-
-    auto bindPassUniforms = [this, &technique,
-                             &visitedInternalInputs](Pass &pass) {
-        for (auto &[inputName, _] : technique.getInputBindings()) {
-            if (auto perPassIt = m_PerPassInternalUniforms.find(inputName);
-                perPassIt != m_PerPassInternalUniforms.cend()) {
-                if (visitedInternalInputs.contains(inputName))
-                    continue;
-                perPassIt->second(pass);
-            }
-        }
-    };
-
-    for (const SYN::InputSlot *input : userPassInputs) {
-        passInput(pass, input);
-    }
-
     uint64_t effectFilter = technique.getFilterMask();
+
     for (const RenderTechnique::GroupDesc &groupDesc : groups) {
         uint64_t maskKey =
             (uint64_t)(groupDesc.queryMask) << 32 | groupDesc.exclusionMask;
@@ -4037,20 +4108,31 @@ void SYN::gfx::gl::Renderer::drawRenderItems(
                 pass.usePipeline(pipeline);
                 lastShaderMask = item.shaderIndex;
 
-                bindPassUniforms(pass);
+                // bind pass
+                technique.bindPerPass(
+                    pass,
+                    [this](Pass &pass, const InputSlot *input) {
+                        bindPassInput(pass, input);
+                    },
+                    passInputs);
             }
-            technique.bindUniforms(pass, groupDesc, item);
+            // bind per instance
+            technique.bindPerInstance(
+                pass, groupDesc, item,
+                [this](Pass &pass, const InputSlot *input) {
+                    bindPassInput(pass, input);
+                });
+
             if (groupDesc.draw.has_value()) {
                 const auto &drawFunc = groupDesc.draw.value();
                 drawFunc(pass, item);
                 continue;
             }
+
             pass.bindVertexArray(item.vao);
             pass.drawIndexed(item.indexCount);
         }
     }
-
-    technique.clearBindFeatures();
 }
 
 void SYN::gfx::gl::Renderer::drawScreen(Context &context,
@@ -4066,37 +4148,17 @@ void SYN::gfx::gl::Renderer::drawScreen(Context &context,
     }
     auto &technique = techniqueIt->second;
 
-    if (!technique.validateInputs(passInputs, {})) {
-        spdlog::error("Cannot execute render technique: [{}]", techniqueName);
-        return;
-    }
-
-    std::vector<const InputSlot *> userPassInputs;
-    std::unordered_set<std::string> visitedInternalInputs;
-
-    for (const InputSlot &input : passInputs) {
-        if (auto internalIt = m_PerPassInternalUniforms.find(input.inputName);
-            internalIt != m_PerPassInternalUniforms.cend()) {
-            visitedInternalInputs.emplace(input.inputName);
-        }
-        userPassInputs.push_back(&input);
-    }
-
     Pass screenPass = m_Context->beginPass(technique.getPassDesc());
     screenPass.usePipeline(technique.getPipelineState());
 
-    for (auto &[inputName, _] : technique.getInputBindings()) {
-        if (auto perPassIt = m_PerPassInternalUniforms.find(inputName);
-            perPassIt != m_PerPassInternalUniforms.cend()) {
-            if (visitedInternalInputs.contains(inputName))
-                continue;
-            perPassIt->second(screenPass);
-        }
-    }
+    // bind pass
 
-    for (const SYN::InputSlot *input : userPassInputs) {
-        passInput(screenPass, input);
-    }
+    technique.bindPerPass(
+        screenPass,
+        [this](Pass &pass, const InputSlot *input) {
+            bindPassInput(pass, input);
+        },
+        passInputs);
 
     screenPass.bindVertexArray(m_ScreenQuad.value());
     screenPass.drawIndexed(6);
@@ -4660,6 +4722,9 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(Context &context,
                                      mesh.indexCount, shaderFeatures,
                                      cmd.meshBounds.at(mesh.sourceIndex),
                                      cmd.boneOffset, cmd.layer);
+            if (!cmd.customRenderData.empty()) {
+                renderItems.back().customRenderData = &cmd.customRenderData;
+            }
         }
     };
 
@@ -4674,25 +4739,6 @@ SYN::gfx::gl::Renderer::getRenderItemsByShader(Context &context,
     }
 
     return renderItems;
-}
-
-void SYN::gfx::gl::Renderer::frustumCullRenderItems(
-    std::vector<RenderItem> &items) {
-    ZoneScopedN("Frustum Cull");
-    items.erase(std::remove_if(items.begin(), items.end(),
-                               [&](const RenderItem &item) {
-                                   return !m_CurrentFrustum.collidesWithAABB(
-                                       item.aabb);
-                               }),
-                items.end());
-}
-
-void SYN::gfx::gl::Renderer::sortRenderItems(std::vector<RenderItem> &items) {
-    ZoneScopedN("Sort items");
-    std::sort(items.begin(), items.end(),
-              [&](const RenderItem &a, const RenderItem &b) {
-                  return a.shaderIndex < b.shaderIndex;
-              });
 }
 
 void SYN::gfx::gl::Renderer::bindBoneMatrices(Pass &pass, uint32_t offset) {
@@ -4840,22 +4886,7 @@ void SYN::gfx::gl::Renderer::registerInternalTarget(
     m_InternalRenderTargets.emplace(technique, target);
 }
 
-void SYN::gfx::gl::Renderer::registerInternalUniformPerInstance(
-    std::string_view uniformName, RenderTechnique::BindUniformFunc bindFunc,
-    std::optional<ShaderFeature> shaderFeature) {
-    m_PerInstanceInternalUniforms.emplace(uniformName, bindFunc);
-    if (shaderFeature.has_value()) {
-        m_FeatureDependentUniforms.emplace(uniformName, shaderFeature.value());
-    }
-}
-
-void SYN::gfx::gl::Renderer::registerInternalUniformPerPass(
-    std::string_view uniformName,
-    RenderTechnique::PerPassBindUniformFunc bindFunc) {
-    m_PerPassInternalUniforms.emplace(uniformName, bindFunc);
-}
-
-void SYN::gfx::gl::Renderer::passInput(Pass &pass, const InputSlot *input) {
+void SYN::gfx::gl::Renderer::bindPassInput(Pass &pass, const InputSlot *input) {
     std::visit(
         [this, &input, &pass](auto &&arg) {
             using T = std::decay_t<decltype(arg)>;

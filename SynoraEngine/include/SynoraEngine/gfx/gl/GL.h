@@ -578,6 +578,7 @@ struct RenderItem {
     AABB aabb;
     std::optional<uint32_t> boneOffset;
     uint64_t layer;
+    const CustomRenderDataView::Table *customRenderData = nullptr;
 };
 
 class Pass {
@@ -854,6 +855,8 @@ class RenderTechnique {
     using BindUniformFunc = std::function<void(Pass &, RenderItem)>;
     using PerPassBindUniformFunc = std::function<void(Pass &)>;
 
+    using UserInputBind = std::function<void(Pass &, const InputSlot *)>;
+
   public:
     RenderTechnique(const std::string &name, RenderEffectDesc::Type effectType,
                     const PipelineState &pipeline,
@@ -861,9 +864,6 @@ class RenderTechnique {
     RenderTechnique() = default;
 
     RenderTechnique &setShader(const std::string &name);
-    RenderTechnique &setBindUniformBase(const BindUniformFunc &func);
-    RenderTechnique &addFeatureUniform(ShaderFeature feature,
-                                       const BindUniformFunc &func);
     RenderTechnique &addGroup(const GroupDesc &desc);
 
     // Set default shader mask
@@ -878,31 +878,47 @@ class RenderTechnique {
     PassDesc getPassDesc() const;
 
     const std::vector<GroupDesc> &getGroups() const;
-    void bindUniforms(Pass &pass, const GroupDesc &group,
-                      const RenderItem &item) const;
     const std::string &getShaderName() const;
     uint32_t getDefaultShaderMask() const;
     uint64_t getFilterMask() const;
 
     const RenderEffectDesc::InputBindingTable &getInputBindings() const;
 
-    bool validateInputs(std::span<const InputSlot> passInputs,
-                        std::span<const InputSlot> perInstanceInputs) const;
+    bool validateInputs(std::span<const InputSlot> passInputs) const;
+
+    bool
+    validateInstanceInputs(std::span<const InputSlot> perInstanceInputs) const;
+
+    bool bindPerPass(Pass &pass, const UserInputBind &bindInput,
+                     std::span<const InputSlot> inputs) const;
+    bool bindPerInstance(Pass &pass, const GroupDesc &desc,
+                         const RenderItem &item,
+                         const UserInputBind &bindInput) const;
 
     bool perPass(const std::string &inputName) const;
-
-    void clearBindFeatures();
 
     RenderEffectDesc::Type getEffectType() const;
     PipelineState getPipelineState() const;
 
+    static void registerInternalUniformPerInstance(
+        std::string_view uniformName, RenderTechnique::BindUniformFunc bindFunc,
+        std::optional<ShaderFeature> feature = std::nullopt);
+
+    static void registerInternalUniformPerPass(
+        std::string_view uniformName,
+        RenderTechnique::PerPassBindUniformFunc bindFunc);
+
   private:
+    static std::unordered_map<std::string, ShaderFeature>
+        m_FeatureDependentUniforms;
+    static std::unordered_map<std::string, RenderTechnique::BindUniformFunc>
+        m_PerInstanceInternalUniforms;
+    static std::unordered_map<std::string,
+                              RenderTechnique::PerPassBindUniformFunc>
+        m_PerPassInternalUniforms;
+
     PassDesc m_PassDesc;
     std::vector<GroupDesc> m_Groups;
-    BindUniformFunc m_BindUniformBase;
-
-    // Feature Bit -> Special case function
-    std::unordered_map<uint32_t, std::vector<BindUniformFunc>> m_BindFeature;
 
     RenderEffectDesc::InputBindingTable m_InputBindings;
     RenderEffectDesc::Type m_EffectType;
@@ -984,7 +1000,8 @@ class Renderer : public IRenderViewBackend {
                       const glm::mat4 &transform,
                       std::span<const AABB> meshBounds,
                       std::span<const MaterialOverride> materialOverride = {},
-                      std::span<const glm::mat4> boneMatrices = {});
+                      std::span<const glm::mat4> boneMatrices = {},
+                      const CustomRenderDataView::Table &customRenderData = {});
 
   private:
     std::optional<RenderTarget>
@@ -1141,6 +1158,7 @@ class Renderer : public IRenderViewBackend {
         std::vector<MaterialOverride> materialOverride;
         std::optional<uint32_t> boneOffset;
         std::vector<AABB> meshBounds;
+        CustomRenderDataView::Table customRenderData{};
     };
     std::vector<DrawCommand> m_DrawCommandList;
     std::vector<glm::mat4> m_FrameBoneMatrices;
@@ -1159,21 +1177,8 @@ class Renderer : public IRenderViewBackend {
 
     void registerInternalTarget(std::string_view technique,
                                 const RenderTarget &target);
-    void registerInternalUniformPerInstance(
-        std::string_view uniformName, RenderTechnique::BindUniformFunc bindFunc,
-        std::optional<ShaderFeature> feature = std::nullopt);
 
-    void registerInternalUniformPerPass(
-        std::string_view uniformName,
-        RenderTechnique::PerPassBindUniformFunc bindFunc);
-
-    void passInput(Pass &pass, const InputSlot *input);
-
-    std::unordered_map<std::string, ShaderFeature> m_FeatureDependentUniforms;
-    std::unordered_map<std::string, RenderTechnique::BindUniformFunc>
-        m_PerInstanceInternalUniforms;
-    std::unordered_map<std::string, RenderTechnique::PerPassBindUniformFunc>
-        m_PerPassInternalUniforms;
+    void bindPassInput(Pass &pass, const InputSlot *input);
 
     std::unordered_map<SamplerDesc, Handle<Sampler>, SamplerDesc::Hash>
         m_SamplerCache;
@@ -1191,8 +1196,6 @@ class Renderer : public IRenderViewBackend {
     std::vector<RenderItem> getRenderItemsByShader(Context &context,
                                                    uint32_t shaderIndex,
                                                    uint32_t exclusionMask = 0);
-    void frustumCullRenderItems(std::vector<RenderItem> &items);
-    void sortRenderItems(std::vector<RenderItem> &items);
 
     struct alignas(16) CameraConstants {
         glm::mat4 u_viewProjection;
