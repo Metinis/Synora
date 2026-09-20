@@ -1,6 +1,8 @@
 #pragma once
 #include "BoundsComponent.h"
 #include "CameraComponent.h"
+#include "CompositedRenderEffectComponent.h"
+#include "CustomRenderDataComponent.h"
 #include "MaterialComponent.h"
 #include "ModelComponent.h"
 #include "ParentComponent.h"
