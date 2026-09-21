@@ -1,5 +1,7 @@
 #pragma once
 
+#include <SynoraEngine/renderer/types/InputSlot.h>
+
 namespace SYN {
 struct RenderTargetData {
     enum class Format {
@@ -24,5 +26,9 @@ struct RenderTargetData {
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t sampleCount = 1;
+
+    // Used for material sampling
+    InputSlot::RenderTargetInput::AttachmentType sampleAttachment =
+        InputSlot::RenderTargetInput::AttachmentType::Color0;
 };
 } // namespace SYN

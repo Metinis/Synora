@@ -210,6 +210,10 @@ class AssetManager {
         return loadWithKey<AssetT>(path, path.string());
     }
 
+    template <typename QueryT> bool isType(UUID asset) const {
+        return get<QueryT>(asset) != nullptr;
+    }
+
     AssetRef acquire(UUID id);
 
     // TODO: Return a handle to the cleanup function

@@ -32,7 +32,7 @@ void RenderViewBuilder::onRender() {
     struct RenderTargetSubmission {
         CameraComponent camera;
         glm::mat4 transform;
-        AssetRef target;
+        std::span<const Pass> passes{};
     };
 
     struct {
@@ -43,17 +43,18 @@ void RenderViewBuilder::onRender() {
     } renderTargetSubmissionCompare;
 
     std::vector<RenderTargetSubmission> renderTargetList;
-    scene->forEach<CameraComponent, TransformComponent, RenderTargetComponent>(
+    scene->forEach<CameraComponent, TransformComponent,
+                   CompositedRenderEffectComponent>(
         [&](Entity entity, CameraComponent &camera,
             TransformComponent &transform,
-            RenderTargetComponent &renderTarget) {
+            CompositedRenderEffectComponent &renderTarget) {
             glm::mat4 cameraTransform = scene->getWorldTransformOf(entity);
             if (((camera.renderMode == CameraComponent::RenderMode::OnDemand) &&
                  camera.dirty) ||
                 (camera.renderMode ==
                  CameraComponent::RenderMode::Continuous)) {
                 renderTargetList.emplace_back(camera, cameraTransform,
-                                              renderTarget.renderTarget);
+                                              renderTarget.passes);
                 camera.dirty = false;
             }
         });
@@ -79,28 +80,43 @@ void RenderViewBuilder::onRender() {
                 primaryAdded = true;
                 primaryFrame.camera = camera;
                 primaryFrame.transform = scene->getWorldTransformOf(entity);
+                if (const CompositedRenderEffectComponent *effectComp =
+                        entity
+                            .tryGetComponent<CompositedRenderEffectComponent>();
+                    effectComp != nullptr) {
+                    primaryFrame.passes = effectComp->passes;
+                }
             }
         });
 
     RenderView3D mainSceneView = RenderView3D::fromScene(scene);
     m_Renderer->beginFrame(mainSceneView);
 
-    // TODO: Process multipass effects
     while (!renderTargetQueue.empty()) {
         RenderTargetSubmission command = renderTargetQueue.top();
         DrawOptions options;
         options.camera = command.camera;
         options.cameraTransform = command.transform;
-        options.passInfo.output = command.target;
 
-        m_Renderer->draw(options);
+        for (const Pass &pass : command.passes) {
+            options.passInfo = pass;
+            m_Renderer->draw(options);
+        }
+
         renderTargetQueue.pop();
     }
 
     DrawOptions options;
     options.camera = primaryFrame.camera;
     options.cameraTransform = primaryFrame.transform;
-    m_Renderer->draw(options);
+    if (primaryFrame.passes.empty()) {
+        m_Renderer->draw(options);
+    } else {
+        for (const Pass &pass : primaryFrame.passes) {
+            options.passInfo = pass;
+            m_Renderer->draw(options);
+        }
+    }
 
     m_Renderer->endFrame();
 }
