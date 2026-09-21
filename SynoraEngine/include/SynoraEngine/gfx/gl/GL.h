@@ -775,7 +775,8 @@ class ShaderCache {
 
     void registerIncludes(std::string_view includePath);
     void registerFeature(std::string_view featureMacro, ShaderFeature feature);
-    void registerShader(std::string_view name, std::string_view filePath);
+    void registerShader(std::string_view name, std::string_view filePath,
+                        bool isInternal = true);
 
     Handle<Shader> getShaderHandle(Context &context, std::string_view name,
                                    uint32_t featureFlags);
@@ -816,6 +817,9 @@ class ShaderCache {
     std::unordered_map<std::string, std::string> m_ShaderIncludes;
     // Shader name -> Source string
     std::unordered_map<std::string, std::string> m_ShaderSources;
+
+    // Shader name to path
+    std::unordered_map<std::string, std::string> m_ShaderPaths;
 };
 
 class RenderTechnique {
@@ -874,6 +878,8 @@ class RenderTechnique {
     void forEachGroup(std::function<void(GroupDesc &group)> callback);
 
     void setPassDesc(const PassDesc &desc);
+
+    void reloadShader(Handle<Shader> shaderHandle);
 
     PassDesc getPassDesc() const;
 

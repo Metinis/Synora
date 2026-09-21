@@ -2021,8 +2021,18 @@ void SYN::gfx::gl::ShaderCache::registerFeature(std::string_view featureMacro,
 }
 
 void SYN::gfx::gl::ShaderCache::registerShader(std::string_view name,
-                                               std::string_view filePath) {
-    std::fstream file(SHADER_PATH + std::string(filePath.data()));
+                                               std::string_view filePath,
+                                               bool isInternal) {
+    std::fstream file;
+    std::string path;
+    if (isInternal) {
+        path = SHADER_PATH + std::string(filePath.data());
+        file.open(path);
+    } else {
+        path = std::string(filePath.data());
+        file.open(path);
+    }
+
     if (!file.is_open()) {
         spdlog::error("Could not open file [{}]", filePath);
         return;
@@ -2030,6 +2040,7 @@ void SYN::gfx::gl::ShaderCache::registerShader(std::string_view name,
 
     m_ShaderSources[std::string(name)] = std::string(
         std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    m_ShaderPaths[std::string(name)] = path;
 }
 
 SYN::gfx::gl::Handle<SYN::gfx::gl::Shader>
@@ -2164,7 +2175,7 @@ void SYN::gfx::gl::ShaderCache::reset(Context &context) {
         includeSource = getFileContents(SHADER_PATH + includePath);
     }
     for (auto &[shaderName, shaderSource] : m_ShaderSources) {
-        shaderSource = getFileContents(SHADER_PATH + shaderName + ".glsl");
+        shaderSource = getFileContents(m_ShaderPaths.at(shaderName));
     }
 }
 
@@ -2219,6 +2230,10 @@ SYN::gfx::gl::RenderTechnique::getEffectType() const {
 
 void SYN::gfx::gl::RenderTechnique::setPassDesc(const PassDesc &desc) {
     m_PassDesc = desc;
+}
+
+void SYN::gfx::gl::RenderTechnique::reloadShader(Handle<Shader> shaderHandle) {
+    m_MainPipeline.shader = shaderHandle;
 }
 
 SYN::gfx::gl::RenderTechnique &
@@ -2672,7 +2687,7 @@ void SYN::gfx::gl::Renderer::afterDraw() {
 
 void SYN::gfx::gl::Renderer::createShader(std::filesystem::path shaderPath,
                                           const std::string &shaderName) {
-    m_ShaderCache.registerShader(shaderName, shaderPath.c_str());
+    m_ShaderCache.registerShader(shaderName, shaderPath.c_str(), false);
 }
 
 void SYN::gfx::gl::Renderer::createEffect(const RenderEffectDesc &desc) {
@@ -3460,11 +3475,13 @@ void SYN::gfx::gl::Renderer::init(EngineContext *engineContext) {
         m_Techniques.emplace("SkyboxPass",
                              RenderTechnique("SkyboxPass",
                                              RenderEffectDesc::Type::Geometry,
-                                             {}, {}));
+                                             {}, {})
+                                 .setShader("skybox"));
         m_Techniques.emplace("DebugPass",
                              RenderTechnique("DebugPass",
                                              RenderEffectDesc::Type::Geometry,
-                                             {}, {}));
+                                             {}, {})
+                                 .setShader("lines"));
     }
 
     registerInternalTarget("HDR", {});
@@ -4673,6 +4690,12 @@ void SYN::gfx::gl::Renderer::setAnisotropicFiltering(float filter) {
 
 void SYN::gfx::gl::Renderer::reloadInternalShaders(Context &context) {
     m_ShaderCache.reset(context);
+    for (auto &[name, tech] : m_Techniques) {
+        std::string shaderName = tech.getShaderName();
+        uint32_t shaderMask = tech.getDefaultShaderMask();
+        tech.reloadShader(
+            m_ShaderCache.getShaderHandle(*m_Context, shaderName, shaderMask));
+    }
 }
 
 std::vector<SYN::gfx::gl::RenderItem>
@@ -4811,11 +4834,56 @@ SYN::gfx::gl::Renderer::loadMaterial(Context &context,
 
     SYN::gfx::gl::Material material;
 
-    material.albedo = loadTexture(context, materialData.albedoData, true)
-                          .value_or(m_DefaultWhite);
-    material.normalMap = loadTexture(context, materialData.normalData, false);
+    auto load = [&](AssetRef texture,
+                    bool srgb) -> std::optional<Handle<Texture>> {
+        if (!texture.valid())
+            return std::nullopt;
+        bool isTexture =
+            m_AssetManager->isType<SYN::TextureData>(texture.uuid());
+        if (isTexture)
+            return loadTexture(context, texture, srgb).value_or(m_DefaultWhite);
+        if (!m_AssetManager->isType<SYN::RenderTargetData>(texture.uuid())) {
+            spdlog::error("Received an invalid asset for material texture. "
+                          "Valid asset is either a render target, or texture.");
+            return m_DefaultWhite;
+        }
+        createRenderTarget(*m_Context, texture.uuid());
+
+        RenderTarget target =
+            std::get<RenderTarget>(m_UUIDToHandle.at(texture.uuid()).handle);
+
+        Handle<Texture> attachmentTexture;
+
+        const RenderTargetData *data =
+            m_AssetManager->get<RenderTargetData>(texture.uuid());
+
+        // TODO: Make this it's own function and replace bindPassInput
+        //       with the function to avoid repetition
+        if (data->sampleAttachment ==
+            InputSlot::RenderTargetInput::AttachmentType::DepthStencil) {
+            attachmentTexture = std::get<Handle<Texture>>(
+                target.depthAttachment.value().handle);
+        } else {
+            uint32_t colorIndex = (uint32_t)data->sampleAttachment;
+            if (colorIndex >= target.colorAttachments.size()) {
+                spdlog::info("Color index [{}] is greater than "
+                             "color attachment size [{}]! "
+                             "Defaulting to color index 0.",
+                             colorIndex, target.colorAttachments.size());
+                colorIndex = 0;
+            }
+            attachmentTexture = std::get<Handle<Texture>>(
+                target.colorAttachments.at(colorIndex).handle);
+        }
+
+        return attachmentTexture;
+    };
+
+    material.albedo =
+        load(materialData.albedoData, true).value_or(m_DefaultWhite);
+    material.normalMap = load(materialData.normalData, false);
     material.metallicRoughnessMap =
-        loadTexture(context, materialData.metallicRoughnessData, false);
+        load(materialData.metallicRoughnessData, false);
 
     material.metallic = materialData.metallic;
     material.roughness = materialData.roughness;
@@ -4930,6 +4998,14 @@ void SYN::gfx::gl::Renderer::bindPassInput(Pass &pass, const InputSlot *input) {
                             target.depthAttachment.value().handle);
                     } else {
                         uint32_t colorIndex = (uint32_t)arg.attachment;
+                        if (colorIndex >= target.colorAttachments.size()) {
+                            spdlog::info("Color index [{}] is greater than "
+                                         "color attachment size [{}]! "
+                                         "Defaulting to color index 0.",
+                                         colorIndex,
+                                         target.colorAttachments.size());
+                            colorIndex = 0;
+                        }
                         attachmentTexture = std::get<Handle<Texture>>(
                             target.colorAttachments.at(colorIndex).handle);
                     }
