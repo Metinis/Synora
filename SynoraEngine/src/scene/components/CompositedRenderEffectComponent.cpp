@@ -1,17 +1,18 @@
 #include <SynoraEngine/scene/components/CompositedRenderEffectComponent.h>
 
-#include <assert.h>
-
 namespace SYN {
 CompositedRenderEffectComponent CompositedRenderEffectComponent::empty() {
     return {};
 }
 
+CompositedRenderEffectComponent
+CompositedRenderEffectComponent::defaultPass(AssetRef renderTarget) {
+    return CompositedRenderEffectComponent::empty().setPass(
+        Pass::empty().setEffect("").setOutput(renderTarget));
+}
+
 CompositedRenderEffectComponent &
 CompositedRenderEffectComponent::setPass(const Pass &pass) {
-    assert(!pass.effect.empty() &&
-           "Cannot have default effect in a composited render effect");
-
     auto it = std::find_if(passes.begin(), passes.end(),
                            [&pass](const Pass &otherPass) {
                                return pass.effect == otherPass.effect;
@@ -27,9 +28,6 @@ CompositedRenderEffectComponent::setPass(const Pass &pass) {
 }
 
 Pass &CompositedRenderEffectComponent::getPass(std::string_view effect) {
-    assert(!effect.empty() &&
-           "Cannot have default effect in a composited render effect");
-
     auto it = std::find_if(passes.begin(), passes.end(),
                            [&effect](const Pass &otherPass) {
                                return effect == otherPass.effect;
