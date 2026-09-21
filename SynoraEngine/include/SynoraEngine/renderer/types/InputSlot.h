@@ -24,16 +24,16 @@ struct InputSlot {
             DepthStencil
         };
 
-        uint32_t bindingIndex;
-        AttachmentType attachment;
-        SamplerDesc sampler;
+        uint32_t bindingIndex = 0;
+        AttachmentType attachment = AttachmentType::Color0;
+        SamplerDesc sampler{};
     };
 
     // TODO: Add texture cubemaps as possible input type.
     struct Texture2DInput {
         AssetRef texture;
-        uint32_t bindingIndex;
-        SamplerDesc sampler;
+        uint32_t bindingIndex = 0;
+        SamplerDesc sampler{};
         bool srgb = false;
     };
 
