@@ -45,6 +45,13 @@ class GraphicsScene : public SYN::ILayer {
 
         m_Renderer = static_cast<gl::Renderer *>(engineContext->renderer.get());
 
+        std::filesystem::path workingDir = std::filesystem::current_path();
+        std::filesystem::path shaderDir =
+            workingDir / "../../SynoraEngine/examples/custom_shaders/";
+        shaderDir = std::filesystem::canonical(shaderDir);
+        m_Renderer->createShader(shaderDir / "post_process.glsl",
+                                 "post_process");
+
         m_DebugDraw = engineContext->debugDraw.get();
 
         m_SphereScene = m_SceneManager->createScene("Sphere");
@@ -196,6 +203,26 @@ class GraphicsScene : public SYN::ILayer {
             m_AssetManager->acquire(m_AssetManager->add<SYN::RenderTargetData>(
                 renderTarget, "CustomRenderTarget"));
 
+        m_IntermediateRT =
+            m_AssetManager->acquire(m_AssetManager->add<SYN::RenderTargetData>(
+                renderTarget, "IntermediateRenderTarget"));
+
+        SYN::PipelineState postProcessPipeline;
+        postProcessPipeline.depth.testEnabled = false;
+        postProcessPipeline.cull = SYN::PipelineState::Cull::None;
+
+        SYN::RenderEffectDesc postProcessEffect =
+            SYN::RenderEffectDesc::empty("CustomProcess",
+                                         SYN::RenderEffectDesc::Type::Screen)
+                .setShader("post_process")
+                .setPipelineState(postProcessPipeline)
+                .addInput("u_Buffer", SYN::InputSlot::RenderTargetInput{},
+                          SYN::RenderEffectDesc::InputLevel::PerPass)
+                .addInput("u_Time", float{},
+                          SYN::RenderEffectDesc::InputLevel::PerPass);
+
+        m_Renderer->createEffect(postProcessEffect);
+
         createSphereScene();
         createCabinScene();
 
@@ -211,15 +238,22 @@ class GraphicsScene : public SYN::ILayer {
             m_FrameAvg += history;
         m_FrameAvg /= 120.0f;
 
+        m_Time += dt;
+
         auto updateSceneCamera = [&](SYN::SceneHandle sceneHandle) {
             SYN::Scene *scene = m_SceneManager->getSceneMut(sceneHandle);
-            scene->forEach<SYN::CameraComponent>(
-                [&](SYN::Entity e, SYN::CameraComponent &camera) {
-                    if (!e.hasComponent<SYN::RenderTargetComponent>()) {
-                        auto [w, h] = m_Window->getScreenSize();
-                        camera.aspectRatio = (float)w / h;
-                    }
-                });
+            scene->forEach<SYN::CameraComponent>([&](SYN::Entity e,
+                                                     SYN::CameraComponent
+                                                         &camera) {
+                if (!e.hasComponent<SYN::CompositedRenderEffectComponent>()) {
+                    auto [w, h] = m_Window->getScreenSize();
+                    camera.aspectRatio = (float)w / h;
+                } else {
+                    auto &c =
+                        e.getComponent<SYN::CompositedRenderEffectComponent>();
+                    c.getPass("CustomProcess").setInput("u_Time", m_Time);
+                }
+            });
         };
 
         updateSceneCamera(m_SphereScene);
@@ -285,8 +319,19 @@ class GraphicsScene : public SYN::ILayer {
             camera.renderMode = SYN::CameraComponent::RenderMode::OnDemand;
             camera.dirty = true;
             camera.aspectRatio = 1.0f;
-            m_CustomCamera.addComponent<SYN::RenderTargetComponent>(
-                m_ExampleRenderTarget);
+
+            SYN::InputSlot::RenderTargetInput rtInput;
+            rtInput.target = m_IntermediateRT;
+            rtInput.bindingIndex = 0;
+
+            m_CustomCamera.addComponent<SYN::CompositedRenderEffectComponent>(
+                SYN::CompositedRenderEffectComponent::defaultPass(
+                    m_IntermediateRT)
+                    .setPass(SYN::Pass::empty()
+                                 .setEffect("CustomProcess")
+                                 .setOutput(m_ExampleRenderTarget)
+                                 .setInput("u_Buffer", rtInput)
+                                 .setInput("u_Time", 0.0f)));
         }
 
         SYN::Entity cabinEntity = cabinScene->createEntity("Cabin");
@@ -300,6 +345,25 @@ class GraphicsScene : public SYN::ILayer {
             auto &transform =
                 walterEntity.getComponent<SYN::TransformComponent>();
             transform.position = glm::vec3(-10.0f, 0.0f, 0.0f);
+        }
+
+        {
+            SYN::Entity sphereEntity = cabinScene->createEntity("SphereTarget");
+            sphereEntity.addComponent<SYN::ModelComponent>(
+                m_AssetManager->acquire(m_Sphere));
+
+            SYN::MaterialData material;
+            material.albedoData = m_ExampleRenderTarget;
+
+            SYN::UUID asset =
+                m_AssetManager->add<SYN::MaterialData>(material, "CustomRTMat");
+
+            sphereEntity.addComponent<SYN::MaterialComponent>(
+                SYN::MaterialComponent{{{m_AssetManager->acquire(asset)}}});
+
+            auto &transform =
+                sphereEntity.getComponent<SYN::TransformComponent>();
+            transform.position = glm::vec3(-10.0f, 5.0f, 0.0f);
         }
 
         {
@@ -638,6 +702,7 @@ class GraphicsScene : public SYN::ILayer {
 
     SYN::Entity m_CustomCamera;
     SYN::AssetRef m_ExampleRenderTarget;
+    SYN::AssetRef m_IntermediateRT;
     uint32_t m_RenderMode = 0;
 
     SYN::UUID m_Parasite;
@@ -653,6 +718,8 @@ class GraphicsScene : public SYN::ILayer {
     SYN::UUID m_Sphere;
     std::array<gl::Environment, 4> m_Environments;
     std::array<std::string, 4> m_EnvironmentNames;
+
+    float m_Time = 0.0f;
 
     float m_FrameAvg = 0.0f;
 
