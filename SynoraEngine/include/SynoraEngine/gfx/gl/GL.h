@@ -257,6 +257,9 @@ struct Renderbuffer {
 
 struct Framebuffer {
     uint32_t id = 0;
+    std::array<bool, 8> colorAttachments{};
+    enum class DepthKind { None, DepthOnly, DepthStencil };
+    DepthKind depthKind = DepthKind::None;
 };
 
 struct VertexArray {
@@ -1019,6 +1022,16 @@ class Renderer : public IRenderViewBackend {
                                 Handle<Texture> textureHandle);
     void destroyRenderTargetResource(Context &context,
                                      RenderTarget renderTarget);
+
+  private:
+    std::optional<PassDesc> getPassDesc(const DrawOptions &options,
+                                        const Viewport &renderViewport,
+                                        const RenderTechnique &technique);
+    void handleBlitTarget(const DrawOptions &options,
+                          const Viewport &renderViewport,
+                          std::optional<PassDesc> desc);
+    void drawDefaultOpaque(const DrawOptions &options);
+    void drawDefaultPost(const DrawOptions &options);
 
   private:
     class AssetManager *m_AssetManager = nullptr;

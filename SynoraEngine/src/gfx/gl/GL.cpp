@@ -1271,6 +1271,12 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
     Framebuffer framebuffer;
     glCreateFramebuffers(1, &framebuffer.id);
 
+    if (desc.colorAttachments.size() > 8) {
+        spdlog::error(
+            "Framebuffer has more than 8 color attachments! This is invalid.");
+        return std::nullopt;
+    }
+
     size_t colorIndex = 0;
     for (const AttachmentDesc &colorAttachment : desc.colorAttachments) {
         if (std::holds_alternative<Handle<Texture>>(colorAttachment.handle)) {
@@ -1304,6 +1310,12 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
         GLenum attachmentType = desc.isDepthOnly ? GL_DEPTH_ATTACHMENT
                                                  : GL_DEPTH_STENCIL_ATTACHMENT;
 
+        if (desc.isDepthOnly) {
+            framebuffer.depthKind = Framebuffer::DepthKind::DepthOnly;
+        } else {
+            framebuffer.depthKind = Framebuffer::DepthKind::DepthStencil;
+        }
+
         if (std::holds_alternative<Handle<Texture>>(attachmentDesc.handle)) {
             Texture texture = m_TextureRegistry
                                   .getResource(std::get<Handle<Texture>>(
@@ -1333,6 +1345,10 @@ SYN::gfx::gl::Context::createFramebuffer(const FramebufferDesc &desc) {
     if (glCheckNamedFramebufferStatus(framebuffer.id, GL_FRAMEBUFFER) !=
         GL_FRAMEBUFFER_COMPLETE) {
         return std::nullopt;
+    }
+
+    for (uint32_t i = 0; i < desc.colorAttachments.size(); ++i) {
+        framebuffer.colorAttachments[i] = true;
     }
 
     return m_FramebufferRegistry.createHandle(framebuffer);
@@ -1417,27 +1433,89 @@ void SYN::gfx::gl::Context::blitFramebuffer(
     std::optional<Handle<Framebuffer>> writeHandle, Viewport sourceRect,
     Viewport destRect) {
 
-    if (!readHandle) {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-    } else {
-        Framebuffer framebuffer =
+    auto getDepthMask = [](const Framebuffer &framebuffer) {
+        uint32_t mask = 0;
+        if (framebuffer.depthKind == Framebuffer::DepthKind::DepthOnly) {
+            mask |= GL_DEPTH_BUFFER_BIT;
+        } else if (framebuffer.depthKind ==
+                   Framebuffer::DepthKind::DepthStencil) {
+            mask |= GL_DEPTH_BUFFER_BIT;
+            mask |= GL_STENCIL_BUFFER_BIT;
+        }
+
+        return mask;
+    };
+
+    uint32_t readId = 0;
+    uint32_t writeId = 0;
+
+    uint32_t srcDepthMask = 0;
+    uint32_t destDepthMask = 0;
+
+    std::array<bool, 8> srcColorMask{};
+    std::array<bool, 8> destColorMask{};
+
+    if (!readHandle)
+        srcColorMask[0] = true;
+    if (!writeHandle)
+        destColorMask[0] = true;
+
+    if (readHandle) {
+        Framebuffer readFramebuffer =
             m_FramebufferRegistry.getResource(readHandle.value()).value();
-
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer.id);
+        srcDepthMask = getDepthMask(readFramebuffer);
+        srcColorMask = readFramebuffer.colorAttachments;
+        readId = readFramebuffer.id;
     }
 
-    if (!writeHandle) {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    } else {
-        Framebuffer framebuffer =
+    if (writeHandle) {
+        Framebuffer writeFramebuffer =
             m_FramebufferRegistry.getResource(writeHandle.value()).value();
-
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer.id);
+        destDepthMask = getDepthMask(writeFramebuffer);
+        destColorMask = writeFramebuffer.colorAttachments;
+        writeId = writeFramebuffer.id;
     }
 
-    glBlitFramebuffer(sourceRect.x, sourceRect.y, sourceRect.width,
-                      sourceRect.height, destRect.x, destRect.y, destRect.width,
-                      destRect.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (srcDepthMask != 0 && srcDepthMask == destDepthMask) {
+        glBlitNamedFramebuffer(
+            readId, writeId, sourceRect.x, sourceRect.y,
+            sourceRect.x + sourceRect.width, sourceRect.y + sourceRect.height,
+            destRect.x, destRect.y, destRect.x + destRect.width,
+            destRect.y + destRect.height, srcDepthMask, GL_NEAREST);
+    }
+
+    auto colorBufferEnum = [](uint32_t colorIndex) -> GLenum {
+        return GL_COLOR_ATTACHMENT0 + colorIndex;
+    };
+
+    for (uint32_t i = 0; i < 8; ++i) {
+        if (srcColorMask[i] && destColorMask[i]) {
+            if (readHandle) {
+                glNamedFramebufferReadBuffer(readId, colorBufferEnum(i));
+            }
+            if (writeHandle) {
+                GLenum drawBuffer = colorBufferEnum(i);
+                glNamedFramebufferDrawBuffers(writeId, 1, &drawBuffer);
+            }
+            glBlitNamedFramebuffer(readId, writeId, sourceRect.x, sourceRect.y,
+                                   sourceRect.x + sourceRect.width,
+                                   sourceRect.y + sourceRect.height, destRect.x,
+                                   destRect.y, destRect.x + destRect.width,
+                                   destRect.y + destRect.height,
+                                   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        }
+    }
+
+    if (writeHandle) {
+        std::vector<GLenum> drawBuffers;
+        for (uint32_t i = 0; i < 8; ++i) {
+            if (destColorMask[i]) {
+                drawBuffers.push_back(GL_COLOR_ATTACHMENT0 + i);
+            }
+        }
+        glNamedFramebufferDrawBuffers(writeId, drawBuffers.size(),
+                                      drawBuffers.data());
+    }
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Renderbuffer>>
@@ -2867,8 +2945,12 @@ SYN::gfx::gl::Renderer::createRenderTargetResource(
         output.colorAttachments.emplace_back(texture.value());
     }
 
+    FramebufferDesc framebufferDesc;
+
     if (renderTargetData->depth.has_value()) {
         RenderTargetData::Format format = renderTargetData->depth.value();
+        framebufferDesc.isDepthOnly =
+            format != RenderTargetData::Format::DEPTH24_STENCIL8;
         TextureDesc desc =
             createTextureDescFromRenderTarget(*renderTargetData, format);
         std::optional<Handle<Texture>> texture = context.createTexture(desc);
@@ -2877,10 +2959,8 @@ SYN::gfx::gl::Renderer::createRenderTargetResource(
         output.depthAttachment = {texture.value()};
     }
 
-    FramebufferDesc framebufferDesc;
     framebufferDesc.colorAttachments = output.colorAttachments;
     framebufferDesc.depthStencilAttachment = output.depthAttachment;
-    framebufferDesc.isDepthOnly = output.colorAttachments.empty();
 
     std::optional<Handle<Framebuffer>> framebuffer =
         context.createFramebuffer(framebufferDesc);
@@ -4187,6 +4267,179 @@ void SYN::gfx::gl::Renderer::setRenderScale(float renderScale) {
     m_HdrFramebuffer.update = true;
 }
 
+void SYN::gfx::gl::Renderer::drawDefaultOpaque(const DrawOptions &options) {
+    if (m_DirectionalLight.castsShadows) {
+        drawDirectionalCSM(*m_Context, m_DirectionalLight);
+    }
+
+    auto environmentIt = m_NameToEnvironment.find(m_CurrentEnvironment);
+    DrawOptions drawOptions;
+    drawOptions.camera = options.camera;
+    drawOptions.cameraTransform = options.cameraTransform;
+    drawOptions.passInfo.effect = "ZPrepass";
+    drawOptions.passInfo.output = "MSAA";
+    // TODO: Replace this with options.clearColor when environments
+    //       become proper components
+    drawOptions.passInfo.clearOptions.clearColor =
+        environmentIt->second.clearColor;
+    drawOptions.passInfo.clearOptions.clearDepth = 1.0f;
+    drawOptions.passInfo.clearOptions.clearStencil = std::nullopt;
+
+    // Z Prepass
+    draw(drawOptions);
+
+    drawOptions.passInfo.effect = "ForwardPass";
+    drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
+    drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+
+    // Forward
+    draw(drawOptions);
+
+    drawOptions.passInfo.effect = "SkyboxPass";
+
+    // Skybox
+    draw(drawOptions);
+
+    drawOptions.passInfo.effect = "DebugPass";
+    drawOptions.passInfo.output = options.passInfo.output;
+    drawOptions.passInfo.blitTarget = options.passInfo.blitTarget;
+
+    draw(drawOptions);
+}
+
+void SYN::gfx::gl::Renderer::drawDefaultPost(const DrawOptions &options) {
+    DrawOptions drawOptions;
+    // Debug
+
+    drawOptions.passInfo.effect = "TonemapPass";
+    drawOptions.passInfo.output = options.passInfo.output;
+    drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
+    drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+    drawOptions.passInfo.clearOptions.clearStencil = std::nullopt;
+    drawOptions.passInfo.blitTarget = options.passInfo.blitTarget;
+
+    // HDR
+    draw(drawOptions);
+}
+
+std::optional<SYN::gfx::gl::PassDesc>
+SYN::gfx::gl::Renderer::getPassDesc(const DrawOptions &options,
+                                    const Viewport &renderViewport,
+                                    const RenderTechnique &technique) {
+    std::optional<Handle<Framebuffer>> finalTarget = std::nullopt;
+    Viewport finalViewport = renderViewport;
+
+    if (std::holds_alternative<AssetRef>(options.passInfo.output)) {
+        AssetRef output = std::get<AssetRef>(options.passInfo.output);
+
+        if (output.valid()) {
+            UUID renderTargetId = output.uuid();
+            createRenderTarget(*m_Context, renderTargetId);
+            const RenderTargetData *renderTargetData =
+                m_AssetManager->get<RenderTargetData>(renderTargetId);
+            finalTarget =
+                std::get<RenderTarget>(m_UUIDToHandle.at(renderTargetId).handle)
+                    .framebuffer;
+            finalViewport.width = renderTargetData->width;
+            finalViewport.height = renderTargetData->height;
+        }
+    } else {
+        std::string resourceName =
+            std::get<std::string>(options.passInfo.output);
+
+        auto handleInternalRT = [this, &finalTarget, &resourceName]() {
+            // TODO: Do not assume that all internal render targets
+            //       match screen size always.
+            if (!resourceName.empty()) {
+                auto it = m_InternalRenderTargets.find(resourceName);
+                if (it == m_InternalRenderTargets.cend()) {
+                    spdlog::error("Unable to find internal render target "
+                                  "resource with name [{}]",
+                                  resourceName);
+                    return false;
+                }
+                finalTarget = it->second.framebuffer;
+            }
+            return true;
+        };
+
+        if (resourceName == "MSAA") {
+            if (technique.getEffectType() == RenderEffectDesc::Type::Screen) {
+                spdlog::error("Screen effect cannot target MSAA.");
+                return std::nullopt;
+            }
+            finalTarget = m_MsaaFramebuffer.handle;
+        } else if (!resourceName.empty()) {
+            if (!handleInternalRT())
+                return std::nullopt;
+        }
+    }
+
+    if (!finalTarget.has_value() &&
+        technique.getEffectType() == RenderEffectDesc::Type::Screen) {
+        finalViewport.width = m_ScreenViewport.width;
+        finalViewport.height = m_ScreenViewport.height;
+    }
+
+    ClearOptions clearInfo = options.passInfo.clearOptions;
+    return PassDesc{finalTarget, clearInfo.clearColor, clearInfo.clearDepth,
+                    clearInfo.clearStencil, finalViewport};
+}
+
+void SYN::gfx::gl::Renderer::handleBlitTarget(const DrawOptions &options,
+                                              const Viewport &renderViewport,
+                                              std::optional<PassDesc> desc) {
+    const auto &blit = options.passInfo.blitTarget;
+    if (std::holds_alternative<std::string>(blit)) {
+        std::string blitName = std::get<std::string>(blit);
+        if (blitName.empty())
+            return;
+
+        auto it = m_InternalRenderTargets.find(blitName);
+        if (it == m_InternalRenderTargets.cend()) {
+            spdlog::error(
+                "Unable to find internal render target [{}] to blit to.",
+                blitName);
+            return;
+        }
+        Handle<Framebuffer> targetFramebuffer = it->second.framebuffer;
+        if (!desc.has_value()) {
+            spdlog::error(
+                "Unable to obtain pass description for technique [{}].",
+                options.passInfo.effect);
+            return;
+        }
+        std::optional<Handle<Framebuffer>> sourceFramebuffer =
+            desc.value().framebufferHandle;
+        m_Context->blitFramebuffer(sourceFramebuffer, targetFramebuffer,
+                                   renderViewport, renderViewport);
+    } else if (std::holds_alternative<AssetRef>(blit)) {
+        AssetRef blitTarget = std::get<AssetRef>(blit);
+        if (!blitTarget.valid())
+            return;
+
+        auto it = m_UUIDToHandle.find(blitTarget.uuid());
+        if (it == m_UUIDToHandle.cend()) {
+            spdlog::error("Unable to find render target [{}] to blit to. Are "
+                          "you sure it's registered?");
+            return;
+        }
+        RenderTarget targetFramebuffer =
+            std::get<RenderTarget>(it->second.handle);
+        if (!desc.has_value()) {
+            spdlog::error(
+                "Unable to obtain pass description for technique [{}].",
+                options.passInfo.effect);
+            return;
+        }
+        std::optional<Handle<Framebuffer>> sourceFramebuffer =
+            desc.value().framebufferHandle;
+        m_Context->blitFramebuffer(sourceFramebuffer,
+                                   targetFramebuffer.framebuffer,
+                                   renderViewport, renderViewport);
+    }
+}
+
 void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
 
     CameraComponent camera = options.camera;
@@ -4242,8 +4495,6 @@ void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
                                 &lightConstants);
     }
 
-    bool blitMSAA = false;
-
     const std::string &currentEffect = options.passInfo.effect;
 
     Viewport renderViewport = m_ScreenViewport;
@@ -4251,93 +4502,8 @@ void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
     renderViewport.width = renderWidth;
     renderViewport.height = renderHeight;
 
-    auto getPassDesc =
-        [this, &options, &blitMSAA, &renderViewport](
-            const RenderTechnique &technique) -> std::optional<PassDesc> {
-        std::optional<Handle<Framebuffer>> finalTarget = std::nullopt;
-        Viewport finalViewport = renderViewport;
-
-        bool isHDR = false;
-
-        if (std::holds_alternative<AssetRef>(options.passInfo.output)) {
-            AssetRef output = std::get<AssetRef>(options.passInfo.output);
-
-            if (output.valid()) {
-                UUID renderTargetId = output.uuid();
-                createRenderTarget(*m_Context, renderTargetId);
-                const RenderTargetData *renderTargetData =
-                    m_AssetManager->get<RenderTargetData>(renderTargetId);
-                finalTarget = std::get<RenderTarget>(
-                                  m_UUIDToHandle.at(renderTargetId).handle)
-                                  .framebuffer;
-                finalViewport.width = renderTargetData->width;
-                finalViewport.height = renderTargetData->height;
-            }
-        } else {
-            std::string resourceName =
-                std::get<std::string>(options.passInfo.output);
-
-            isHDR = resourceName == "HDR";
-
-            auto handleInternalRT = [this, &finalTarget, &resourceName,
-                                     &blitMSAA]() {
-                // TODO: Do not assume that all internal render targets
-                //       match screen size always.
-                if (!resourceName.empty()) {
-                    auto it = m_InternalRenderTargets.find(resourceName);
-                    if (it == m_InternalRenderTargets.cend()) {
-                        spdlog::error("Unable to find internal render target "
-                                      "resource with name [{}]",
-                                      resourceName);
-                        return false;
-                    }
-                    finalTarget = it->second.framebuffer;
-                }
-                return true;
-            };
-
-            if (resourceName == "MSAA") {
-                if (technique.getEffectType() ==
-                    RenderEffectDesc::Type::Screen) {
-                    spdlog::error("Screen effect cannot target MSAA.");
-                    return std::nullopt;
-                }
-                finalTarget = m_MsaaFramebuffer.handle;
-            } else if (!resourceName.empty()) {
-                if (!handleInternalRT())
-                    return std::nullopt;
-            }
-        }
-
-        // TODO: Make MSAA blit true if sampleCount of RenderTarget is > 1
-        // and format is incompatible. Only HDR for now since it's guaranteed
-        // to be a valid blit, but this enforces right now that you
-        // must use HDR as an input if you want anti-aliasing
-        if (isHDR &&
-            technique.getEffectType() == RenderEffectDesc::Type::Geometry) {
-            // TODO: Warn if output render target
-            //       is incompatible with MSAA framebuffer
-            finalTarget = m_MsaaFramebuffer.handle;
-            blitMSAA = true;
-        }
-
-        if (!finalTarget.has_value() &&
-            technique.getEffectType() == RenderEffectDesc::Type::Screen) {
-            finalViewport.width = m_ScreenViewport.width;
-            finalViewport.height = m_ScreenViewport.height;
-        }
-
-        ClearOptions clearInfo = options.passInfo.clearOptions;
-        return PassDesc{finalTarget, clearInfo.clearColor, clearInfo.clearDepth,
-                        clearInfo.clearStencil, finalViewport};
-    };
-
     if (options.passInfo.effect.empty()) {
         // Default render pass
-
-        if (m_DirectionalLight.castsShadows) {
-            drawDirectionalCSM(*m_Context, m_DirectionalLight);
-        }
 
         auto environmentIt = m_NameToEnvironment.find(m_CurrentEnvironment);
 
@@ -4348,57 +4514,49 @@ void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
             DrawOptions drawOptions;
             drawOptions.camera = options.camera;
             drawOptions.cameraTransform = options.cameraTransform;
-            drawOptions.passInfo.effect = "ZPrepass";
-            drawOptions.passInfo.output = "MSAA";
-            drawOptions.passInfo.clearOptions.clearColor =
-                environmentIt->second.clearColor;
-            drawOptions.passInfo.clearOptions.clearDepth = 1.0f;
-
-            // Z Prepass
-            draw(drawOptions);
-
-            drawOptions.passInfo.effect = "ForwardPass";
-            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
-            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
-
-            // Forward
-            draw(drawOptions);
-
-            drawOptions.passInfo.effect = "SkyboxPass";
-            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
-            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
-
-            // Skybox
-            draw(drawOptions);
-
-            // Debug
-            drawOptions.passInfo.effect = "DebugPass";
-            drawOptions.passInfo.output = "HDR";
             drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
             drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
             drawOptions.passInfo.clearOptions.clearStencil = std::nullopt;
 
+            drawOptions.passInfo.effect = "DefaultOpaque";
+            drawOptions.passInfo.output = "MSAA";
+            drawOptions.passInfo.blitTarget = "HDR";
+
             draw(drawOptions);
 
-            drawOptions.passInfo.effect = "TonemapPass";
+            drawOptions.passInfo.effect = "DefaultPost";
             drawOptions.passInfo.output = options.passInfo.output;
-            drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
-            drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
+            drawOptions.passInfo.blitTarget = "";
 
-            // HDR
             draw(drawOptions);
         }
 
         return;
+    } else if (currentEffect == "DefaultOpaque") {
+        drawDefaultOpaque(options);
+        return;
+    } else if (currentEffect == "DefaultPost") {
+        drawDefaultPost(options);
+        return;
     }
 
-    auto &technique = m_Techniques.at(currentEffect);
+    auto techniqueIt = m_Techniques.find(currentEffect);
+    if (techniqueIt == m_Techniques.cend()) {
+        spdlog::error(
+            "Effect [{}] not recognized! Are you sure it's registered?",
+            currentEffect);
+        return;
+    }
 
+    auto &technique = techniqueIt->second;
+
+    std::optional<PassDesc> currentPassDesc =
+        getPassDesc(options, renderViewport, technique);
     if (currentEffect == "SkyboxPass") { // Hard code certain effects for now.
-        Pass pass = m_Context->beginPass(getPassDesc(technique).value());
+        Pass pass = m_Context->beginPass(currentPassDesc.value());
         drawSkybox(pass, projMatrix, viewMatrix);
     } else if (currentEffect == "DebugPass") {
-        drawDebugPass(*m_Context, getPassDesc(technique).value());
+        drawDebugPass(*m_Context, currentPassDesc.value());
     } else if (currentEffect == "ShadowPass" &&
                m_DirectionalLight.castsShadows) {
         bool valid =
@@ -4413,19 +4571,14 @@ void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
 
         drawDirectionalCSM(*m_Context, m_DirectionalLight);
     } else if (technique.getEffectType() == RenderEffectDesc::Type::Geometry) {
-        technique.setPassDesc(getPassDesc(technique).value());
+        technique.setPassDesc(currentPassDesc.value());
         drawRenderItems(*m_Context, currentEffect, options.passInfo.inputs);
     } else if (technique.getEffectType() == RenderEffectDesc::Type::Screen) {
-        technique.setPassDesc(getPassDesc(technique).value());
+        technique.setPassDesc(currentPassDesc.value());
         drawScreen(*m_Context, currentEffect, options.passInfo.inputs);
     }
 
-    if (blitMSAA) {
-        Handle<Framebuffer> hdrFramebuffer =
-            m_InternalRenderTargets.at("HDR").framebuffer;
-        m_Context->blitFramebuffer(m_MsaaFramebuffer.handle, hdrFramebuffer,
-                                   renderViewport, renderViewport);
-    }
+    handleBlitTarget(options, renderViewport, currentPassDesc);
 }
 
 void SYN::gfx::gl::Renderer::setGamma(float gamma) {
