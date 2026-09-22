@@ -6,10 +6,16 @@ Pass &Pass::setEffect(std::string_view effect) {
     this->effect = effect;
     return *this;
 }
-Pass &Pass::setOutput(AssetRef output) {
+Pass &Pass::setOutput(Target output) {
     this->output = output;
     return *this;
 }
+
+Pass &Pass::setBlitTarget(Target target) {
+    this->blitTarget = target;
+    return *this;
+}
+
 Pass &Pass::setInput(std::string_view name, const InputSlot::Value &value) {
     auto it = std::find_if(
         inputs.begin(), inputs.end(),
