@@ -17,7 +17,10 @@ layout(binding = 1) uniform usampler2D u_Stencil;
 out vec4 fragColor;
 
 const float outlineSize = 4.5;
-
+/*
+  Adapted from:
+  https://www.marginallyclever.com/2025/09/drawing-thick-outlines-in-opengl/
+*/
 void main() {
   vec2 canvasSize = textureSize(u_Stencil, 0);
   vec2 uv = gl_FragCoord.xy / canvasSize;
