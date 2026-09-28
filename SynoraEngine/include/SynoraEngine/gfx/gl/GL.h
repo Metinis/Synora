@@ -18,6 +18,7 @@
 #include <SynoraEngine/project/AssetRef.h>
 #include <SynoraEngine/project/UUID.h>
 
+#include <SynoraEngine/project/assets/TextureViewData.h>
 #include <SynoraEngine/renderer/DebugDraw.h>
 #include <SynoraEngine/renderer/backends/IRenderViewBackend.h>
 
@@ -146,6 +147,14 @@ enum class StencilOp : uint8_t {
 template <typename T> struct Handle {
     uint32_t index;
     uint32_t generation;
+
+    bool operator==(const Handle<T> &other) const {
+        return index == other.index && generation == other.generation;
+    }
+
+    bool zero() const { return index == 0 && generation == 0; }
+
+    static Handle<T> empty() { return {0, 0}; };
 };
 
 template <typename ResourceType> class ResourceRegistry {
@@ -245,6 +254,8 @@ struct Buffer {
 struct Texture {
     uint32_t id = 0;
     TextureType type;
+    bool isView = false;
+    std::vector<Handle<Texture>> dependentViews;
 };
 
 struct Sampler {
@@ -544,7 +555,31 @@ struct RenderTarget {
     Handle<Framebuffer> framebuffer;
     std::vector<AttachmentDesc> colorAttachments;
     std::optional<AttachmentDesc> depthAttachment = std::nullopt;
-    PassDesc passDesc;
+
+    uint32_t width, height;
+};
+
+struct TextureView {
+    Handle<Texture> sourceHandle;
+    Handle<Texture> viewHandle;
+};
+
+struct TextureViewDesc {
+    Handle<Texture> source;
+    TextureFormat format;
+
+    // Depth24Stencil with stencilOnly = false
+    // means DepthStencil format while stencilOnly = true
+    // means Stencil only
+    //
+    // Use Depth24 or Depth32 for depth only
+    SYN::TextureViewData::DepthKind depthKind =
+        SYN::TextureViewData::DepthKind::DepthStencil;
+
+    uint32_t minLevel = 0;
+    uint32_t numLevels = 1;
+    uint32_t minLayer = 0;
+    uint32_t numLayers = 1;
 };
 
 struct Environment {
@@ -677,6 +712,10 @@ class Context {
                        const void *data = nullptr);
     void generateMipmap(Handle<Texture> textureHandle);
     void deleteTexture(Handle<Texture> textureHandle);
+
+    // TODO: Allow creating views for types other than Tex2D
+    std::optional<Handle<Texture>>
+    createTextureView(const TextureViewDesc &desc);
 
     // Main use case is for ImGui debug
     std::optional<uint32_t> getTextureId(Handle<Texture> textureHandle);
@@ -1003,6 +1042,9 @@ class Renderer : public IRenderViewBackend {
     void updateRenderTarget(Context &context, UUID renderTarget);
     void destroyRenderTarget(Context &context, UUID renderTarget);
 
+    void createTextureView(Context &context, UUID textureView);
+    void destroyTextureView(Context &context, UUID textureView);
+
   private:
     void
     createDrawCommand(Context &context, UUID model, uint64_t layer,
@@ -1016,6 +1058,9 @@ class Renderer : public IRenderViewBackend {
     std::optional<RenderTarget>
     createRenderTargetResource(Context &context,
                                const class RenderTargetData *renderTargetData);
+    std::optional<TextureView>
+    createTextureViewResource(Context &context,
+                              const class TextureViewData *textureViewData);
 
     void destroyModelResource(Context &context, Handle<Model> modelHandle);
     void destroyTextureResource(Context &context,
@@ -1039,7 +1084,8 @@ class Renderer : public IRenderViewBackend {
     class Window *m_Window = nullptr;
 
     struct ResourceHandle {
-        std::variant<Handle<Model>, Handle<Texture>, RenderTarget> handle;
+        std::variant<Handle<Model>, Handle<Texture>, RenderTarget, TextureView>
+            handle;
     };
 
     struct DeferredResourceSwap {

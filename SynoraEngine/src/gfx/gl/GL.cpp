@@ -557,6 +557,11 @@ SYN::gfx::gl::PipelineState::fromGeneralPurposePipelineState(
     convertedState.frontFaceCcw = frontFaceTo(state.face);
     convertedState.stencil = stencilTo(state.stencil);
 
+    convertedState.color.r = state.colorMask.r;
+    convertedState.color.g = state.colorMask.g;
+    convertedState.color.b = state.colorMask.b;
+    convertedState.color.a = state.colorMask.a;
+
     return convertedState;
 }
 
@@ -1895,8 +1900,73 @@ void SYN::gfx::gl::Context::deleteTexture(Handle<Texture> textureHandle) {
 
     Texture texture = textureOpt.value();
 
+    for (Handle<Texture> view : texture.dependentViews) {
+        deleteTexture(view);
+    }
+
     m_PendingDeleteTextures.push_back(texture.id);
     m_TextureRegistry.releaseHandle(textureHandle);
+}
+
+std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
+SYN::gfx::gl::Context::createTextureView(const TextureViewDesc &desc) {
+    Texture *sourceTexture = nullptr;
+    if (std::optional<Texture *> textureOpt =
+            m_TextureRegistry.getResourceMutable(desc.source);
+        textureOpt.has_value()) {
+        sourceTexture = textureOpt.value();
+    } else {
+        spdlog::error(
+            "Source texture in texture view description is an invalid!");
+        return std::nullopt;
+    }
+
+    if (sourceTexture->isView) {
+        spdlog::error("Attempting to create a texture view from another view! "
+                      "Not allowed in OpenGL!");
+        return std::nullopt;
+    }
+
+    if (sourceTexture->type != TextureType::Tex2D) {
+        spdlog::error(
+            "Creating views only supported for Texture2D types for now!");
+        return std::nullopt;
+    }
+
+    Handle<Texture> viewHandle =
+        m_TextureRegistry.createHandle(Texture{}).value_or(
+            Handle<Texture>::empty());
+
+    if (viewHandle.zero())
+        return std::nullopt;
+
+    Texture *view = m_TextureRegistry.getResourceMutable(viewHandle).value();
+
+    view->isView = true;
+
+    glGenTextures(1, &view->id);
+    GLenum format = getInternalTextureFormat(desc.format);
+    glTextureView(view->id, GL_TEXTURE_2D, sourceTexture->id, format,
+                  desc.minLevel, desc.numLevels, desc.minLayer, desc.numLayers);
+
+    if (format == GL_DEPTH24_STENCIL8) {
+        switch (desc.depthKind) {
+        case SYN::TextureViewData::DepthKind::DepthOnly:
+            glTextureParameteri(view->id, GL_DEPTH_STENCIL_TEXTURE_MODE,
+                                GL_DEPTH_COMPONENT);
+            break;
+        case SYN::TextureViewData::DepthKind::DepthStencil:
+            break;
+        case SYN::TextureViewData::DepthKind::StencilOnly:
+            glTextureParameteri(view->id, GL_DEPTH_STENCIL_TEXTURE_MODE,
+                                GL_STENCIL_INDEX);
+            break;
+        }
+    }
+
+    sourceTexture->dependentViews.push_back(viewHandle);
+
+    return viewHandle;
 }
 
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Sampler>>
@@ -2390,8 +2460,8 @@ bool SYN::gfx::gl::RenderTechnique::bindPerPass(
             it->second(pass);
         } else {
             spdlog::error("Uniform binding {} is either not provided, or has "
-                          "no internal default.",
-                          name);
+                          "no internal default. Effect [{}]",
+                          name, m_TechniqueName);
             return false;
         }
     }
@@ -2437,8 +2507,8 @@ bool SYN::gfx::gl::RenderTechnique::bindPerInstance(
             it->second(pass, item);
         } else {
             spdlog::error("Uniform binding {} is either not provided, or has "
-                          "no internal default.",
-                          name);
+                          "no internal default. Effect [{}]",
+                          name, m_TechniqueName);
             return false;
         }
     }
@@ -2969,16 +3039,167 @@ SYN::gfx::gl::Renderer::createRenderTargetResource(
 
     output.framebuffer = framebuffer.value();
 
+    output.width = renderTargetData->width;
+    output.height = renderTargetData->height;
+
     return output;
+}
+
+std::optional<SYN::gfx::gl::TextureView>
+SYN::gfx::gl::Renderer::createTextureViewResource(
+    Context &context, const TextureViewData *textureViewData) {
+    if (!textureViewData->target.valid()) {
+        spdlog::error("Cannot create texture view from invalid "
+                      "source!");
+        return std::nullopt;
+    }
+
+    TextureView output;
+
+    auto getResourceHandle = [this](UUID id) -> std::optional<ResourceHandle> {
+        auto it = m_UUIDToHandle.find(id);
+        if (it == m_UUIDToHandle.cend()) {
+            spdlog::error("Source asset isn't mapped in OpenGL renderer!");
+            return std::nullopt;
+        }
+        return it->second;
+    };
+
+    SYN::RenderTargetData::Format viewFormat = textureViewData->format;
+
+    TextureViewDesc viewDesc;
+    viewDesc.format = renderTargetFormatToGL(viewFormat);
+    bool depthTarget = false;
+    if (viewFormat == SYN::RenderTargetData::Format::DEPTH24_STENCIL8) {
+        depthTarget = true;
+        viewDesc.depthKind = textureViewData->depthKind;
+    }
+
+    UUID sourceId = textureViewData->target.uuid();
+    if (m_AssetManager->isType<RenderTargetData>(sourceId)) {
+        auto handleOpt = getResourceHandle(sourceId);
+        if (!handleOpt.has_value())
+            return std::nullopt;
+        auto handle = handleOpt.value();
+        RenderTarget renderTarget = std::get<RenderTarget>(handle.handle);
+
+        if (depthTarget) {
+            viewDesc.source = std::get<Handle<Texture>>(
+                renderTarget.depthAttachment.value().handle);
+        } else {
+            const auto &colors = renderTarget.colorAttachments;
+            uint32_t index = textureViewData->colorAttachment;
+            if (index >= colors.size()) {
+                spdlog::error("Unable to create texture "
+                              "view targeting invalid "
+                              "color attachment index on a render target!");
+                return std::nullopt;
+            }
+            viewDesc.source =
+                std::get<Handle<Texture>>(colors.at(index).handle);
+        }
+
+    } else if (m_AssetManager->isType<TextureData>(sourceId)) {
+        auto handleOpt = getResourceHandle(sourceId);
+        if (!handleOpt.has_value())
+            return std::nullopt;
+        auto handle = handleOpt.value();
+        viewDesc.source = std::get<Handle<Texture>>(handle.handle);
+    } else {
+        spdlog::error(
+            "Source asset must either be a render target, or texture!");
+        return std::nullopt;
+    }
+
+    viewDesc.minLevel = textureViewData->minLevel;
+    viewDesc.numLevels = textureViewData->numLevels;
+    viewDesc.minLayer = textureViewData->minLayer;
+    viewDesc.numLayers = textureViewData->numLayers;
+
+    output.sourceHandle = viewDesc.source;
+
+    output.viewHandle =
+        context.createTextureView(viewDesc).value_or(Handle<Texture>::empty());
+
+    if (output.viewHandle.zero())
+        return std::nullopt;
+
+    return output;
+}
+
+void SYN::gfx::gl::Renderer::createTextureView(Context &context,
+                                               UUID textureView) {
+    if (auto it = m_UUIDToHandle.find(textureView);
+        it != m_UUIDToHandle.cend()) {
+        const auto &view = std::get<TextureView>(it->second.handle);
+
+        bool sourceValid = context.getTextureId(view.sourceHandle).has_value();
+
+        bool viewValid = context.getTextureId(view.viewHandle).has_value();
+
+        if (sourceValid && viewValid) {
+            return;
+        } else if (!sourceValid && viewValid) {
+            spdlog::error("Texture view's source is invalid, but its handle"
+                          "remains valid! The handle must be freed!");
+            return;
+        }
+    }
+
+    const TextureViewData *textureViewData =
+        m_AssetManager->get<TextureViewData>(textureView);
+
+    if (textureViewData == nullptr) {
+        spdlog::error("Attempting to create internal texture view "
+                      "with invalid asset id");
+        return;
+    }
+
+    std::optional<TextureView> handle =
+        createTextureViewResource(context, textureViewData);
+
+    if (!handle.has_value()) {
+        spdlog::error("Unable to create texture view!");
+    }
+
+    m_UUIDToHandle[textureView] = {handle.value()};
+}
+
+void SYN::gfx::gl::Renderer::destroyTextureView(Context &context,
+                                                UUID textureView) {
+    auto it = m_UUIDToHandle.find(textureView);
+    if (it == m_UUIDToHandle.cend()) {
+        spdlog::warn("Attempting to destroy a texture view asset that"
+                     "was never mapped!");
+        return;
+    }
+
+    const auto &view = std::get<TextureView>(it->second.handle);
+    context.deleteTexture(view.viewHandle);
+
+    m_UUIDToHandle.erase(it);
 }
 
 void SYN::gfx::gl::Renderer::createRenderTarget(Context &context,
                                                 UUID renderTarget) {
-    if (m_UUIDToHandle.contains(renderTarget))
-        return;
-
     const RenderTargetData *renderTargetData =
         m_AssetManager->get<RenderTargetData>(renderTarget);
+
+    if (renderTargetData == nullptr) {
+        spdlog::error("Attempting to create internal render target "
+                      "with invalid asset id");
+        return;
+    }
+
+    if (auto it = m_UUIDToHandle.find(renderTarget);
+        it != m_UUIDToHandle.cend()) {
+        const auto &rt = std::get<RenderTarget>(it->second.handle);
+        if (rt.width != renderTargetData->width ||
+            rt.height != renderTargetData->height) {
+            updateRenderTarget(context, renderTarget);
+        }
+        return;
+    }
 
     m_UUIDToHandle[renderTarget] = {
         createRenderTargetResource(context, renderTargetData).value()};
@@ -3588,6 +3809,10 @@ void SYN::gfx::gl::Renderer::init(EngineContext *engineContext) {
                     destroyModel(*m_Context, id);
                 } else if constexpr (std::is_same_v<T, RenderTarget>) {
                     destroyRenderTarget(*m_Context, id);
+                } else if constexpr (std::is_same_v<T, TextureView>) {
+                    destroyTextureView(*m_Context, id);
+                } else {
+                    static_assert(false, "non-exhaustive visitor!");
                 }
             },
             resource.handle);
@@ -4277,7 +4502,7 @@ void SYN::gfx::gl::Renderer::drawDefaultOpaque(const DrawOptions &options) {
     drawOptions.camera = options.camera;
     drawOptions.cameraTransform = options.cameraTransform;
     drawOptions.passInfo.effect = "ZPrepass";
-    drawOptions.passInfo.output = "MSAA";
+    drawOptions.passInfo.output = options.passInfo.output;
     // TODO: Replace this with options.clearColor when environments
     //       become proper components
     drawOptions.passInfo.clearOptions.clearColor =
@@ -4301,22 +4526,21 @@ void SYN::gfx::gl::Renderer::drawDefaultOpaque(const DrawOptions &options) {
     draw(drawOptions);
 
     drawOptions.passInfo.effect = "DebugPass";
-    drawOptions.passInfo.output = options.passInfo.output;
-    drawOptions.passInfo.blitTarget = options.passInfo.blitTarget;
+    drawOptions.passInfo.blitTargets = options.passInfo.blitTargets;
 
     draw(drawOptions);
 }
 
 void SYN::gfx::gl::Renderer::drawDefaultPost(const DrawOptions &options) {
     DrawOptions drawOptions;
-    // Debug
 
     drawOptions.passInfo.effect = "TonemapPass";
     drawOptions.passInfo.output = options.passInfo.output;
     drawOptions.passInfo.clearOptions.clearColor = std::nullopt;
     drawOptions.passInfo.clearOptions.clearDepth = std::nullopt;
     drawOptions.passInfo.clearOptions.clearStencil = std::nullopt;
-    drawOptions.passInfo.blitTarget = options.passInfo.blitTarget;
+    drawOptions.passInfo.blitTargets = options.passInfo.blitTargets;
+    drawOptions.passInfo.inputs = options.passInfo.inputs;
 
     // HDR
     draw(drawOptions);
@@ -4389,54 +4613,62 @@ SYN::gfx::gl::Renderer::getPassDesc(const DrawOptions &options,
 void SYN::gfx::gl::Renderer::handleBlitTarget(const DrawOptions &options,
                                               const Viewport &renderViewport,
                                               std::optional<PassDesc> desc) {
-    const auto &blit = options.passInfo.blitTarget;
-    if (std::holds_alternative<std::string>(blit)) {
-        std::string blitName = std::get<std::string>(blit);
-        if (blitName.empty())
-            return;
+    auto blitToTarget = [this, &desc, &renderViewport,
+                         &options](const SYN::Pass::Target &blit) {
+        if (std::holds_alternative<std::string>(blit)) {
+            std::string blitName = std::get<std::string>(blit);
+            if (blitName.empty())
+                return;
 
-        auto it = m_InternalRenderTargets.find(blitName);
-        if (it == m_InternalRenderTargets.cend()) {
-            spdlog::error(
-                "Unable to find internal render target [{}] to blit to.",
-                blitName);
-            return;
-        }
-        Handle<Framebuffer> targetFramebuffer = it->second.framebuffer;
-        if (!desc.has_value()) {
-            spdlog::error(
-                "Unable to obtain pass description for technique [{}].",
-                options.passInfo.effect);
-            return;
-        }
-        std::optional<Handle<Framebuffer>> sourceFramebuffer =
-            desc.value().framebufferHandle;
-        m_Context->blitFramebuffer(sourceFramebuffer, targetFramebuffer,
-                                   renderViewport, renderViewport);
-    } else if (std::holds_alternative<AssetRef>(blit)) {
-        AssetRef blitTarget = std::get<AssetRef>(blit);
-        if (!blitTarget.valid())
-            return;
+            auto it = m_InternalRenderTargets.find(blitName);
+            if (it == m_InternalRenderTargets.cend()) {
+                spdlog::error(
+                    "Unable to find internal render target [{}] to blit to.",
+                    blitName);
+                return;
+            }
+            Handle<Framebuffer> targetFramebuffer = it->second.framebuffer;
+            if (!desc.has_value()) {
+                spdlog::error(
+                    "Unable to obtain pass description for technique [{}].",
+                    options.passInfo.effect);
+                return;
+            }
+            std::optional<Handle<Framebuffer>> sourceFramebuffer =
+                desc.value().framebufferHandle;
+            m_Context->blitFramebuffer(sourceFramebuffer, targetFramebuffer,
+                                       renderViewport, renderViewport);
+        } else if (std::holds_alternative<AssetRef>(blit)) {
+            AssetRef blitTarget = std::get<AssetRef>(blit);
+            if (!blitTarget.valid())
+                return;
 
-        auto it = m_UUIDToHandle.find(blitTarget.uuid());
-        if (it == m_UUIDToHandle.cend()) {
-            spdlog::error("Unable to find render target [{}] to blit to. Are "
-                          "you sure it's registered?");
-            return;
+            createRenderTarget(*m_Context, blitTarget.uuid());
+            auto it = m_UUIDToHandle.find(blitTarget.uuid());
+            if (it == m_UUIDToHandle.cend()) {
+                spdlog::error("Unable to find render target to blit to. Are "
+                              "you sure it's registered? Effect: [{}]",
+                              options.passInfo.effect);
+                return;
+            }
+            RenderTarget targetFramebuffer =
+                std::get<RenderTarget>(it->second.handle);
+            if (!desc.has_value()) {
+                spdlog::error(
+                    "Unable to obtain pass description for technique [{}].",
+                    options.passInfo.effect);
+                return;
+            }
+            std::optional<Handle<Framebuffer>> sourceFramebuffer =
+                desc.value().framebufferHandle;
+            m_Context->blitFramebuffer(sourceFramebuffer,
+                                       targetFramebuffer.framebuffer,
+                                       renderViewport, renderViewport);
         }
-        RenderTarget targetFramebuffer =
-            std::get<RenderTarget>(it->second.handle);
-        if (!desc.has_value()) {
-            spdlog::error(
-                "Unable to obtain pass description for technique [{}].",
-                options.passInfo.effect);
-            return;
-        }
-        std::optional<Handle<Framebuffer>> sourceFramebuffer =
-            desc.value().framebufferHandle;
-        m_Context->blitFramebuffer(sourceFramebuffer,
-                                   targetFramebuffer.framebuffer,
-                                   renderViewport, renderViewport);
+    };
+
+    for (const auto &blit : options.passInfo.blitTargets) {
+        blitToTarget(blit);
     }
 }
 
@@ -4520,13 +4752,13 @@ void SYN::gfx::gl::Renderer::draw(const DrawOptions &options) {
 
             drawOptions.passInfo.effect = "DefaultOpaque";
             drawOptions.passInfo.output = "MSAA";
-            drawOptions.passInfo.blitTarget = "HDR";
+            drawOptions.passInfo.blitTargets = {"HDR"};
 
             draw(drawOptions);
 
             drawOptions.passInfo.effect = "DefaultPost";
             drawOptions.passInfo.output = options.passInfo.output;
-            drawOptions.passInfo.blitTarget = "";
+            drawOptions.passInfo.blitTargets.clear();
 
             draw(drawOptions);
         }
@@ -4933,14 +5165,6 @@ SYN::gfx::gl::Renderer::loadTexture(Context &context, const AssetRef &texture,
     if (!texture.valid())
         return std::nullopt;
 
-    if (auto it = m_UUIDToHandle.find(texture.uuid());
-        it != m_UUIDToHandle.cend()) {
-        return std::get<Handle<Texture>>(m_UUIDToHandle.at(it->first).handle);
-    }
-
-    const TextureData *textureData =
-        m_AssetManager->get<TextureData>(texture.uuid());
-
     auto getMipLevel = [](int width, int height) {
         return 1 +
                static_cast<int>(std::floor(std::log2(std::max(width, height))));
@@ -4972,13 +5196,47 @@ SYN::gfx::gl::Renderer::loadTexture(Context &context, const AssetRef &texture,
         return desc;
     };
 
-    TextureDesc desc = dataToDesc(textureData, srgb);
+    auto loadNormalTexture = [&](const TextureData *textureData) {
+        if (auto it = m_UUIDToHandle.find(texture.uuid());
+            it != m_UUIDToHandle.cend()) {
+            return std::get<Handle<Texture>>(it->second.handle);
+        }
 
-    Handle<Texture> textureHandle =
-        context.createTexture(desc, &textureData->data[0]).value();
-    m_UUIDToHandle[texture.uuid()] = {textureHandle};
+        TextureDesc desc = dataToDesc(textureData, srgb);
 
-    return textureHandle;
+        Handle<Texture> textureHandle =
+            context.createTexture(desc, &textureData->data[0]).value();
+        m_UUIDToHandle[texture.uuid()] = {textureHandle};
+
+        return textureHandle;
+    };
+
+    auto loadTextureView = [&]() -> std::optional<TextureView> {
+        createTextureView(context, texture.uuid());
+        if (auto it = m_UUIDToHandle.find(texture.uuid());
+            it != m_UUIDToHandle.cend()) {
+            return std::get<TextureView>(it->second.handle);
+        }
+        return std::nullopt;
+    };
+
+    if (m_AssetManager->isType<TextureData>(texture.uuid())) {
+        const TextureData *textureData =
+            m_AssetManager->get<TextureData>(texture.uuid());
+
+        return loadNormalTexture(textureData);
+    } else if (m_AssetManager->isType<TextureViewData>(texture.uuid())) {
+        auto textureView = loadTextureView();
+        if (!textureView.has_value())
+            return std::nullopt;
+        return textureView.value().viewHandle;
+    }
+
+    spdlog::error("Attempting to load texture from invalid asset "
+                  "type! Must either be TextureData "
+                  "or TextureViewData!");
+
+    return std::nullopt;
 }
 
 SYN::gfx::gl::Material
