@@ -20,10 +20,9 @@ out vec4 fragColor;
 void main() {
   vec2 uv = fragTexCoords;
 
-  uv = uv * 2.0f - 1.0f;
+  float mult = cos(u_Time) + 1.5;
 
-  uv += vec2(cos(u_Time), sin(u_Time));
-  vec3 bufferColor = texture(u_Buffer, uv).rgb;
+  vec3 bufferColor = texture(u_Buffer, uv).rgb * mult;
 
   fragColor = vec4(bufferColor, 1.0);
 }
