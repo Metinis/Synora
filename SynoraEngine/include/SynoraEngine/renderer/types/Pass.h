@@ -10,12 +10,12 @@ struct Pass {
     Target output{};
     std::vector<InputSlot> inputs;
     ClearOptions clearOptions{};
-    Target blitTarget{};
+    std::vector<Target> blitTargets{};
 
     static Pass empty();
     Pass &setEffect(std::string_view effect);
     Pass &setOutput(Target output);
-    Pass &setBlitTarget(Target target);
+    Pass &addBlitTarget(Target target);
     Pass &setInput(std::string_view name, const InputSlot::Value &value);
     Pass &clearColor(glm::vec4 color);
     Pass &clearDepth(float depth);

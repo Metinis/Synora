@@ -11,8 +11,8 @@ Pass &Pass::setOutput(Target output) {
     return *this;
 }
 
-Pass &Pass::setBlitTarget(Target target) {
-    this->blitTarget = target;
+Pass &Pass::addBlitTarget(Target target) {
+    this->blitTargets.push_back(target);
     return *this;
 }
 
