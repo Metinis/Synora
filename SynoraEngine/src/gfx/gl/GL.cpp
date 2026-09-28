@@ -3209,13 +3209,11 @@ void SYN::gfx::gl::Renderer::updateRenderTarget(Context &context,
                                                 UUID renderTarget) {
     auto it = m_UUIDToHandle.find(renderTarget);
     if (it == m_UUIDToHandle.cend()) {
-        spdlog::warn("Unable to update render target as it is not mapped.");
+        spdlog::error("Unable to update render target as it is not mapped.");
         return;
     }
 
     if (m_DeferredResourceSwap.contains(renderTarget)) {
-        spdlog::warn("Unable to update render target as it already has a "
-                     "pending update.");
         return;
     }
 
@@ -5162,8 +5160,10 @@ void SYN::gfx::gl::Renderer::bindBoneMatrices(Pass &pass, uint32_t offset) {
 std::optional<SYN::gfx::gl::Handle<SYN::gfx::gl::Texture>>
 SYN::gfx::gl::Renderer::loadTexture(Context &context, const AssetRef &texture,
                                     bool srgb) {
-    if (!texture.valid())
+    if (!texture.valid()) {
+        spdlog::error("Texture asset is invalid! Cannot use as input!");
         return std::nullopt;
+    }
 
     auto getMipLevel = [](int width, int height) {
         return 1 +
