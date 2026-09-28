@@ -15,6 +15,7 @@
 #include <SynoraEngine/project/assets/ModelData.h>
 #include <SynoraEngine/project/assets/RenderTargetData.h>
 #include <SynoraEngine/project/assets/TextureData.h>
+#include <SynoraEngine/project/assets/TextureViewData.h>
 #include <SynoraEngine/scene/3d/AnimationPlayer.h>
 #include <SynoraEngine/scene/SceneManager.h>
 
@@ -51,6 +52,9 @@ class GraphicsScene : public SYN::ILayer {
         shaderDir = std::filesystem::canonical(shaderDir);
         m_Renderer->createShader(shaderDir / "post_process.glsl",
                                  "post_process");
+
+        m_Renderer->createShader(shaderDir / "stencil_test.glsl",
+                                 "stencil_test");
 
         m_DebugDraw = engineContext->debugDraw.get();
 
@@ -196,7 +200,8 @@ class GraphicsScene : public SYN::ILayer {
         SYN::RenderTargetData renderTarget;
         renderTarget.width = 400;
         renderTarget.height = 400;
-        renderTarget.color[0] = SYN::RenderTargetData::Format::RGBA8;
+        renderTarget.color[0] = SYN::RenderTargetData::Format::RGBA16F;
+        renderTarget.depth = SYN::RenderTargetData::Format::DEPTH24_STENCIL8;
         renderTarget.colorCount = 1;
 
         m_ExampleRenderTarget =
@@ -207,21 +212,114 @@ class GraphicsScene : public SYN::ILayer {
             m_AssetManager->acquire(m_AssetManager->add<SYN::RenderTargetData>(
                 renderTarget, "IntermediateRenderTarget"));
 
-        SYN::PipelineState postProcessPipeline;
-        postProcessPipeline.depth.testEnabled = false;
-        postProcessPipeline.cull = SYN::PipelineState::Cull::None;
+        SYN::TextureViewData stencilView;
+        stencilView.format = SYN::RenderTargetData::Format::DEPTH24_STENCIL8;
 
-        SYN::RenderEffectDesc postProcessEffect =
-            SYN::RenderEffectDesc::empty("CustomProcess",
-                                         SYN::RenderEffectDesc::Type::Screen)
-                .setShader("post_process")
-                .setPipelineState(postProcessPipeline)
-                .addInput("u_Buffer", SYN::InputSlot::RenderTargetInput{},
-                          SYN::RenderEffectDesc::InputLevel::PerPass)
-                .addInput("u_Time", float{},
-                          SYN::RenderEffectDesc::InputLevel::PerPass);
+        stencilView.target = m_IntermediateRT;
 
-        m_Renderer->createEffect(postProcessEffect);
+        stencilView.depthKind = SYN::TextureViewData::DepthKind::StencilOnly;
+
+        m_StencilView =
+            m_AssetManager->acquire(m_AssetManager->add<SYN::TextureViewData>(
+                stencilView, "StencilView"));
+
+        {
+            SYN::PipelineState postProcessPipeline;
+            postProcessPipeline.depth.testEnabled = false;
+            postProcessPipeline.cull = SYN::PipelineState::Cull::None;
+
+            SYN::RenderEffectDesc postProcessEffect =
+                SYN::RenderEffectDesc::empty(
+                    "CustomProcess", SYN::RenderEffectDesc::Type::Screen)
+                    .setShader("post_process")
+                    .setPipelineState(postProcessPipeline)
+                    .addInput("u_Buffer", SYN::InputSlot::RenderTargetInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_Time", float{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass);
+
+            m_Renderer->createEffect(postProcessEffect);
+        }
+
+        {
+            SYN::PipelineState stencilTestPipeline;
+            stencilTestPipeline.depth.testEnabled = false;
+            stencilTestPipeline.cull = SYN::PipelineState::Cull::None;
+
+            SYN::RenderEffectDesc stencilTestEffect =
+                SYN::RenderEffectDesc::empty(
+                    "StencilTestEffect", SYN::RenderEffectDesc::Type::Screen)
+                    .setShader("stencil_test")
+                    .setPipelineState(stencilTestPipeline)
+                    .addInput("u_Buffer", SYN::InputSlot::RenderTargetInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_Stencil", SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass);
+
+            m_Renderer->createEffect(stencilTestEffect);
+        }
+
+        {
+            SYN::PipelineState stencilRenderPipeline;
+
+            stencilRenderPipeline.colorMask = {false, false, false, false};
+
+            stencilRenderPipeline.depth.testEnabled = false;
+            stencilRenderPipeline.depth.writeEnabled = false;
+            stencilRenderPipeline.depth.test =
+                SYN::PipelineState::CompareFunc::Equal;
+
+            stencilRenderPipeline.stencil.testEnabled = true;
+            stencilRenderPipeline.stencil.reference = 1;
+
+            stencilRenderPipeline.stencil.frontFace.pass =
+                SYN::PipelineState::Stencil::Op::Type::Replace;
+            stencilRenderPipeline.stencil.frontFace.test =
+                SYN::PipelineState::CompareFunc::Always;
+
+            stencilRenderPipeline.stencil.backFace =
+                stencilRenderPipeline.stencil.frontFace;
+
+            SYN::RenderEffectDesc stencilRenderEffect =
+                SYN::RenderEffectDesc::empty(
+                    "StencilRenderEffect",
+                    SYN::RenderEffectDesc::Type::Geometry)
+                    .setShader("forward")
+                    .setFilterMask(2)
+                    .setPipelineState(stencilRenderPipeline)
+                    .addInput("u_Model", glm::mat4{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("boneTransforms", std::span<const glm::mat4>{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("u_irradianceMap",
+                              SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_prefilterMap",
+                              SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_brdfLUT", SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_csmNear", SYN::InputSlot::RenderTargetInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_csmFar", SYN::InputSlot::RenderTargetInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerPass)
+                    .addInput("u_tint", glm::vec3{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("u_metallic", float{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("u_roughness", float{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("u_albedoTexture",
+                              SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("u_normalMap", SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance)
+                    .addInput("u_metallicRoughness",
+                              SYN::InputSlot::Texture2DInput{},
+                              SYN::RenderEffectDesc::InputLevel::PerInstance);
+
+            m_Renderer->createEffect(stencilRenderEffect);
+        }
 
         createSphereScene();
         createCabinScene();
@@ -324,14 +422,41 @@ class GraphicsScene : public SYN::ILayer {
             rtInput.target = m_IntermediateRT;
             rtInput.bindingIndex = 0;
 
+            SYN::InputSlot::Texture2DInput stencilView;
+            stencilView.texture = m_StencilView;
+            stencilView.bindingIndex = 1;
+            stencilView.sampler.minFilter = SYN::SamplerDesc::Filter::Nearest;
+            stencilView.sampler.magFilter = SYN::SamplerDesc::Filter::Nearest;
+
+            stencilView.sampler.wrapU = SYN::SamplerDesc::WrapMode::ClampToEdge;
+            stencilView.sampler.wrapV = SYN::SamplerDesc::WrapMode::ClampToEdge;
+
             m_CustomCamera.addComponent<SYN::CompositedRenderEffectComponent>(
-                SYN::CompositedRenderEffectComponent::defaultPass(
-                    m_IntermediateRT)
+                SYN::CompositedRenderEffectComponent::empty()
+                    .setPass(SYN::Pass::empty()
+                                 .setEffect("DefaultOpaque")
+                                 .setOutput(m_IntermediateRT))
+                    .setPass(SYN::Pass::empty()
+                                 .setEffect("StencilRenderEffect")
+                                 .setOutput(m_IntermediateRT)
+                                 .addBlitTarget(m_ExampleRenderTarget)
+                                 .clearStencil(0))
+                    .setPass(SYN::Pass::empty()
+                                 .setEffect("DefaultPost")
+                                 .setOutput(m_ExampleRenderTarget)
+                                 .addBlitTarget(m_IntermediateRT)
+                                 .setInput("u_hdrBuffer", rtInput))
                     .setPass(SYN::Pass::empty()
                                  .setEffect("CustomProcess")
                                  .setOutput(m_ExampleRenderTarget)
                                  .setInput("u_Buffer", rtInput)
-                                 .setInput("u_Time", 0.0f)));
+                                 .setInput("u_Time", 0.0f)
+                                 .addBlitTarget(m_IntermediateRT))
+                    .setPass(SYN::Pass::empty()
+                                 .setEffect("StencilTestEffect")
+                                 .setOutput(m_ExampleRenderTarget)
+                                 .setInput("u_Buffer", rtInput)
+                                 .setInput("u_Stencil", stencilView)));
         }
 
         SYN::Entity cabinEntity = cabinScene->createEntity("Cabin");
@@ -367,6 +492,20 @@ class GraphicsScene : public SYN::ILayer {
         }
 
         {
+            SYN::Entity sphereEntity =
+                cabinScene->createEntity("SphereStencil");
+
+            auto &model = sphereEntity.addComponent<SYN::ModelComponent>(
+                m_AssetManager->acquire(m_Sphere));
+            model.layer = 2;
+
+            auto &transform =
+                sphereEntity.getComponent<SYN::TransformComponent>();
+            transform.position = glm::vec3(-1.0f, 5.0f, 7.0f);
+            transform.scale = glm::vec3(0.5f);
+        }
+
+        {
             SYN::Entity dancerEntity = cabinScene->createEntity("Dancer");
             dancerEntity.addComponent<SYN::ModelComponent>(
                 m_AssetManager->acquire(m_Dancer));
@@ -384,8 +523,11 @@ class GraphicsScene : public SYN::ILayer {
 
         {
             SYN::Entity parasiteEntity = cabinScene->createEntity("Parasite");
-            parasiteEntity.addComponent<SYN::ModelComponent>(
+            auto &model = parasiteEntity.addComponent<SYN::ModelComponent>(
                 m_AssetManager->acquire(m_Parasite));
+
+            model.layer = 2;
+
             auto &player =
                 parasiteEntity.addComponent<SYN::SkeletalAnimationComponent>(
                     m_AssetManager);
@@ -602,7 +744,8 @@ class GraphicsScene : public SYN::ILayer {
         }
         ImGui::End();
 
-        if (ImGui::Begin("Animation Control")) {
+        if (ImGui::Begin("Animation Control") && m_DancerPlayer != nullptr &&
+            m_ParasitePlayer != nullptr) {
             bool isPlaying = m_DancerPlayer->isPlaying();
             if (ImGui::Button(isPlaying ? "Pause" : "Play")) {
                 if (m_DancerPlayer->isPlaying()) {
@@ -703,6 +846,7 @@ class GraphicsScene : public SYN::ILayer {
     SYN::Entity m_CustomCamera;
     SYN::AssetRef m_ExampleRenderTarget;
     SYN::AssetRef m_IntermediateRT;
+    SYN::AssetRef m_StencilView;
     uint32_t m_RenderMode = 0;
 
     SYN::UUID m_Parasite;
