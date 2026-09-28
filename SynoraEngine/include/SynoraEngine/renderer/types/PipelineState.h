@@ -57,6 +57,13 @@ struct PipelineState {
         Op backFace;
     };
 
+    struct ColorMask {
+        bool r = true;
+        bool g = true;
+        bool b = true;
+        bool a = true;
+    };
+
     Depth depth;
 
     Cull cull = Cull::Back;
@@ -66,6 +73,8 @@ struct PipelineState {
     PolygonMode polygonMode = PolygonMode::Fill;
 
     Stencil stencil;
+
+    ColorMask colorMask;
 
     Blend blend;
 };
