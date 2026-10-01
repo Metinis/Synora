@@ -8,6 +8,9 @@
 #include "Sphere.h"
 
 namespace SYN {
+
+// Everything assumes direction is a normalized vector!
+// NOTE: Add debug assertions for non-unit length direction?
 struct Ray {
     struct Hit {
         float distance;
@@ -27,5 +30,9 @@ struct Ray {
     std::optional<Hit> collidesWithAABB(AABB aabb) const;
     std::optional<Hit> collidesWithSphere(Sphere sphere) const;
     std::optional<Hit> collidesWithPlane(Plane plane) const;
+    std::optional<Hit> collidesWithTriangle(glm::vec3 a, glm::vec3 b,
+                                            glm::vec3 c);
+    std::optional<Hit> collidesWithMesh(const class MeshData *mesh,
+                                        glm::mat4 world = glm::mat4(1.0f));
 };
 } // namespace SYN

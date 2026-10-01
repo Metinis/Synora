@@ -1,5 +1,7 @@
 #include <SynoraEngine/core/math/Ray.h>
 
+#include <SynoraEngine/project/assets/ModelData.h>
+
 namespace SYN {
 Ray Ray::from(glm::vec3 position, glm::vec3 direction) {
     return {position, glm::normalize(direction)};
@@ -145,6 +147,102 @@ std::optional<Ray::Hit> Ray::collidesWithPlane(Plane plane) const {
     info.normal = denom > 0.0f ? -normal : normal;
 
     return info;
+}
+
+std::optional<Ray::Hit> Ray::collidesWithTriangle(glm::vec3 a, glm::vec3 b,
+                                                  glm::vec3 c) {
+    glm::vec3 ab = b - a;
+    glm::vec3 ac = c - a;
+    glm::vec3 ao = position - a;
+
+    // For cramer's rule this can't be normalized
+    // yet
+    glm::vec3 normal = glm::cross(ab, ac);
+
+    float d = glm::dot(-direction, normal);
+    float nLength2 = glm::dot(normal, normal);
+    constexpr float epsilonSqr = 1e-4;
+    if (d * d <= epsilonSqr * nLength2)
+        return std::nullopt;
+
+    float s = glm::sign(d);
+    d = glm::abs(d);
+
+    float t = s * glm::dot(ao, normal);
+    if (t < 0.0f)
+        return std::nullopt;
+
+    glm::vec3 e = glm::cross(-direction, ao);
+    float v = s * glm::dot(ac, e);
+    if (v < 0.0f || v > d)
+        return std::nullopt;
+    float w = s * -glm::dot(ab, e);
+    if (w < 0.0f || v + w > d)
+        return std::nullopt;
+
+    float invD = 1.0f / d;
+
+    t *= invD;
+
+    Ray::Hit info;
+    info.distance = t;
+    info.normal = s * normal * glm::inversesqrt(nLength2);
+    info.position = position + direction * info.distance;
+
+    return info;
+}
+
+std::optional<Ray::Hit> Ray::collidesWithMesh(const MeshData *mesh,
+                                              glm::mat4 world) {
+    if (mesh == nullptr)
+        return std::nullopt;
+
+    glm::mat4 modelMatrix = world * mesh->localTransform;
+    glm::mat4 invModel = glm::inverse(modelMatrix);
+    glm::vec3 modelOrigin = invModel * glm::vec4(position, 1.0f);
+    glm::vec3 modelDir = glm::normalize(invModel * glm::vec4(direction, 0.0f));
+    Ray modelRay = Ray::from(modelOrigin, modelDir);
+
+    std::optional<Ray::Hit> result;
+    for (uint32_t i = 0; i < mesh->indices.size(); i += 3) {
+        uint32_t aIndex = mesh->indices.at(i);
+        uint32_t bIndex = mesh->indices.at(i + 1);
+        uint32_t cIndex = mesh->indices.at(i + 2);
+
+        Vertex a = mesh->vertices.at(aIndex);
+        Vertex b = mesh->vertices.at(bIndex);
+        Vertex c = mesh->vertices.at(cIndex);
+
+        glm::vec3 aPos = a.position;
+        glm::vec3 bPos = b.position;
+        glm::vec3 cPos = c.position;
+
+        if (auto hit = modelRay.collidesWithTriangle(aPos, bPos, cPos);
+            hit.has_value()) {
+            if (!result.has_value()) {
+                result = hit;
+                continue;
+            }
+            float currentDistance = result.value().distance;
+            if (currentDistance > hit.value().distance) {
+                result = hit;
+            }
+        }
+    }
+
+    if (!result.has_value())
+        return std::nullopt;
+
+    Ray::Hit modelHitInfo = result.value();
+    modelHitInfo.position =
+        modelMatrix * glm::vec4(modelHitInfo.position, 1.0f);
+
+    glm::mat3 normalMatrix =
+        glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
+    modelHitInfo.normal = glm::normalize(normalMatrix * modelHitInfo.normal);
+    modelHitInfo.distance = glm::length(modelHitInfo.position - position);
+
+    return modelHitInfo;
 }
 
 } // namespace SYN
